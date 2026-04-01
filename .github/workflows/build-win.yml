@@ -19,36 +19,25 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
 
       - name: Install all dependencies
-        run: npm install
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm ci
 
-      - name: Ensure app-builder binary exists
+      - name: Verify app-builder binary
         shell: bash
         run: |
           BINARY="node_modules/app-builder-bin/win/x64/app-builder.exe"
           if [ -f "$BINARY" ]; then
-            echo "app-builder.exe found ($(wc -c < "$BINARY") bytes)"
+            echo "app-builder.exe present ($(wc -c < "$BINARY") bytes)"
           else
-            echo "app-builder.exe missing — extracting from npm tarball..."
-            mkdir -p tmp_extract
-            curl -sL "https://registry.npmjs.org/app-builder-bin/-/app-builder-bin-5.0.0-alpha.10.tgz" -o tmp_extract/pkg.tgz
-            cd tmp_extract && tar xzf pkg.tgz && cd ..
-            mkdir -p "node_modules/app-builder-bin/win/x64"
-            cp "tmp_extract/package/win/x64/app-builder.exe" "$BINARY"
-            rm -rf tmp_extract
-            echo "Extracted app-builder.exe from tarball"
-          fi
-          # Final check
-          if [ ! -f "$BINARY" ]; then
-            echo "FATAL: app-builder.exe still not found"
+            echo "Contents of app-builder-bin:"
+            ls -laR node_modules/app-builder-bin/ || echo "Package not found"
+            echo "FATAL: app-builder.exe not found"
             exit 1
           fi
-          echo "Verified: app-builder.exe present"
 
-      - name: Generate Prisma client (binaries Windows)
+      - name: Generate Prisma client
         run: npx prisma generate
         working-directory: packages/backend
 
