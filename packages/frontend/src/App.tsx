@@ -18,6 +18,7 @@ import Vincular from './pages/Vincular';
 import OrdenesCompra from './pages/OrdenesCompra';
 import ControlScanner from './pages/ControlScanner';
 import Discrepancias from './pages/Discrepancias';
+import AccesoRed from './pages/AccesoRed';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -52,6 +53,7 @@ function AppRoutes() {
         <Route path="/discrepancias" element={<Discrepancias />} />
         <Route path="/reportes" element={<Reportes />} />
         <Route path="/vincular" element={<Vincular />} />
+        <Route path="/acceso-red" element={<AccesoRed />} />
       </Route>
     </Routes>
   );

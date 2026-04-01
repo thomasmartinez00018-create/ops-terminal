@@ -9,7 +9,7 @@ import {
   TrendingDown, TrendingUp, ClipboardCheck, Activity,
   ShoppingCart, ScanBarcode, Bell, ChevronRight, Plus,
   Utensils, Wine, ClipboardList, Users, ArrowUpRight, ArrowDownRight, Minus,
-  Wifi, Copy, Check, Smartphone
+  Wifi
 } from 'lucide-react';
 
 const tipoBadge: Record<string, 'success' | 'info' | 'danger' | 'warning' | 'default'> = {
@@ -257,8 +257,6 @@ function DashboardAdmin() {
   const [loading, setLoading] = useState(true);
   const [quickOpen, setQuickOpen] = useState(false);
   const [networkUrl, setNetworkUrl] = useState<string | null>(null);
-  const [networkAllUrls, setNetworkAllUrls] = useState<string[]>([]);
-  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -272,10 +270,7 @@ function DashboardAdmin() {
   useEffect(() => {
     fetch('/api/network-url')
       .then(r => r.json())
-      .then(d => {
-        setNetworkUrl(d.url);
-        setNetworkAllUrls(d.allUrls ?? []);
-      })
+      .then(d => setNetworkUrl(d.url))
       .catch(() => {});
   }, []);
 
@@ -345,65 +340,19 @@ function DashboardAdmin() {
         </button>
       </div>
 
-      {/* ── Link WiFi para el equipo ──────────────────────────────────────── */}
+      {/* ── Acceso WiFi — botón compacto ──────────────────────────────────── */}
       {networkUrl && (
-        <div className="mb-6 rounded-2xl border border-primary/30 bg-primary/5 p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Wifi size={16} className="text-primary" />
-            <p className="text-xs font-bold text-primary uppercase tracking-widest">Acceso desde celular / tablet</p>
+        <button
+          onClick={() => navigate('/acceso-red')}
+          className="w-full mb-6 flex items-center gap-3 px-4 py-3 rounded-xl border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors text-left"
+        >
+          <Wifi size={16} className="text-primary shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-bold text-primary">Acceso desde celular / tablet</p>
+            <p className="text-xs text-on-surface-variant font-mono truncate">{networkUrl}</p>
           </div>
-          <p className="text-[11px] text-on-surface-variant mb-3">
-            Conectados a la misma WiFi, el equipo puede abrir la app en el navegador con este link:
-          </p>
-
-          {/* URL principal grande y copiable */}
-          <div className="flex items-center gap-2 mb-3">
-            <div className="flex-1 bg-surface rounded-xl px-3 py-2 border border-border font-mono text-sm text-foreground truncate">
-              {networkUrl}
-            </div>
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(networkUrl).then(() => {
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 2000);
-                });
-              }}
-              className="shrink-0 p-2 rounded-xl bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 transition-colors"
-            >
-              {copied ? <Check size={16} className="text-success" /> : <Copy size={16} />}
-            </button>
-          </div>
-
-          {/* QR code */}
-          <div className="flex items-start gap-4">
-            <div className="shrink-0 bg-white rounded-xl p-2">
-              <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(networkUrl)}`}
-                alt="QR de acceso"
-                width={100}
-                height={100}
-                className="rounded-lg"
-              />
-            </div>
-            <div className="flex-1 space-y-2">
-              <div className="flex items-center gap-2 text-xs text-on-surface-variant">
-                <Smartphone size={12} />
-                <span>Escaneá el QR o copiá el link</span>
-              </div>
-              {networkAllUrls.length > 1 && (
-                <div className="space-y-1">
-                  <p className="text-[10px] text-on-surface-variant font-semibold uppercase tracking-wider">Otras IPs disponibles:</p>
-                  {networkAllUrls.slice(1).map(u => (
-                    <p key={u} className="font-mono text-xs text-on-surface-variant">{u}</p>
-                  ))}
-                </div>
-              )}
-              {copied && (
-                <p className="text-xs text-success font-semibold">✓ Link copiado al portapapeles</p>
-              )}
-            </div>
-          </div>
-        </div>
+          <ChevronRight size={14} className="text-primary shrink-0" />
+        </button>
       )}
 
       {/* ── Alertas: solo si hay algo que atender ─────────────────────────── */}
