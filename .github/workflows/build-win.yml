@@ -44,15 +44,18 @@ jobs:
         run: mkdir -p packages/backend/prisma/data
 
       - name: Generate Prisma client
-        run: npm run db:generate --workspace=packages/backend
+        run: npm run db:generate
+        working-directory: packages/backend
 
       - name: Create database schema
-        run: npm run db:push --workspace=packages/backend
+        run: npm run db:push
+        working-directory: packages/backend
         env:
           DATABASE_URL: file:./prisma/data/stock-gastro.db
 
       - name: Seed initial data
-        run: npm run db:seed --workspace=packages/backend
+        run: npm run db:seed
+        working-directory: packages/backend
         env:
           DATABASE_URL: file:./prisma/data/stock-gastro.db
 
