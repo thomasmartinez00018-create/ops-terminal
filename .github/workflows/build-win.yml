@@ -43,13 +43,8 @@ jobs:
       - name: Build frontend + backend
         run: npm run build
 
-      - name: Install electron package dependencies
-        run: npm ci
-        working-directory: packages/electron
-
       - name: Build Windows .exe
-        run: npm run build:win
-        working-directory: packages/electron
+        run: npm --workspace=packages/electron run build:win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
