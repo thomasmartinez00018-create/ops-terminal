@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
+import PageTour from '../components/PageTour';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
@@ -114,6 +115,7 @@ export default function Productos() {
 
   return (
     <div>
+      <PageTour pageKey="productos" />
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <div>
           <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Maestro</p>

@@ -3,9 +3,10 @@ import { api } from '../lib/api';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
+import PageTour from '../components/PageTour';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, ShieldCheck } from 'lucide-react';
 
 const ROLES = [
   { value: 'admin', label: 'Administrador' },
@@ -15,38 +16,97 @@ const ROLES = [
   { value: 'compras', label: 'Compras' },
 ];
 
-const emptyForm = { codigo: '', nombre: '', rol: 'cocina', pin: '' };
+const PERMISOS_DISPONIBLES = [
+  { key: 'ordenes-compra', label: 'Órdenes de Compra' },
+  { key: 'control-scanner', label: 'Control Scanner' },
+  { key: 'movimientos', label: 'Movimientos' },
+  { key: 'stock', label: 'Stock' },
+  { key: 'productos', label: 'Maestro de Productos' },
+  { key: 'depositos', label: 'Depósitos' },
+  { key: 'recetas', label: 'Recetas' },
+  { key: 'proveedores', label: 'Proveedores' },
+  { key: 'inventarios', label: 'Inventarios' },
+  { key: 'discrepancias', label: 'Discrepancias' },
+  { key: 'reportes', label: 'Reportes' },
+  { key: 'importar', label: 'Importar datos' },
+  { key: 'vincular', label: 'Vincular' },
+];
+
+// Permisos por defecto según rol
+const PERMISOS_POR_ROL: Record<string, string[]> = {
+  admin: PERMISOS_DISPONIBLES.map(p => p.key),
+  cocina: ['movimientos', 'stock', 'recetas'],
+  deposito: ['ordenes-compra', 'control-scanner', 'movimientos', 'stock', 'inventarios'],
+  barra: ['stock', 'movimientos'],
+  compras: ['ordenes-compra', 'control-scanner', 'movimientos', 'stock', 'productos', 'proveedores', 'reportes'],
+};
+
+const emptyForm = { codigo: '', nombre: '', rol: 'cocina', pin: '', depositoDefectoId: '' };
 
 export default function Usuarios() {
   const [usuarios, setUsuarios] = useState<any[]>([]);
+  const [depositos, setDepositos] = useState<any[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [permisos, setPermisos] = useState<string[]>([]);
   const [error, setError] = useState('');
 
   const cargar = () => {
     api.getUsuarios({ activo: 'true' }).then(setUsuarios).catch(console.error);
   };
 
-  useEffect(() => { cargar(); }, []);
+  useEffect(() => {
+    cargar();
+    api.getDepositos({ activo: 'true' }).then(setDepositos).catch(console.error);
+  }, []);
 
   const abrir = (u?: any) => {
     if (u) {
       setEditId(u.id);
-      setForm({ codigo: u.codigo, nombre: u.nombre, rol: u.rol, pin: '' });
+      setForm({ codigo: u.codigo, nombre: u.nombre, rol: u.rol, pin: '', depositoDefectoId: u.depositoDefectoId?.toString() || '' });
+      try {
+        setPermisos(u.permisos ? JSON.parse(u.permisos) : PERMISOS_POR_ROL[u.rol] || []);
+      } catch {
+        setPermisos(PERMISOS_POR_ROL[u.rol] || []);
+      }
     } else {
       setEditId(null);
       setForm(emptyForm);
+      setPermisos(PERMISOS_POR_ROL['cocina']);
     }
     setError('');
     setModalOpen(true);
   };
 
+  const togglePermiso = (key: string) => {
+    setPermisos(prev =>
+      prev.includes(key) ? prev.filter(p => p !== key) : [...prev, key]
+    );
+  };
+
+  const toggleTodos = () => {
+    if (permisos.length === PERMISOS_DISPONIBLES.length) {
+      setPermisos([]);
+    } else {
+      setPermisos(PERMISOS_DISPONIBLES.map(p => p.key));
+    }
+  };
+
+  const handleRolChange = (nuevoRol: string) => {
+    setForm(f => ({ ...f, rol: nuevoRol }));
+    // Sugerir permisos típicos del rol (solo si no es edición)
+    if (!editId) {
+      setPermisos(PERMISOS_POR_ROL[nuevoRol] || []);
+    }
+  };
+
   const guardar = async () => {
     setError('');
     try {
-      const data: any = { ...form };
+      const data: any = { ...form, permisos: JSON.stringify(permisos) };
       if (!data.pin) delete data.pin;
+      data.depositoDefectoId = data.depositoDefectoId ? parseInt(data.depositoDefectoId) : null;
       if (editId) {
         await api.updateUsuario(editId, data);
       } else {
@@ -72,8 +132,17 @@ export default function Usuarios() {
     return <Badge variant={variants[rol] || 'default'}>{ROLES.find(r => r.value === rol)?.label || rol}</Badge>;
   };
 
+  const contarPermisos = (u: any) => {
+    if (u.rol === 'admin') return 'Total';
+    try {
+      const p = JSON.parse(u.permisos || '[]');
+      return `${p.length} secciones`;
+    } catch { return '0 secciones'; }
+  };
+
   return (
     <div>
+      <PageTour pageKey="usuarios" />
       <div className="flex items-center justify-between mb-6">
         <div>
           <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Gestión</p>
@@ -91,6 +160,7 @@ export default function Usuarios() {
               <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Código</th>
               <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Nombre</th>
               <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Rol</th>
+              <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Acceso</th>
               <th className="text-right p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Acciones</th>
             </tr>
           </thead>
@@ -100,6 +170,12 @@ export default function Usuarios() {
                 <td className="p-3 font-mono text-xs text-primary">{u.codigo}</td>
                 <td className="p-3 font-semibold text-foreground">{u.nombre}</td>
                 <td className="p-3">{rolBadge(u.rol)}</td>
+                <td className="p-3">
+                  <span className="flex items-center gap-1.5 text-xs text-on-surface-variant">
+                    <ShieldCheck size={13} className={u.rol === 'admin' ? 'text-primary' : 'text-on-surface-variant'} />
+                    {contarPermisos(u)}
+                  </span>
+                </td>
                 <td className="p-3 text-right">
                   <div className="flex items-center justify-end gap-1">
                     <button onClick={() => abrir(u)} className="p-1.5 rounded-lg hover:bg-surface-high text-on-surface-variant hover:text-foreground transition-colors">
@@ -140,7 +216,7 @@ export default function Usuarios() {
             label="Rol"
             id="rol"
             value={form.rol}
-            onChange={e => setForm({ ...form, rol: e.target.value })}
+            onChange={e => handleRolChange(e.target.value)}
             options={ROLES}
           />
           <Input
@@ -152,6 +228,60 @@ export default function Usuarios() {
             onChange={e => setForm({ ...form, pin: e.target.value.replace(/\D/g, '') })}
             placeholder="1234"
           />
+
+          <Select
+            label="Depósito por defecto (opcional)"
+            id="depositoDefectoId"
+            value={form.depositoDefectoId}
+            onChange={e => setForm({ ...form, depositoDefectoId: e.target.value })}
+            placeholder="Sin depósito asignado"
+            options={depositos.map(d => ({ value: d.id.toString(), label: d.nombre }))}
+          />
+
+          {/* Permisos — solo si no es admin */}
+          {form.rol !== 'admin' && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">
+                  Secciones habilitadas
+                </p>
+                <button
+                  onClick={toggleTodos}
+                  className="text-[10px] font-bold text-primary hover:text-primary/80 uppercase tracking-wider"
+                >
+                  {permisos.length === PERMISOS_DISPONIBLES.length ? 'Quitar todos' : 'Seleccionar todos'}
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5 bg-surface-high rounded-lg p-3">
+                {PERMISOS_DISPONIBLES.map(p => (
+                  <label
+                    key={p.key}
+                    className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors ${
+                      permisos.includes(p.key)
+                        ? 'bg-primary/10 text-foreground'
+                        : 'text-on-surface-variant hover:bg-surface'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={permisos.includes(p.key)}
+                      onChange={() => togglePermiso(p.key)}
+                      className="accent-[#D4AF37] w-3.5 h-3.5"
+                    />
+                    <span className="text-xs font-semibold">{p.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {form.rol === 'admin' && (
+            <div className="flex items-center gap-2 p-3 bg-primary/10 rounded-lg">
+              <ShieldCheck size={16} className="text-primary" />
+              <p className="text-xs font-bold text-primary">Admin: acceso total a todas las secciones</p>
+            </div>
+          )}
+
           {error && <p className="text-sm text-destructive font-semibold">{error}</p>}
           <div className="flex gap-2 pt-2">
             <Button onClick={guardar} className="flex-1">

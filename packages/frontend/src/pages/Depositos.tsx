@@ -6,6 +6,7 @@ import Select from '../components/ui/Select';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
 import { Plus, Pencil, Trash2, Warehouse } from 'lucide-react';
+import PageTour from '../components/PageTour';
 
 const TIPOS_DEPOSITO = [
   { value: 'almacen', label: 'Almacén' },
@@ -71,6 +72,7 @@ export default function Depositos() {
 
   return (
     <div>
+      <PageTour pageKey="depositos" />
       <div className="flex items-center justify-between mb-6">
         <div>
           <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Gestión</p>

@@ -3,6 +3,7 @@ import { api } from '../lib/api';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
+import PageTour from '../components/PageTour';
 import Modal from '../components/ui/Modal';
 import { Plus, Pencil, Trash2, Truck, Package, Phone, Mail } from 'lucide-react';
 
@@ -156,6 +157,7 @@ export default function Proveedores() {
 
   return (
     <div>
+      <PageTour pageKey="proveedores" />
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <div>

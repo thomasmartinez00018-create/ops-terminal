@@ -1,65 +1,40 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
+import { calcularStockPorProducto, calcularStockTeorico } from '../utils/stockCalculator';
 
 const router = Router();
 
-// Tipos que suman stock a un depósito destino
-const TIPOS_ENTRADA = ['ingreso', 'elaboracion', 'devolucion'];
-// Tipos que restan stock de un depósito origen
-const TIPOS_SALIDA = ['merma', 'consumo_interno'];
-
-// Helper: calcular stock total por producto desde movimientos
-async function calcularStockPorProducto(): Promise<Map<number, number>> {
-  const movimientos = await prisma.movimiento.findMany({
-    select: {
-      tipo: true,
-      productoId: true,
-      depositoOrigenId: true,
-      depositoDestinoId: true,
-      cantidad: true
-    }
-  });
-
-  const stockMap = new Map<number, number>();
-
-  for (const mov of movimientos) {
-    const { tipo, productoId, depositoOrigenId, depositoDestinoId, cantidad } = mov;
-
-    if (tipo === 'transferencia') {
-      // Transferencia no cambia stock total del producto, solo redistribuye
-      // No afecta el total global por producto
-    } else if (tipo === 'ajuste') {
-      if (depositoDestinoId) {
-        stockMap.set(productoId, (stockMap.get(productoId) || 0) + cantidad);
-      }
-    } else if (TIPOS_ENTRADA.includes(tipo)) {
-      stockMap.set(productoId, (stockMap.get(productoId) || 0) + cantidad);
-    } else if (TIPOS_SALIDA.includes(tipo)) {
-      stockMap.set(productoId, (stockMap.get(productoId) || 0) - cantidad);
-    }
-  }
-
-  return stockMap;
-}
-
-// GET /api/reportes/dashboard - KPIs principales
+// GET /api/reportes/dashboard - KPIs principales + tendencias + actividad equipo
 router.get('/dashboard', async (_req: Request, res: Response) => {
   try {
     const hoy = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const ayer = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const hace7dias = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const hace14dias = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const inicioMes = hoy.substring(0, 7) + '-01'; // YYYY-MM-01
+    // Mes anterior
+    const d = new Date();
+    d.setMonth(d.getMonth() - 1);
+    const inicioMesAnt = d.toISOString().split('T')[0].substring(0, 7) + '-01';
+    const finMesAnt = new Date(new Date().getFullYear(), new Date().getMonth(), 0).toISOString().split('T')[0];
 
-    // Conteos básicos
-    const [productosActivos, depositos, movimientosHoy, movimientosSemana, inventariosAbiertos] =
-      await Promise.all([
-        prisma.producto.count({ where: { activo: true } }),
-        prisma.deposito.count({ where: { activo: true } }),
-        prisma.movimiento.count({ where: { fecha: hoy } }),
-        prisma.movimiento.count({ where: { fecha: { gte: hace7dias } } }),
-        prisma.inventario.count({ where: { estado: 'abierto' } })
-      ]);
+    // Conteos básicos + comparativos
+    const [
+      productosActivos, depositos,
+      movimientosHoy, movimientosAyer,
+      movimientosSemana, movimientosSemanaAnt,
+      inventariosAbiertos
+    ] = await Promise.all([
+      prisma.producto.count({ where: { activo: true } }),
+      prisma.deposito.count({ where: { activo: true } }),
+      prisma.movimiento.count({ where: { fecha: hoy } }),
+      prisma.movimiento.count({ where: { fecha: ayer } }),
+      prisma.movimiento.count({ where: { fecha: { gte: hace7dias } } }),
+      prisma.movimiento.count({ where: { fecha: { gte: hace14dias, lt: hace7dias } } }),
+      prisma.inventario.count({ where: { estado: 'abierto' } })
+    ]);
 
-    // Bajos de mínimo: calcular stock y comparar
+    // Bajos de mínimo
     const stockMap = await calcularStockPorProducto();
     const productos = await prisma.producto.findMany({
       where: { activo: true },
@@ -72,23 +47,20 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
       if (stock < prod.stockMinimo) bajosDeMinimo++;
     }
 
-    // Mermas del mes
-    const mermasDelMes = await prisma.movimiento.aggregate({
-      where: { tipo: 'merma', fecha: { gte: inicioMes } },
-      _sum: { cantidad: true }
-    });
-
-    // Ingresos del mes
-    const ingresosDelMes = await prisma.movimiento.aggregate({
-      where: { tipo: 'ingreso', fecha: { gte: inicioMes } },
-      _sum: { cantidad: true }
-    });
+    // Mermas + ingresos: mes actual y anterior
+    const [mermasDelMes, mermasMesAnt, ingresosDelMes, ingresosMesAnt] = await Promise.all([
+      prisma.movimiento.aggregate({ where: { tipo: 'merma', fecha: { gte: inicioMes } }, _sum: { cantidad: true } }),
+      prisma.movimiento.aggregate({ where: { tipo: 'merma', fecha: { gte: inicioMesAnt, lte: finMesAnt } }, _sum: { cantidad: true } }),
+      prisma.movimiento.aggregate({ where: { tipo: 'ingreso', fecha: { gte: inicioMes } }, _sum: { cantidad: true } }),
+      prisma.movimiento.aggregate({ where: { tipo: 'ingreso', fecha: { gte: inicioMesAnt, lte: finMesAnt } }, _sum: { cantidad: true } }),
+    ]);
 
     // Últimos 10 movimientos
     const ultimosMovimientos = await prisma.movimiento.findMany({
       include: {
         producto: { select: { codigo: true, nombre: true } },
         usuario: { select: { nombre: true } },
+        responsable: { select: { nombre: true } },
         depositoOrigen: { select: { nombre: true } },
         depositoDestino: { select: { nombre: true } }
       },
@@ -96,16 +68,42 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
       take: 10
     });
 
+    // Actividad del equipo hoy: movimientos agrupados por usuario
+    const movimientosHoyDetalle = await prisma.movimiento.findMany({
+      where: { fecha: hoy },
+      select: {
+        tipo: true,
+        usuario: { select: { id: true, nombre: true, rol: true } }
+      }
+    });
+
+    const equipoMap = new Map<number, { id: number; nombre: string; rol: string; total: number; tipos: Record<string, number> }>();
+    for (const mov of movimientosHoyDetalle) {
+      const uid = mov.usuario.id;
+      if (!equipoMap.has(uid)) {
+        equipoMap.set(uid, { id: uid, nombre: mov.usuario.nombre, rol: mov.usuario.rol, total: 0, tipos: {} });
+      }
+      const entry = equipoMap.get(uid)!;
+      entry.total++;
+      entry.tipos[mov.tipo] = (entry.tipos[mov.tipo] || 0) + 1;
+    }
+    const actividadEquipo = Array.from(equipoMap.values()).sort((a, b) => b.total - a.total);
+
     res.json({
       productosActivos,
       depositos,
       movimientosHoy,
+      movimientosAyer,
       movimientosSemana,
+      movimientosSemanaAnt,
       bajosDeMinimo,
       mermasDelMes: mermasDelMes._sum.cantidad || 0,
+      mermasMesAnt: mermasMesAnt._sum.cantidad || 0,
       ingresosDelMes: ingresosDelMes._sum.cantidad || 0,
+      ingresosMesAnt: ingresosMesAnt._sum.cantidad || 0,
       inventariosAbiertos,
-      ultimosMovimientos
+      ultimosMovimientos,
+      actividadEquipo
     });
   } catch (error) {
     console.error(error);
@@ -328,6 +326,112 @@ router.get('/comparar-periodos', async (req: Request, res: Response) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Error al comparar períodos' });
+  }
+});
+
+// GET /api/reportes/discrepancias - Discrepancias por depósito
+router.get('/discrepancias', async (_req: Request, res: Response) => {
+  try {
+    const depositos = await prisma.deposito.findMany({
+      where: { activo: true },
+      select: { id: true, codigo: true, nombre: true, tipo: true }
+    });
+
+    const resultado = [];
+
+    for (const dep of depositos) {
+      // Último inventario cerrado de este depósito
+      const ultimoInventario = await prisma.inventario.findFirst({
+        where: { depositoId: dep.id, estado: 'cerrado' },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          usuario: { select: { nombre: true } },
+          detalles: {
+            include: {
+              producto: { select: { codigo: true, nombre: true, unidadUso: true } }
+            }
+          }
+        }
+      });
+
+      if (!ultimoInventario) {
+        resultado.push({
+          deposito: dep,
+          estado: 'sin_inventario',
+          color: 'gris',
+          ultimoInventario: null,
+          discrepancias: [],
+          responsable: null
+        });
+        continue;
+      }
+
+      const discrepancias = ultimoInventario.detalles
+        .filter(d => d.diferencia && d.diferencia !== 0)
+        .map(d => ({
+          producto: d.producto,
+          cantidadFisica: d.cantidadFisica,
+          stockTeorico: d.stockTeorico,
+          diferencia: d.diferencia,
+          observacion: d.observacion
+        }));
+
+      let color: 'verde' | 'amarillo' | 'rojo' = 'verde';
+      if (discrepancias.length > 0) {
+        const hayGrandes = discrepancias.some(d => Math.abs(d.diferencia || 0) > 2);
+        color = hayGrandes ? 'rojo' : 'amarillo';
+      }
+
+      resultado.push({
+        deposito: dep,
+        estado: discrepancias.length === 0 ? 'ok' : 'con_discrepancias',
+        color,
+        ultimoInventario: {
+          id: ultimoInventario.id,
+          fecha: ultimoInventario.fecha,
+          usuario: ultimoInventario.usuario.nombre
+        },
+        discrepancias,
+        responsable: ultimoInventario.usuario.nombre
+      });
+    }
+
+    res.json(resultado);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error al obtener discrepancias' });
+  }
+});
+
+// GET /api/reportes/trazabilidad/:productoId/:depositoId - Timeline de movimientos
+router.get('/trazabilidad/:productoId/:depositoId', async (req: Request, res: Response) => {
+  try {
+    const productoId = parseInt(req.params.productoId as string);
+    const depositoId = parseInt(req.params.depositoId as string);
+
+    const movimientos = await prisma.movimiento.findMany({
+      where: {
+        productoId,
+        OR: [
+          { depositoOrigenId: depositoId },
+          { depositoDestinoId: depositoId }
+        ]
+      },
+      include: {
+        usuario: { select: { nombre: true } },
+        depositoOrigen: { select: { nombre: true } },
+        depositoDestino: { select: { nombre: true } },
+        proveedor: { select: { nombre: true } }
+      },
+      orderBy: [{ fecha: 'desc' }, { hora: 'desc' }]
+    });
+
+    const stockActual = await calcularStockTeorico(productoId, depositoId);
+
+    res.json({ movimientos, stockActual });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error al obtener trazabilidad' });
   }
 });
 

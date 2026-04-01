@@ -1,49 +1,8 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
+import { calcularStockTeorico } from '../utils/stockCalculator';
 
 const router = Router();
-
-// Tipos que suman stock a un deposito destino
-const TIPOS_ENTRADA = ['ingreso', 'elaboracion', 'devolucion'];
-// Tipos que restan stock de un deposito origen
-const TIPOS_SALIDA = ['merma', 'consumo_interno'];
-
-/**
- * Calcula el stock teorico de un producto en un deposito
- * a partir de todos los movimientos.
- */
-async function calcularStockTeorico(productoId: number, depositoId: number): Promise<number> {
-  const movimientos = await prisma.movimiento.findMany({
-    where: { productoId },
-    select: {
-      tipo: true,
-      depositoOrigenId: true,
-      depositoDestinoId: true,
-      cantidad: true
-    }
-  });
-
-  let stock = 0;
-
-  for (const mov of movimientos) {
-    const { tipo, depositoOrigenId, depositoDestinoId, cantidad } = mov;
-
-    if (tipo === 'transferencia') {
-      if (depositoOrigenId === depositoId) stock -= cantidad;
-      if (depositoDestinoId === depositoId) stock += cantidad;
-    } else if (tipo === 'ajuste') {
-      if (depositoDestinoId === depositoId) stock += cantidad;
-    } else if (TIPOS_ENTRADA.includes(tipo)) {
-      const depId = depositoDestinoId || depositoOrigenId;
-      if (depId === depositoId) stock += cantidad;
-    } else if (TIPOS_SALIDA.includes(tipo)) {
-      const depId = depositoOrigenId || depositoDestinoId;
-      if (depId === depositoId) stock -= cantidad;
-    }
-  }
-
-  return Math.round(stock * 100) / 100;
-}
 
 // GET /api/inventarios
 router.get('/', async (req: Request, res: Response) => {

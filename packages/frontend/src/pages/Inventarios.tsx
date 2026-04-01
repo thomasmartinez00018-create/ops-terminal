@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
+import PageTour from '../components/PageTour';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
@@ -333,6 +334,7 @@ export default function Inventarios() {
   // ════════════════════════════════════════════════════════════
   return (
     <div>
+      <PageTour pageKey="inventarios" />
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <div>

@@ -7,7 +7,10 @@ const router = Router();
 router.post('/login', async (req: Request, res: Response) => {
   try {
     const { codigo, pin } = req.body;
-    const usuario = await prisma.usuario.findUnique({ where: { codigo } });
+    const usuario = await prisma.usuario.findUnique({
+      where: { codigo },
+      include: { depositoDefecto: { select: { id: true, nombre: true } } }
+    });
 
     if (!usuario || !usuario.activo) {
       res.status(401).json({ error: 'Usuario no encontrado o inactivo' });
@@ -19,11 +22,22 @@ router.post('/login', async (req: Request, res: Response) => {
       return;
     }
 
+    // Parsear permisos: si es admin tiene acceso a todo, si no, leer del campo
+    let permisos: string[] = [];
+    if (usuario.rol === 'admin') {
+      permisos = ['*']; // wildcard: acceso total
+    } else {
+      try { permisos = JSON.parse(usuario.permisos || '[]'); } catch { permisos = []; }
+    }
+
     res.json({
       id: usuario.id,
       codigo: usuario.codigo,
       nombre: usuario.nombre,
-      rol: usuario.rol
+      rol: usuario.rol,
+      permisos,
+      depositoDefectoId: usuario.depositoDefectoId ?? null,
+      depositoDefectoNombre: usuario.depositoDefecto?.nombre ?? null,
     });
   } catch (error) {
     res.status(500).json({ error: 'Error en login' });

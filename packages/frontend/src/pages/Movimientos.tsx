@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
+import PageTour from '../components/PageTour';
 import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';
 import Input from '../components/ui/Input';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
+import SearchableSelect from '../components/ui/SearchableSelect';
+import { useToast } from '../context/ToastContext';
+import { useRecentProducts } from '../hooks/useRecentProducts';
 import { Plus } from 'lucide-react';
 
 const TIPOS_MOV = [
@@ -27,14 +31,17 @@ const tipoBadge: Record<string, 'success' | 'info' | 'danger' | 'warning' | 'def
 
 export default function Movimientos() {
   const { user } = useAuth();
+  const { addToast } = useToast();
+  const { getRecents, addRecent } = useRecentProducts(user?.id || 0);
   const [movimientos, setMovimientos] = useState<any[]>([]);
   const [productos, setProductos] = useState<any[]>([]);
   const [depositos, setDepositos] = useState<any[]>([]);
+  const [usuarios, setUsuarios] = useState<any[]>([]);
   const [filtroTipo, setFiltroTipo] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState({
     tipo: 'ingreso', productoId: '', depositoOrigenId: '', depositoDestinoId: '',
-    cantidad: '', unidad: '', lote: '', motivo: '', observacion: ''
+    cantidad: '', unidad: '', lote: '', motivo: '', observacion: '', responsableId: ''
   });
   const [error, setError] = useState('');
 
@@ -48,12 +55,13 @@ export default function Movimientos() {
   useEffect(() => {
     api.getProductos({ activo: 'true' }).then(setProductos).catch(console.error);
     api.getDepositos({ activo: 'true' }).then(setDepositos).catch(console.error);
+    api.getUsuarios({ activo: 'true' }).then(setUsuarios).catch(console.error);
   }, []);
 
   const abrirNuevo = () => {
     setForm({
       tipo: 'ingreso', productoId: '', depositoOrigenId: '', depositoDestinoId: '',
-      cantidad: '', unidad: '', lote: '', motivo: '', observacion: ''
+      cantidad: '', unidad: '', lote: '', motivo: '', observacion: '', responsableId: ''
     });
     setError('');
     setModalOpen(true);
@@ -86,11 +94,16 @@ export default function Movimientos() {
         lote: form.lote || null,
         motivo: form.motivo || null,
         observacion: form.observacion || null,
+        responsableId: form.responsableId ? Number(form.responsableId) : null,
       });
+      const prod = productos.find(p => p.id === Number(form.productoId));
+      addRecent(form.productoId);
+      addToast(`Registrado: ${form.cantidad} ${form.unidad} de ${prod?.nombre}`);
       setModalOpen(false);
       cargar();
     } catch (e: any) {
       setError(e.message);
+      addToast('Error al registrar el movimiento', 'error');
     }
   };
 
@@ -99,6 +112,7 @@ export default function Movimientos() {
 
   return (
     <div>
+      <PageTour pageKey="movimientos" />
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <div>
           <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Operaciones</p>
@@ -130,7 +144,8 @@ export default function Movimientos() {
                 <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Producto</th>
                 <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden sm:table-cell">Cantidad</th>
                 <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden md:table-cell">Depósito</th>
-                <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden lg:table-cell">Usuario</th>
+                <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden lg:table-cell">Registró</th>
+                <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden lg:table-cell">Responsable</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -150,6 +165,12 @@ export default function Movimientos() {
                     {m.depositoDestino?.nombre && <span>{m.depositoDestino.nombre}</span>}
                   </td>
                   <td className="p-3 hidden lg:table-cell text-xs text-on-surface-variant">{m.usuario?.nombre}</td>
+                  <td className="p-3 hidden lg:table-cell text-xs">
+                    {m.responsable
+                      ? <span className="font-semibold text-warning">{m.responsable.nombre}</span>
+                      : <span className="text-on-surface-variant/50">—</span>
+                    }
+                  </td>
                 </tr>
               ))}
               {movimientos.length === 0 && (
@@ -173,13 +194,14 @@ export default function Movimientos() {
             onChange={e => setForm({ ...form, tipo: e.target.value, motivo: '' })}
             options={TIPOS_MOV}
           />
-          <Select
+          <SearchableSelect
             label="Producto"
             id="productoId"
             value={form.productoId}
-            onChange={e => onProductoChange(e.target.value)}
+            onChange={v => onProductoChange(v)}
             options={productos.map(p => ({ value: p.id.toString(), label: `${p.codigo} - ${p.nombre}` }))}
             placeholder="Seleccionar producto..."
+            pinnedValues={getRecents()}
           />
           <div className="grid grid-cols-2 gap-3">
             <Input
@@ -234,6 +256,18 @@ export default function Movimientos() {
             onChange={e => setForm({ ...form, lote: e.target.value })}
             placeholder="Ej: LOTE-2024-03"
           />
+          <Select
+            label="Responsable (opcional)"
+            id="responsableId"
+            value={form.responsableId}
+            onChange={e => setForm({ ...form, responsableId: e.target.value })}
+            placeholder={`Sin asignar (responsable: ${user?.nombre})`}
+          >
+            <option value="">Sin asignar — responsable: {user?.nombre}</option>
+            {usuarios.filter(u => u.id !== user?.id).map(u => (
+              <option key={u.id} value={u.id}>{u.nombre} · {u.rol}</option>
+            ))}
+          </Select>
           <Input
             label="Observación (opcional)"
             id="observacion"

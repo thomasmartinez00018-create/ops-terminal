@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ToastProvider } from './context/ToastContext';
 import AppLayout from './components/layout/AppLayout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -14,6 +15,9 @@ import Inventarios from './pages/Inventarios';
 import Importar from './pages/Importar';
 import Reportes from './pages/Reportes';
 import Vincular from './pages/Vincular';
+import OrdenesCompra from './pages/OrdenesCompra';
+import ControlScanner from './pages/ControlScanner';
+import Discrepancias from './pages/Discrepancias';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -43,6 +47,9 @@ function AppRoutes() {
         <Route path="/proveedores" element={<Proveedores />} />
         <Route path="/inventarios" element={<Inventarios />} />
         <Route path="/importar" element={<Importar />} />
+        <Route path="/ordenes-compra" element={<OrdenesCompra />} />
+        <Route path="/control-scanner" element={<ControlScanner />} />
+        <Route path="/discrepancias" element={<Discrepancias />} />
         <Route path="/reportes" element={<Reportes />} />
         <Route path="/vincular" element={<Vincular />} />
       </Route>
@@ -54,7 +61,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AppRoutes />
+        <ToastProvider>
+          <AppRoutes />
+        </ToastProvider>
       </AuthProvider>
     </BrowserRouter>
   );

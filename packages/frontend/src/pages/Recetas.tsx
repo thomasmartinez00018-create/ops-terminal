@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
+import PageTour from '../components/PageTour';
 import { api } from '../lib/api';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
+import SearchableSelect from '../components/ui/SearchableSelect';
 import { Plus, Pencil, Trash2, ChefHat, DollarSign, X } from 'lucide-react';
 
 const CATEGORIAS = [
@@ -147,6 +149,7 @@ export default function Recetas() {
 
   return (
     <div>
+      <PageTour pageKey="recetas" />
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <div>
           <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Cocina</p>
@@ -257,16 +260,14 @@ export default function Recetas() {
               {form.ingredientes.map((ing, index) => (
                 <div key={index} className="flex items-start gap-2 bg-surface-high/50 rounded-lg p-2">
                   <div className="flex-1 grid grid-cols-4 gap-2">
-                    <select
-                      value={ing.productoId || ''}
-                      onChange={e => actualizarIngrediente(index, 'productoId', e.target.value ? Number(e.target.value) : null)}
-                      className="col-span-2 px-2 py-1.5 rounded-lg bg-surface-high border-0 text-foreground text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary/50"
-                    >
-                      <option value="">Producto...</option>
-                      {productos.map(p => (
-                        <option key={p.id} value={p.id}>{p.nombre}</option>
-                      ))}
-                    </select>
+                    <div className="col-span-2">
+                      <SearchableSelect
+                        value={ing.productoId?.toString() || ''}
+                        onChange={v => actualizarIngrediente(index, 'productoId', v ? Number(v) : null)}
+                        options={productos.map(p => ({ value: p.id.toString(), label: p.nombre }))}
+                        placeholder="Producto..."
+                      />
+                    </div>
                     <input
                       type="number"
                       placeholder="Cant."

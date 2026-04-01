@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import Badge from '../components/ui/Badge';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Search } from 'lucide-react';
+import PageTour from '../components/PageTour';
 
 export default function Stock() {
   const [stock, setStock] = useState<any[]>([]);
   const [depositos, setDepositos] = useState<any[]>([]);
   const [filtroDeposito, setFiltroDeposito] = useState('');
   const [filtroBajoMinimo, setFiltroBajoMinimo] = useState(false);
+  const [busqueda, setBusqueda] = useState('');
 
   const cargar = () => {
     const params: Record<string, string> = {};
@@ -23,12 +25,23 @@ export default function Stock() {
 
   return (
     <div>
+      <PageTour pageKey="stock" />
       <div className="mb-6">
         <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Control</p>
         <h1 className="text-xl font-extrabold text-foreground mt-1">Stock Actual</h1>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+      <div className="flex flex-col sm:flex-row gap-3 mb-4 items-center">
+        <div className="relative flex-1 max-w-xs">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none" />
+          <input
+            type="text"
+            value={busqueda}
+            onChange={e => setBusqueda(e.target.value)}
+            placeholder="Buscar producto o código..."
+            className="w-full pl-8 pr-3 py-2.5 rounded-lg bg-surface-high border-0 text-foreground text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary/50 placeholder:text-on-surface-variant/50"
+          />
+        </div>
         <select
           value={filtroDeposito}
           onChange={e => setFiltroDeposito(e.target.value)}
@@ -62,7 +75,7 @@ export default function Stock() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {stock.map(s => (
+              {stock.filter(s => !busqueda || s.nombre.toLowerCase().includes(busqueda.toLowerCase()) || s.codigo.toLowerCase().includes(busqueda.toLowerCase())).map(s => (
                 <tr key={s.productoId} className={`hover:bg-surface-high/50 transition-colors ${s.bajoMinimo ? 'bg-destructive/5' : ''}`}>
                   <td className="p-3 font-mono text-xs text-primary">{s.codigo}</td>
                   <td className="p-3 font-semibold text-foreground">
@@ -91,12 +104,14 @@ export default function Stock() {
                   </td>
                 </tr>
               ))}
-              {stock.length === 0 && (
+              {stock.filter(s => !busqueda || s.nombre.toLowerCase().includes(busqueda.toLowerCase()) || s.codigo.toLowerCase().includes(busqueda.toLowerCase())).length === 0 && (
                 <tr>
                   <td colSpan={6} className="p-8 text-center text-on-surface-variant font-medium">
-                    {filtroBajoMinimo
-                      ? 'Todos los productos están por encima del stock mínimo'
-                      : 'Sin datos de stock. Registrá movimientos para ver el stock.'}
+                    {busqueda
+                      ? `Sin resultados para "${busqueda}"`
+                      : filtroBajoMinimo
+                        ? 'Todos los productos están por encima del stock mínimo'
+                        : 'Sin datos de stock. Registrá movimientos para ver el stock.'}
                   </td>
                 </tr>
               )}

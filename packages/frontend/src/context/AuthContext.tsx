@@ -5,12 +5,16 @@ interface User {
   codigo: string;
   nombre: string;
   rol: string;
+  permisos: string[]; // ['*'] para admin, lista de claves para otros
+  depositoDefectoId?: number | null;
+  depositoDefectoNombre?: string | null;
 }
 
 interface AuthContextType {
   user: User | null;
   login: (user: User) => void;
   logout: () => void;
+  tienePermiso: (clave: string) => boolean;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -32,8 +36,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = (userData: User) => setUser(userData);
   const logout = () => setUser(null);
 
+  const tienePermiso = (clave: string): boolean => {
+    if (!user) return false;
+    if (user.rol === 'admin') return true;
+    if (user.permisos?.includes('*')) return true;
+    return user.permisos?.includes(clave) ?? false;
+  };
+
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, login, logout, tienePermiso }}>
       {children}
     </AuthContext.Provider>
   );

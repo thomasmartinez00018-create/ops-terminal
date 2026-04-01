@@ -33,6 +33,8 @@ model Producto {
   proveedorProductos  ProveedorProducto[]
   recetaIngredientes  RecetaIngrediente[]
   inventarioDetalles  InventarioDetalle[]
+  ordenCompraItems    OrdenCompraItem[]
+  recepcionItems      RecepcionItem[]
 
   @@map("productos")
 }
@@ -51,6 +53,8 @@ model Deposito {
   movimientosOrigen    Movimiento[] @relation("depositoOrigen")
   movimientosDestino   Movimiento[] @relation("depositoDestino")
   inventarios          Inventario[]
+  ordenesCompra        OrdenCompra[] @relation("ocDeposito")
+  usuariosDefecto      Usuario[]    @relation("usuarioDepositoDefecto")
 
   @@map("depositos")
 }
@@ -59,15 +63,23 @@ model Deposito {
 // USUARIOS
 // ==========================================
 model Usuario {
-  id     Int     @id @default(autoincrement())
-  codigo String  @unique
-  nombre String
-  rol    String  // admin, cocina, deposito, barra, compras
-  pin    String?
-  activo Boolean @default(true)
+  id       Int     @id @default(autoincrement())
+  codigo   String  @unique
+  nombre   String
+  rol      String  // admin, cocina, deposito, barra, compras
+  pin      String?
+  activo   Boolean @default(true)
+  permisos String  @default("[]") // JSON array de claves de secciones habilitadas
 
-  movimientos  Movimiento[]
-  inventarios  Inventario[]
+  depositoDefectoId        Int?     @map("deposito_defecto_id")
+  depositoDefecto          Deposito? @relation("usuarioDepositoDefecto", fields: [depositoDefectoId], references: [id])
+
+  movimientos              Movimiento[] @relation("movUsuario")
+  movimientosResponsable   Movimiento[] @relation("movResponsable")
+  inventarios       Inventario[]
+  ordenesCreadas    OrdenCompra[] @relation("ocCreador")
+  ordenesAsignadas  OrdenCompra[] @relation("ocResponsable")
+  recepciones       Recepcion[]   @relation("recepcionUsuario")
 
   @@map("usuarios")
 }
@@ -92,13 +104,17 @@ model Movimiento {
   proveedorId      Int?     @map("proveedor_id")
   documentoRef     String?  @map("documento_ref")
   observacion      String?
+  responsableId    Int?     @map("responsable_id")
+  recepcionId      Int?     @map("recepcion_id")
   createdAt        DateTime @default(now()) @map("created_at")
 
-  usuario          Usuario   @relation(fields: [usuarioId], references: [id])
-  depositoOrigen   Deposito? @relation("depositoOrigen", fields: [depositoOrigenId], references: [id])
-  depositoDestino  Deposito? @relation("depositoDestino", fields: [depositoDestinoId], references: [id])
-  producto         Producto  @relation(fields: [productoId], references: [id])
+  usuario          Usuario    @relation("movUsuario", fields: [usuarioId], references: [id])
+  responsable      Usuario?   @relation("movResponsable", fields: [responsableId], references: [id])
+  depositoOrigen   Deposito?  @relation("depositoOrigen", fields: [depositoOrigenId], references: [id])
+  depositoDestino  Deposito?  @relation("depositoDestino", fields: [depositoDestinoId], references: [id])
+  producto         Producto   @relation(fields: [productoId], references: [id])
   proveedor        Proveedor? @relation(fields: [proveedorId], references: [id])
+  recepcion        Recepcion? @relation(fields: [recepcionId], references: [id])
 
   @@map("movimientos")
 }
@@ -117,6 +133,7 @@ model Proveedor {
 
   movimientos        Movimiento[]
   proveedorProductos ProveedorProducto[]
+  ordenesCompra      OrdenCompra[]
 
   @@map("proveedores")
 }
@@ -206,4 +223,80 @@ model InventarioDetalle {
   producto   Producto   @relation(fields: [productoId], references: [id])
 
   @@map("inventario_detalles")
+}
+
+// ==========================================
+// ÓRDENES DE COMPRA
+// ==========================================
+model OrdenCompra {
+  id                Int      @id @default(autoincrement())
+  codigo            String   @unique          // OC-001
+  fecha             String                    // YYYY-MM-DD
+  estado            String   @default("pendiente") // pendiente, parcial, recibida, cancelada
+  proveedorId       Int      @map("proveedor_id")
+  creadoPorId       Int      @map("creado_por_id")
+  responsableId     Int      @map("responsable_id")
+  depositoDestinoId Int?     @map("deposito_destino_id")
+  observacion       String?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  proveedor       Proveedor @relation(fields: [proveedorId], references: [id])
+  creadoPor       Usuario   @relation("ocCreador", fields: [creadoPorId], references: [id])
+  responsable     Usuario   @relation("ocResponsable", fields: [responsableId], references: [id])
+  depositoDestino Deposito? @relation("ocDeposito", fields: [depositoDestinoId], references: [id])
+  items           OrdenCompraItem[]
+  recepciones     Recepcion[]
+
+  @@map("ordenes_compra")
+}
+
+model OrdenCompraItem {
+  id             Int    @id @default(autoincrement())
+  ordenCompraId  Int    @map("orden_compra_id")
+  productoId     Int    @map("producto_id")
+  cantidadPedida Float  @map("cantidad_pedida")
+  unidad         String
+  precioEstimado Float? @map("precio_estimado")
+
+  ordenCompra OrdenCompra @relation(fields: [ordenCompraId], references: [id], onDelete: Cascade)
+  producto    Producto    @relation(fields: [productoId], references: [id])
+
+  @@map("orden_compra_items")
+}
+
+// ==========================================
+// RECEPCIONES (verificación de lo recibido)
+// ==========================================
+model Recepcion {
+  id            Int      @id @default(autoincrement())
+  ordenCompraId Int      @map("orden_compra_id")
+  fecha         String
+  hora          String
+  recibidoPorId Int      @map("recibido_por_id")
+  observacion   String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  ordenCompra  OrdenCompra     @relation(fields: [ordenCompraId], references: [id])
+  recibidoPor  Usuario         @relation("recepcionUsuario", fields: [recibidoPorId], references: [id])
+  items        RecepcionItem[]
+  movimientos  Movimiento[]
+
+  @@map("recepciones")
+}
+
+model RecepcionItem {
+  id               Int    @id @default(autoincrement())
+  recepcionId      Int    @map("recepcion_id")
+  productoId       Int    @map("producto_id")
+  cantidadRecibida Float  @map("cantidad_recibida")
+  unidad           String
+  costoUnitario    Float? @map("costo_unitario")
+  lote             String?
+  observacion      String?
+
+  recepcion Recepcion @relation(fields: [recepcionId], references: [id], onDelete: Cascade)
+  producto  Producto  @relation(fields: [productoId], references: [id])
+
+  @@map("recepcion_items")
 }

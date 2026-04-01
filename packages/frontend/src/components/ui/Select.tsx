@@ -1,15 +1,16 @@
 import { cn } from '../../lib/utils';
-import type { SelectHTMLAttributes } from 'react';
+import type { SelectHTMLAttributes, ReactNode } from 'react';
 
 interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label?: string;
   error?: string;
-  options: { value: string; label: string }[];
+  options?: { value: string; label: string }[];
   placeholder?: string;
+  children?: ReactNode;
 }
 
 export default function Select({
-  label, error, options, placeholder, className, id, ...props
+  label, error, options, placeholder, className, id, children, ...props
 }: SelectProps) {
   return (
     <div className="space-y-2">
@@ -29,9 +30,12 @@ export default function Select({
         {...props}
       >
         {placeholder && <option value="">{placeholder}</option>}
-        {options.map(opt => (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
-        ))}
+        {children
+          ? children
+          : options?.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))
+        }
       </select>
       {error && <p className="text-[10px] text-destructive font-medium ml-1">{error}</p>}
     </div>

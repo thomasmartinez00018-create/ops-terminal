@@ -27,6 +27,7 @@ router.get('/', async (req: Request, res: Response) => {
       where,
       include: {
         usuario: { select: { nombre: true } },
+        responsable: { select: { nombre: true } },
         producto: { select: { codigo: true, nombre: true, unidadUso: true } },
         depositoOrigen: { select: { nombre: true } },
         depositoDestino: { select: { nombre: true } },
@@ -48,6 +49,7 @@ router.post('/', async (req: Request, res: Response) => {
       data: req.body,
       include: {
         usuario: { select: { nombre: true } },
+        responsable: { select: { nombre: true } },
         producto: { select: { codigo: true, nombre: true } },
         depositoOrigen: { select: { nombre: true } },
         depositoDestino: { select: { nombre: true } }

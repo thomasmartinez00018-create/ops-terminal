@@ -3,32 +3,39 @@ import { useAuth } from '../../context/AuthContext';
 import {
   LayoutDashboard, Package, Warehouse, Users, ArrowRightLeft,
   ClipboardList, LogOut, Menu, X, ChefHat, Truck, ClipboardCheck,
-  Upload, BarChart3, Link2
+  Upload, BarChart3, Link2, ShoppingCart, ScanBarcode, AlertTriangle
 } from 'lucide-react';
 import { useState } from 'react';
 
-const navItems = [
+// permiso: clave requerida para ver el item (undefined = visible para todos)
+// adminOnly: solo admin, sin excepción
+const navItems: { to: string; label: string; icon: any; permiso?: string; adminOnly?: boolean }[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/productos', label: 'Maestro', icon: Package },
-  { to: '/depositos', label: 'Depósitos', icon: Warehouse },
-  { to: '/movimientos', label: 'Movimientos', icon: ArrowRightLeft },
-  { to: '/stock', label: 'Stock', icon: ClipboardList },
-  { to: '/recetas', label: 'Recetas', icon: ChefHat },
-  { to: '/proveedores', label: 'Proveedores', icon: Truck },
-  { to: '/inventarios', label: 'Inventarios', icon: ClipboardCheck },
-  { to: '/importar', label: 'Importar', icon: Upload },
-  { to: '/reportes', label: 'Reportes', icon: BarChart3 },
-  { to: '/vincular', label: 'Vincular', icon: Link2 },
-  { to: '/usuarios', label: 'Usuarios', icon: Users, rol: 'admin' },
+  { to: '/ordenes-compra', label: 'Órdenes', icon: ShoppingCart, permiso: 'ordenes-compra' },
+  { to: '/control-scanner', label: 'Control', icon: ScanBarcode, permiso: 'control-scanner' },
+  { to: '/movimientos', label: 'Movimientos', icon: ArrowRightLeft, permiso: 'movimientos' },
+  { to: '/stock', label: 'Stock', icon: ClipboardList, permiso: 'stock' },
+  { to: '/productos', label: 'Maestro', icon: Package, permiso: 'productos' },
+  { to: '/depositos', label: 'Depósitos', icon: Warehouse, permiso: 'depositos' },
+  { to: '/recetas', label: 'Recetas', icon: ChefHat, permiso: 'recetas' },
+  { to: '/proveedores', label: 'Proveedores', icon: Truck, permiso: 'proveedores' },
+  { to: '/inventarios', label: 'Inventarios', icon: ClipboardCheck, permiso: 'inventarios' },
+  { to: '/discrepancias', label: 'Discrepancias', icon: AlertTriangle, permiso: 'discrepancias' },
+  { to: '/reportes', label: 'Reportes', icon: BarChart3, permiso: 'reportes' },
+  { to: '/importar', label: 'Importar', icon: Upload, permiso: 'importar' },
+  { to: '/vincular', label: 'Vincular', icon: Link2, permiso: 'vincular' },
+  { to: '/usuarios', label: 'Usuarios', icon: Users, adminOnly: true },
 ];
 
 export default function Sidebar() {
-  const { user, logout } = useAuth();
+  const { user, logout, tienePermiso } = useAuth();
   const [open, setOpen] = useState(false);
 
-  const filteredItems = navItems.filter(
-    item => !item.rol || item.rol === user?.rol
-  );
+  const filteredItems = navItems.filter(item => {
+    if (item.adminOnly) return user?.rol === 'admin';
+    if (!item.permiso) return true; // Dashboard: visible para todos
+    return tienePermiso(item.permiso);
+  });
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `flex items-center gap-4 px-4 py-3 rounded-lg text-sm font-semibold transition-all ${

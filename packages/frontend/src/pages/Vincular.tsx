@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../lib/api';
+import PageTour from '../components/PageTour';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import { Link2, Download, Upload, Check, AlertTriangle, RefreshCw, Zap } from 'lucide-react';
@@ -73,6 +74,7 @@ export default function Vincular() {
 
   return (
     <div>
+      <PageTour pageKey="vincular" />
       <div className="mb-6">
         <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Integracion</p>
         <h1 className="text-xl font-extrabold text-foreground mt-1">Vincular Apps</h1>

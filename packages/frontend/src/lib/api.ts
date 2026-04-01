@@ -116,6 +116,29 @@ export const api = {
   getMovimientosPorProducto: (productoId: number, params?: Record<string, string>) =>
     request<any[]>(`/reportes/movimientos-por-producto/${productoId}${qs(params)}`),
 
+  // Órdenes de Compra
+  getOrdenesCompra: (params?: Record<string, string>) => request<any[]>(`/ordenes-compra${qs(params)}`),
+  getOrdenCompra: (id: number) => request<any>(`/ordenes-compra/${id}`),
+  createOrdenCompra: (data: any) =>
+    request<any>('/ordenes-compra', { method: 'POST', body: JSON.stringify(data) }),
+  updateOrdenCompra: (id: number, data: any) =>
+    request<any>(`/ordenes-compra/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  cancelarOrdenCompra: (id: number) =>
+    request<any>(`/ordenes-compra/${id}/cancelar`, { method: 'PUT' }),
+  recibirOrdenCompra: (id: number, data: any) =>
+    request<any>(`/ordenes-compra/${id}/recibir`, { method: 'POST', body: JSON.stringify(data) }),
+
+  // Scanner / Control
+  scannerBuscarProducto: (barcode: string) => request<any>(`/scanner/producto/${encodeURIComponent(barcode)}`),
+  scannerStockTeorico: (productoId: number, depositoId: number) =>
+    request<any>(`/scanner/stock-teorico/${productoId}/${depositoId}`),
+  scannerProductosDeposito: (depositoId: number) => request<any[]>(`/scanner/productos-deposito/${depositoId}`),
+
+  // Discrepancias
+  getDiscrepancias: () => request<any[]>('/reportes/discrepancias'),
+  getTrazabilidad: (productoId: number, depositoId: number) =>
+    request<any>(`/reportes/trazabilidad/${productoId}/${depositoId}`),
+
   // Sync / Vincular
   syncExport: () => request<any>('/sync/export'),
   syncImport: (data: any) =>

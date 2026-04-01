@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import * as XLSX from 'xlsx';
 import { api } from '../lib/api';
+import PageTour from '../components/PageTour';
 import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';
 import Badge from '../components/ui/Badge';
@@ -314,6 +315,7 @@ export default function Importar() {
 
   return (
     <div>
+      <PageTour pageKey="importar" />
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <div>
           <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Integracion</p>
