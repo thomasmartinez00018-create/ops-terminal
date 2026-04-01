@@ -36,17 +36,17 @@ jobs:
         shell: bash
 
       - name: Generate Prisma client
-        run: node_modules/.bin/prisma generate
+        run: npm exec --no -- prisma generate
         working-directory: packages/backend
 
       - name: Create database schema
-        run: node_modules/.bin/prisma db push
+        run: npm exec --no -- prisma db push
         working-directory: packages/backend
         env:
           DATABASE_URL: file:./prisma/data/stock-gastro.db
 
       - name: Seed initial data
-        run: node_modules/.bin/tsx prisma/seed.ts
+        run: npm exec --no -- tsx prisma/seed.ts
         working-directory: packages/backend
         env:
           DATABASE_URL: file:./prisma/data/stock-gastro.db
