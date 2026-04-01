@@ -62,7 +62,8 @@ if (IS_PROD) {
   const frontendDist = path.join(__dirname, '../../frontend/dist');
   app.use(express.static(frontendDist));
   // SPA fallback — cualquier ruta no-API devuelve index.html
-  app.get('*', (_req, res) => {
+  // SPA fallback — Express 5 requiere named wildcard, no bare '*'
+  app.use((_req, res) => {
     res.sendFile(path.join(frontendDist, 'index.html'));
   });
 }
