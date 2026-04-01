@@ -22,7 +22,15 @@ jobs:
           cache: 'npm'
 
       - name: Install all dependencies
-        run: npm ci
+        run: npm ci --unsafe-perm
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          npm_config_unsafe_perm: 'true'
+
+      - name: Ensure app-builder-bin binary is present
+        run: npm install app-builder-bin --no-save
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Generate Prisma client (binaries Windows)
         run: npx prisma generate
