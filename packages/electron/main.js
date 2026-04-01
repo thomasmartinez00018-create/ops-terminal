@@ -30,16 +30,18 @@ log('userData:', userData)
 log('dbPath:', dbPath)
 
 if (!fs.existsSync(dbPath)) {
+  fs.mkdirSync(userData, { recursive: true })
   const tpl = isDev
     ? path.join(__dirname, '../backend/prisma/data/stock-gastro.db')
     : path.join(process.resourcesPath, 'template.db')
   log('template.db path:', tpl, '| exists:', fs.existsSync(tpl))
   if (fs.existsSync(tpl)) {
-    fs.mkdirSync(userData, { recursive: true })
     fs.copyFileSync(tpl, dbPath)
-    log('DB inicializada →', dbPath)
+    log('DB copiada de template →', dbPath)
   } else {
-    log('WARN: template.db no encontrado')
+    // Sin template: crear DB vacía — Prisma la inicializará con db push
+    log('WARN: template.db no encontrado, creando DB vacía')
+    fs.writeFileSync(dbPath, '')
   }
 }
 
@@ -65,28 +67,26 @@ function startServer () {
     DATABASE_URL: dbUrl,
     NODE_ENV:     'production',
     PORT:         String(PORT),
-    PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING: '1',
   }
 
-  // Ayudar a Prisma a encontrar el engine: apuntar al ARCHIVO .node, no al directorio
+  // Prisma 6 usa WASM engine — no necesita .node binary ni PRISMA_QUERY_ENGINE_LIBRARY.
+  // Solo verificar que .prisma/client existe para logging.
   if (!isDev) {
-    const engineDir = path.join(
+    const prismaClientDir = path.join(
       process.resourcesPath, 'backend', 'node_modules', '.prisma', 'client'
     )
-    log('engineDir:', engineDir, '| exists:', fs.existsSync(engineDir))
+    log('prisma client dir:', prismaClientDir, '| exists:', fs.existsSync(prismaClientDir))
+    if (fs.existsSync(prismaClientDir)) {
+      log('prisma client files:', fs.readdirSync(prismaClientDir).join(', '))
+    }
 
-    if (fs.existsSync(engineDir)) {
-      const files = fs.readdirSync(engineDir)
-      log('engineDir contents:', files.join(', '))
-      const nodeFile = files.find(f => f.endsWith('.node'))
-      if (nodeFile) {
-        env.PRISMA_QUERY_ENGINE_LIBRARY = path.join(engineDir, nodeFile)
-        log('PRISMA_QUERY_ENGINE_LIBRARY:', env.PRISMA_QUERY_ENGINE_LIBRARY)
-      } else {
-        log('WARN: no .node file found in engineDir')
-      }
+    // Listar backend/node_modules top-level para verificar que express etc. están
+    const backendNM = path.join(process.resourcesPath, 'backend', 'node_modules')
+    if (fs.existsSync(backendNM)) {
+      const pkgs = fs.readdirSync(backendNM).filter(f => !f.startsWith('.'))
+      log('backend node_modules:', pkgs.length, 'packages -', pkgs.slice(0, 15).join(', '), '...')
     } else {
-      log('WARN: engineDir no existe')
+      log('ERROR: backend/node_modules not found!')
     }
   }
 

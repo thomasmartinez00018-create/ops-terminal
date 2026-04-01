@@ -67,6 +67,19 @@ jobs:
           npx prisma generate --schema=packages/backend/prisma/schema.prisma
           echo "Backend node_modules ready: $(ls packages/backend/node_modules | wc -l) top-level packages"
 
+      - name: Verify packagable assets
+        shell: bash
+        run: |
+          echo "=== template.db ==="
+          ls -la packages/backend/prisma/data/stock-gastro.db || { echo "FATAL: template.db not found"; exit 1; }
+          echo "=== .prisma/client ==="
+          ls packages/backend/node_modules/.prisma/client/ || { echo "FATAL: .prisma/client missing"; exit 1; }
+          echo "=== backend dist ==="
+          ls packages/backend/dist/server.js || { echo "FATAL: server.js not found"; exit 1; }
+          echo "=== frontend dist ==="
+          ls packages/frontend/dist/index.html || { echo "FATAL: frontend not built"; exit 1; }
+          echo "All assets verified ✓"
+
       - name: Build Windows .exe
         run: npm run build:win
         working-directory: packages/electron
