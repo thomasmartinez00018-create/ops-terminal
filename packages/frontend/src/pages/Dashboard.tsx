@@ -8,7 +8,8 @@ import {
   Package, Warehouse, ArrowRightLeft, AlertTriangle,
   TrendingDown, TrendingUp, ClipboardCheck, Activity,
   ShoppingCart, ScanBarcode, Bell, ChevronRight, Plus,
-  Utensils, Wine, ClipboardList, Users, ArrowUpRight, ArrowDownRight, Minus
+  Utensils, Wine, ClipboardList, Users, ArrowUpRight, ArrowDownRight, Minus,
+  Wifi, Copy, Check, Smartphone
 } from 'lucide-react';
 
 const tipoBadge: Record<string, 'success' | 'info' | 'danger' | 'warning' | 'default'> = {
@@ -255,6 +256,9 @@ function DashboardAdmin() {
   const [misPendientes, setMisPendientes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [quickOpen, setQuickOpen] = useState(false);
+  const [networkUrl, setNetworkUrl] = useState<string | null>(null);
+  const [networkAllUrls, setNetworkAllUrls] = useState<string[]>([]);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -264,6 +268,16 @@ function DashboardAdmin() {
       api.getOrdenesCompra({ activas: 'true' }).then(setOcPendientes).catch(() => {});
     }
   }, [user?.id]);
+
+  useEffect(() => {
+    fetch('/api/network-url')
+      .then(r => r.json())
+      .then(d => {
+        setNetworkUrl(d.url);
+        setNetworkAllUrls(d.allUrls ?? []);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     api.getDashboardStats()
@@ -330,6 +344,67 @@ function DashboardAdmin() {
           <Plus size={16} /> Registrar
         </button>
       </div>
+
+      {/* ── Link WiFi para el equipo ──────────────────────────────────────── */}
+      {networkUrl && (
+        <div className="mb-6 rounded-2xl border border-primary/30 bg-primary/5 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Wifi size={16} className="text-primary" />
+            <p className="text-xs font-bold text-primary uppercase tracking-widest">Acceso desde celular / tablet</p>
+          </div>
+          <p className="text-[11px] text-on-surface-variant mb-3">
+            Conectados a la misma WiFi, el equipo puede abrir la app en el navegador con este link:
+          </p>
+
+          {/* URL principal grande y copiable */}
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex-1 bg-surface rounded-xl px-3 py-2 border border-border font-mono text-sm text-foreground truncate">
+              {networkUrl}
+            </div>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(networkUrl).then(() => {
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                });
+              }}
+              className="shrink-0 p-2 rounded-xl bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 transition-colors"
+            >
+              {copied ? <Check size={16} className="text-success" /> : <Copy size={16} />}
+            </button>
+          </div>
+
+          {/* QR code */}
+          <div className="flex items-start gap-4">
+            <div className="shrink-0 bg-white rounded-xl p-2">
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(networkUrl)}`}
+                alt="QR de acceso"
+                width={100}
+                height={100}
+                className="rounded-lg"
+              />
+            </div>
+            <div className="flex-1 space-y-2">
+              <div className="flex items-center gap-2 text-xs text-on-surface-variant">
+                <Smartphone size={12} />
+                <span>Escaneá el QR o copiá el link</span>
+              </div>
+              {networkAllUrls.length > 1 && (
+                <div className="space-y-1">
+                  <p className="text-[10px] text-on-surface-variant font-semibold uppercase tracking-wider">Otras IPs disponibles:</p>
+                  {networkAllUrls.slice(1).map(u => (
+                    <p key={u} className="font-mono text-xs text-on-surface-variant">{u}</p>
+                  ))}
+                </div>
+              )}
+              {copied && (
+                <p className="text-xs text-success font-semibold">✓ Link copiado al portapapeles</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Alertas: solo si hay algo que atender ─────────────────────────── */}
       {(misPendientes.length > 0 || ocPendientes.length > 0 || discGraves > 0) && (

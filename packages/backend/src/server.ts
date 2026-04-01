@@ -45,6 +45,18 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Link de red local para compartir con el equipo
+app.get('/api/network-url', (_req, res) => {
+  const ips = getLocalIPs();
+  const ip = ips[0] ?? null;
+  res.json({
+    ip,
+    port: PORT,
+    url: ip ? `http://${ip}:${PORT}` : null,
+    allUrls: ips.map(i => `http://${i}:${PORT}`),
+  });
+});
+
 // En producción: servir el frontend compilado
 if (IS_PROD) {
   const frontendDist = path.join(__dirname, '../../frontend/dist');
