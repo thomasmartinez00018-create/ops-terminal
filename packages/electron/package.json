@@ -3,6 +3,10 @@
   "version": "1.0.0",
   "description": "OPS Terminal - Sistema de Stock Gastronómico",
   "author": "Más Orgánicos",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thomasmartinez00018-create/ops-terminal.git"
+  },
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -10,6 +14,7 @@
     "build:mac": "electron-builder --mac"
   },
   "build": {
+    "publish": null,
     "appId": "com.masorganicos.opsterminal",
     "productName": "OPS Terminal",
     "copyright": "Más Orgánicos",
@@ -36,7 +41,7 @@
         "filter": [
           "**/*",
           "!prisma/libquery_engine-darwin*",
-          "!@prisma/engines/**",
+          "!prisma/libquery_engine-linux*",
           "!@prisma/fetch-engine/**",
           "!@prisma/debug/**",
           "!@prisma/get-platform/**",
@@ -55,6 +60,11 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "../backend/node_modules/.prisma",
+        "to": "backend/node_modules/.prisma",
+        "filter": ["**/*"]
       },
       {
         "from": "../backend/prisma/data/stock-gastro.db",
