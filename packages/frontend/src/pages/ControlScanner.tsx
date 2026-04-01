@@ -4,7 +4,6 @@ import { useAuth } from '../context/AuthContext';
 import PageTour from '../components/PageTour';
 import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';
-import Input from '../components/ui/Input';
 import Badge from '../components/ui/Badge';
 import { ScanBarcode, Play, Square, Save, RotateCcw } from 'lucide-react';
 

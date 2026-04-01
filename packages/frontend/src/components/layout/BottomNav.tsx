@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
   LayoutDashboard, ShoppingCart, ScanBarcode, ArrowRightLeft,
-  ClipboardList, Package
+  ClipboardList
 } from 'lucide-react';
 
 // Tabs por rol — máximo 4 para que quepan bien en mobile

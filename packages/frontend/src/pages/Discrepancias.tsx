@@ -100,7 +100,6 @@ export default function Discrepancias() {
 
   // ─── DETAIL VIEW ───
   if (selectedDep) {
-    const colorInfo = COLOR_MAP[selectedDep.color as keyof typeof COLOR_MAP] || COLOR_MAP.gris;
     return (
       <div>
         <div className="flex items-center justify-between mb-6">

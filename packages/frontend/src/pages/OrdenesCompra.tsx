@@ -8,7 +8,7 @@ import Select from '../components/ui/Select';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
 import SearchableSelect from '../components/ui/SearchableSelect';
-import { Plus, Eye, X as XIcon, Package, Truck, Check, CheckCheck } from 'lucide-react';
+import { Plus, Eye, X as XIcon, Check, CheckCheck } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 
 const ESTADOS: Record<string, { label: string; variant: 'default' | 'success' | 'warning' | 'danger' | 'info' }> = {
