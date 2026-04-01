@@ -22,15 +22,45 @@ jobs:
           cache: 'npm'
 
       - name: Install all dependencies
-        run: npm ci --unsafe-perm
+        run: npm ci
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          npm_config_unsafe_perm: 'true'
 
-      - name: Ensure app-builder-bin binary is present
-        run: npm install app-builder-bin --no-save
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Ensure app-builder binary exists
+        shell: pwsh
+        run: |
+          $binaryPath = "node_modules\app-builder-bin\win\x64\app-builder.exe"
+          if (Test-Path $binaryPath) {
+            Write-Host "✅ app-builder.exe already present"
+          } else {
+            Write-Host "⚠️ app-builder.exe missing — extracting from npm tarball..."
+            $tmpDir = New-Item -ItemType Directory -Force -Path "tmp_app_builder"
+            $tgzPath = Join-Path $tmpDir "app-builder-bin.tgz"
+            Invoke-WebRequest -Uri "https://registry.npmjs.org/app-builder-bin/-/app-builder-bin-5.0.0-alpha.10.tgz" -OutFile $tgzPath -UseBasicParsing
+            Push-Location $tmpDir
+            tar -xzf "app-builder-bin.tgz"
+            Pop-Location
+            $extractedBin = Join-Path $tmpDir "package\win\x64\app-builder.exe"
+            if (Test-Path $extractedBin) {
+              $targetDir = "node_modules\app-builder-bin\win\x64"
+              New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+              Copy-Item $extractedBin "$targetDir\app-builder.exe" -Force
+              Write-Host "✅ Successfully extracted app-builder.exe from tarball"
+            } else {
+              Write-Host "Extracted contents:"
+              Get-ChildItem -Path $tmpDir -Recurse | Select-Object FullName
+              Write-Error "❌ Could not find app-builder.exe in extracted tarball"
+              exit 1
+            }
+            Remove-Item -Recurse -Force $tmpDir
+          }
+          # Final verification
+          if (-not (Test-Path $binaryPath)) {
+            Write-Error "❌ app-builder.exe still not found after all attempts"
+            exit 1
+          }
+          $size = (Get-Item $binaryPath).Length
+          Write-Host "✅ Verified: app-builder.exe exists ($size bytes)"
 
       - name: Generate Prisma client (binaries Windows)
         run: npx prisma generate
