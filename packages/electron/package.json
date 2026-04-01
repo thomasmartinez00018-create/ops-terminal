@@ -2,6 +2,7 @@
   "name": "ops-terminal",
   "version": "1.0.0",
   "description": "OPS Terminal - Sistema de Stock Gastronómico",
+  "author": "Más Orgánicos",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
