@@ -1,0 +1,33 @@
+TÉRMINOS Y CONDICIONES DE USO — OPS TERMINAL
+============================================
+
+Software: OPS Terminal — Sistema de Gestión de Stock Gastronómico
+Desarrollado para: Más Orgánicos
+Versión: 1.0.0
+
+Al instalar este software, el usuario acepta los siguientes términos:
+
+1. LICENCIA DE USO
+   Este software es de uso exclusivo para el personal autorizado de Más Orgánicos.
+   Queda prohibida su distribución, copia o uso fuera del ámbito del establecimiento
+   sin autorización expresa del administrador del sistema.
+
+2. DATOS Y PRIVACIDAD
+   OPS Terminal almacena datos de stock, movimientos e inventario de forma local
+   en el dispositivo donde está instalado. Los datos no se envían a servidores
+   externos salvo configuración explícita del administrador.
+
+3. RESPONSABILIDAD
+   El usuario es responsable del uso correcto del sistema y de la veracidad de
+   los datos ingresados. El administrador del sistema es el único habilitado para
+   crear, modificar o eliminar usuarios y configuraciones.
+
+4. ACTUALIZACIONES
+   Las actualizaciones del sistema serán provistas por el administrador. No se
+   debe instalar versiones no oficiales del software.
+
+5. SOPORTE
+   Para soporte técnico, contactar al administrador del sistema o al proveedor
+   del software.
+
+Al hacer clic en "Acepto", confirmás que leíste y aceptás estos términos.

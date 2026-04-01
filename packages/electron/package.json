@@ -25,6 +25,7 @@
       "main.js",
       "loading.html",
       "error.html",
+      "license.txt",
       "package.json"
     ],
     "extraResources": [
@@ -73,11 +74,17 @@
     ],
     "win": {
       "target": [
-        { "target": "portable", "arch": ["x64"] }
+        { "target": "nsis", "arch": ["x64"] }
       ]
     },
-    "portable": {
-      "requestExecutionLevel": "user"
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "OPS Terminal",
+      "license": "license.txt",
+      "deleteAppDataOnUninstall": false
     }
   },
   "devDependencies": {
