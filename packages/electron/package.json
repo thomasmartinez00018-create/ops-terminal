@@ -1,0 +1,76 @@
+{
+  "name": "ops-terminal",
+  "version": "1.0.0",
+  "description": "OPS Terminal - Sistema de Stock Gastronómico",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win --x64",
+    "build:mac": "electron-builder --mac"
+  },
+  "build": {
+    "appId": "com.masorganicos.opsterminal",
+    "productName": "OPS Terminal",
+    "copyright": "Más Orgánicos",
+    "directories": {
+      "output": "../../dist-electron"
+    },
+    "files": [
+      "main.js",
+      "loading.html",
+      "error.html",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend/dist",
+        "to": "backend/dist",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../backend/node_modules",
+        "to": "backend/node_modules",
+        "filter": [
+          "**/*",
+          "!prisma/libquery_engine-darwin*",
+          "!@prisma/engines/**",
+          "!@prisma/fetch-engine/**",
+          "!@prisma/debug/**",
+          "!@prisma/get-platform/**",
+          "!@prisma/config/**",
+          "!**/.cache/**",
+          "!**/test/**",
+          "!**/tests/**",
+          "!**/__tests__/**",
+          "!**/*.md",
+          "!**/.git/**"
+        ]
+      },
+      {
+        "from": "../frontend/dist",
+        "to": "frontend/dist",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../backend/prisma/data/stock-gastro.db",
+        "to": "template.db"
+      }
+    ],
+    "win": {
+      "target": [
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "portable": {
+      "requestExecutionLevel": "user"
+    }
+  },
+  "devDependencies": {
+    "electron": "32.3.3",
+    "electron-builder": "^25.1.8"
+  }
+}

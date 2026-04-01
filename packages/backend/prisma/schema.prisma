@@ -1,0 +1,209 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "windows", "darwin", "darwin-arm64"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// MAESTRO DE PRODUCTOS
+// ==========================================
+model Producto {
+  id                Int      @id @default(autoincrement())
+  codigo            String   @unique
+  nombre            String
+  rubro             String   // Verduras, Carnes, Lacteos, Bebidas, etc.
+  tipo              String   // crudo, elaborado, semielaborado, insumo
+  unidadCompra      String   @map("unidad_compra")  // kg, lt, unidad, caja
+  unidadUso         String   @map("unidad_uso")     // kg, lt, unidad, porcion
+  factorConversion  Float    @default(1) @map("factor_conversion")
+  codigoBarras      String?  @map("codigo_barras")
+  depositoDefectoId Int?     @map("deposito_defecto_id")
+  stockMinimo       Float    @default(0) @map("stock_minimo")
+  stockIdeal        Float    @default(0) @map("stock_ideal")
+  activo            Boolean  @default(true)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  depositoDefecto     Deposito?            @relation(fields: [depositoDefectoId], references: [id])
+  movimientos         Movimiento[]
+  proveedorProductos  ProveedorProducto[]
+  recetaIngredientes  RecetaIngrediente[]
+  inventarioDetalles  InventarioDetalle[]
+
+  @@map("productos")
+}
+
+// ==========================================
+// DEPÓSITOS
+// ==========================================
+model Deposito {
+  id     Int     @id @default(autoincrement())
+  codigo String  @unique
+  nombre String
+  tipo   String? // almacen, cocina, barra, freezer, camara, seco
+  activo Boolean @default(true)
+
+  productos            Producto[]
+  movimientosOrigen    Movimiento[] @relation("depositoOrigen")
+  movimientosDestino   Movimiento[] @relation("depositoDestino")
+  inventarios          Inventario[]
+
+  @@map("depositos")
+}
+
+// ==========================================
+// USUARIOS
+// ==========================================
+model Usuario {
+  id     Int     @id @default(autoincrement())
+  codigo String  @unique
+  nombre String
+  rol    String  // admin, cocina, deposito, barra, compras
+  pin    String?
+  activo Boolean @default(true)
+
+  movimientos  Movimiento[]
+  inventarios  Inventario[]
+
+  @@map("usuarios")
+}
+
+// ==========================================
+// MOVIMIENTOS (corazón del sistema)
+// ==========================================
+model Movimiento {
+  id               Int      @id @default(autoincrement())
+  fecha            String   // YYYY-MM-DD
+  hora             String   // HH:mm
+  usuarioId        Int      @map("usuario_id")
+  tipo             String   // ingreso, elaboracion, merma, transferencia, ajuste, conteo, consumo_interno, devolucion
+  depositoOrigenId  Int?    @map("deposito_origen_id")
+  depositoDestinoId Int?    @map("deposito_destino_id")
+  productoId       Int      @map("producto_id")
+  cantidad         Float
+  unidad           String
+  lote             String?
+  motivo           String?
+  costoUnitario    Float?   @map("costo_unitario")
+  proveedorId      Int?     @map("proveedor_id")
+  documentoRef     String?  @map("documento_ref")
+  observacion      String?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  usuario          Usuario   @relation(fields: [usuarioId], references: [id])
+  depositoOrigen   Deposito? @relation("depositoOrigen", fields: [depositoOrigenId], references: [id])
+  depositoDestino  Deposito? @relation("depositoDestino", fields: [depositoDestinoId], references: [id])
+  producto         Producto  @relation(fields: [productoId], references: [id])
+  proveedor        Proveedor? @relation(fields: [proveedorId], references: [id])
+
+  @@map("movimientos")
+}
+
+// ==========================================
+// PROVEEDORES
+// ==========================================
+model Proveedor {
+  id       Int     @id @default(autoincrement())
+  codigo   String  @unique
+  nombre   String
+  contacto String?
+  telefono String?
+  email    String?
+  activo   Boolean @default(true)
+
+  movimientos        Movimiento[]
+  proveedorProductos ProveedorProducto[]
+
+  @@map("proveedores")
+}
+
+// ==========================================
+// PRODUCTOS DEL PROVEEDOR (normalización)
+// ==========================================
+model ProveedorProducto {
+  id               Int     @id @default(autoincrement())
+  proveedorId      Int     @map("proveedor_id")
+  productoId       Int     @map("producto_id")
+  nombreProveedor  String  @map("nombre_proveedor") // "Papa negra x 10kg"
+  codigoProveedor  String? @map("codigo_proveedor")
+  unidadProveedor  String? @map("unidad_proveedor")
+  factorConversion Float   @default(1) @map("factor_conversion")
+  ultimoPrecio     Float?  @map("ultimo_precio")
+  fechaPrecio      String? @map("fecha_precio")
+
+  proveedor Proveedor @relation(fields: [proveedorId], references: [id])
+  producto  Producto  @relation(fields: [productoId], references: [id])
+
+  @@map("proveedor_productos")
+}
+
+// ==========================================
+// RECETAS
+// ==========================================
+model Receta {
+  id        Int     @id @default(autoincrement())
+  codigo    String  @unique
+  nombre    String
+  categoria String? // entrada, plato, postre, bebida
+  porciones Int     @default(1)
+  activo    Boolean @default(true)
+
+  ingredientes RecetaIngrediente[]
+
+  @@map("recetas")
+}
+
+// ==========================================
+// INGREDIENTES DE RECETA
+// ==========================================
+model RecetaIngrediente {
+  id             Int   @id @default(autoincrement())
+  recetaId       Int   @map("receta_id")
+  productoId     Int   @map("producto_id")
+  cantidad       Float
+  unidad         String
+  mermaEsperada  Float @default(0) @map("merma_esperada") // porcentaje
+
+  receta   Receta   @relation(fields: [recetaId], references: [id], onDelete: Cascade)
+  producto Producto @relation(fields: [productoId], references: [id])
+
+  @@map("receta_ingredientes")
+}
+
+// ==========================================
+// INVENTARIOS / CONTEOS
+// ==========================================
+model Inventario {
+  id          Int      @id @default(autoincrement())
+  fecha       String   // YYYY-MM-DD
+  usuarioId   Int      @map("usuario_id")
+  depositoId  Int      @map("deposito_id")
+  estado      String   @default("abierto") // abierto, cerrado
+  observacion String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  usuario  Usuario  @relation(fields: [usuarioId], references: [id])
+  deposito Deposito @relation(fields: [depositoId], references: [id])
+  detalles InventarioDetalle[]
+
+  @@map("inventarios")
+}
+
+model InventarioDetalle {
+  id             Int    @id @default(autoincrement())
+  inventarioId   Int    @map("inventario_id")
+  productoId     Int    @map("producto_id")
+  cantidadFisica Float  @map("cantidad_fisica")
+  stockTeorico   Float? @map("stock_teorico")
+  diferencia     Float? // fisica - teorica
+  observacion    String?
+
+  inventario Inventario @relation(fields: [inventarioId], references: [id], onDelete: Cascade)
+  producto   Producto   @relation(fields: [productoId], references: [id])
+
+  @@map("inventario_detalles")
+}

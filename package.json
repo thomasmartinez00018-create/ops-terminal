@@ -1,0 +1,26 @@
+{
+  "name": "stock-gastro",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/backend",
+    "packages/frontend",
+    "packages/electron"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "npm run dev --workspace=packages/backend",
+    "dev:frontend": "npm run dev --workspace=packages/frontend",
+    "db:push": "npm run db:push --workspace=packages/backend",
+    "db:seed": "npm run db:seed --workspace=packages/backend",
+    "build": "npm run build --workspace=packages/frontend && npm run build --workspace=packages/backend",
+    "start": "cross-env NODE_ENV=production node packages/backend/dist/server.js",
+    "setup": "npm install && npm run db:push && npm run db:seed",
+    "build:installer": "npm run build && npm run build:win --workspace=packages/electron",
+    "electron:start": "npm run start --workspace=packages/electron"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "cross-env": "^7.0.3"
+  }
+}

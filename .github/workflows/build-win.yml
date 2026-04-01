@@ -1,0 +1,59 @@
+name: Build Windows Installer
+
+on:
+  workflow_dispatch:   # botón manual en GitHub
+  push:
+    tags:
+      - 'v*'           # también con git tag v1.0.0
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Generate Prisma client (con binaries Windows)
+        run: npx prisma generate
+        working-directory: packages/backend
+
+      - name: Create database and schema
+        run: npx prisma db push
+        working-directory: packages/backend
+        env:
+          DATABASE_URL: file:./prisma/data/stock-gastro.db
+
+      - name: Seed initial data
+        run: npx tsx prisma/seed.ts
+        working-directory: packages/backend
+        env:
+          DATABASE_URL: file:./prisma/data/stock-gastro.db
+
+      - name: Build frontend and backend
+        run: npm run build
+
+      - name: Install electron-builder
+        run: npm install -g electron-builder
+
+      - name: Build Windows installer
+        run: electron-builder --win --x64
+        working-directory: packages/electron
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: OPS-Terminal-Windows-Installer
+          path: dist-electron/*.exe
+          retention-days: 30

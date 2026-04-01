@@ -1,0 +1,10 @@
+node_modules/
+dist/
+dist-electron/
+packages/frontend/dist/
+packages/backend/dist/
+packages/backend/prisma/data/
+*.db
+*.db-journal
+.env.local
+.DS_Store
