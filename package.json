@@ -20,6 +20,7 @@
     "electron:start": "npm run start --workspace=packages/electron"
   },
   "devDependencies": {
+    "app-builder-bin": "4.0.0",
     "concurrently": "^9.2.1",
     "cross-env": "^7.0.3"
   }
