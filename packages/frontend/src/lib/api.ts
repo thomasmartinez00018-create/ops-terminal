@@ -139,6 +139,12 @@ export const api = {
   getTrazabilidad: (productoId: number, depositoId: number) =>
     request<any>(`/reportes/trazabilidad/${productoId}/${depositoId}`),
 
+  // Facturas / Escaner IA
+  escanearFactura: (data: { imagen: string; mimeType?: string }) =>
+    request<any>('/facturas/escanear', { method: 'POST', body: JSON.stringify(data) }),
+  confirmarFactura: (data: any) =>
+    request<any>('/facturas/confirmar', { method: 'POST', body: JSON.stringify(data) }),
+
   // Sync / Vincular
   syncExport: () => request<any>('/sync/export'),
   syncImport: (data: any) =>

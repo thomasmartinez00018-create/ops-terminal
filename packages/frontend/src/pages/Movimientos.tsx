@@ -10,7 +10,8 @@ import Badge from '../components/ui/Badge';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import { useToast } from '../context/ToastContext';
 import { useRecentProducts } from '../hooks/useRecentProducts';
-import { Plus } from 'lucide-react';
+import { Plus, ScanLine } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 const TIPOS_MOV = [
   { value: 'ingreso', label: 'Ingreso / Compra' },
@@ -31,6 +32,7 @@ const tipoBadge: Record<string, 'success' | 'info' | 'danger' | 'warning' | 'def
 
 export default function Movimientos() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { addToast } = useToast();
   const { getRecents, addRecent } = useRecentProducts(user?.id || 0);
   const [movimientos, setMovimientos] = useState<any[]>([]);
@@ -118,9 +120,17 @@ export default function Movimientos() {
           <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Operaciones</p>
           <h1 className="text-xl font-extrabold text-foreground mt-1">Movimientos</h1>
         </div>
-        <Button onClick={abrirNuevo}>
-          <Plus size={16} /> Registrar movimiento
-        </Button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => navigate('/escanear-factura')}
+            className="flex items-center gap-2 px-4 py-2.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-500 font-semibold rounded-lg text-sm transition border border-amber-600/30"
+          >
+            <ScanLine size={16} /> Escanear factura
+          </button>
+          <Button onClick={abrirNuevo}>
+            <Plus size={16} /> Registrar movimiento
+          </Button>
+        </div>
       </div>
 
       <div className="mb-4">

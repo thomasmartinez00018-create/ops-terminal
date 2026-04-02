@@ -56,6 +56,12 @@ jobs:
       - name: Build frontend + backend
         run: npm run build
 
+      - name: Inject Gemini API key into backend dist
+        shell: bash
+        run: |
+          echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" > packages/backend/dist/.env.production
+          echo "Gemini key injected into dist/"
+
       - name: Create standalone backend node_modules for packaging
         shell: bash
         run: |

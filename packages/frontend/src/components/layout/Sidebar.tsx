@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import {
   LayoutDashboard, Package, Warehouse, Users, ArrowRightLeft,
   ClipboardList, LogOut, Menu, X, ChefHat, Truck, ClipboardCheck,
-  Upload, BarChart3, Link2, ShoppingCart, ScanBarcode, AlertTriangle
+  Upload, BarChart3, Link2, ShoppingCart, ScanBarcode, AlertTriangle, ScanLine
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -22,6 +22,7 @@ const navItems: { to: string; label: string; icon: any; permiso?: string; adminO
   { to: '/inventarios', label: 'Inventarios', icon: ClipboardCheck, permiso: 'inventarios' },
   { to: '/discrepancias', label: 'Discrepancias', icon: AlertTriangle, permiso: 'discrepancias' },
   { to: '/reportes', label: 'Reportes', icon: BarChart3, permiso: 'reportes' },
+  { to: '/escanear-factura', label: 'Escanear Factura', icon: ScanLine, permiso: 'importar' },
   { to: '/importar', label: 'Importar', icon: Upload, permiso: 'importar' },
   { to: '/vincular', label: 'Vincular', icon: Link2, permiso: 'vincular' },
   { to: '/usuarios', label: 'Usuarios', icon: Users, adminOnly: true },

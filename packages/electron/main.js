@@ -69,6 +69,22 @@ function startServer () {
     PORT:         String(PORT),
   }
 
+  // Leer .env.production para GEMINI_API_KEY y otros secretos
+  if (!isDev) {
+    const envFile = path.join(process.resourcesPath, 'backend', 'dist', '.env.production')
+    log('.env.production path:', envFile, '| exists:', fs.existsSync(envFile))
+    if (fs.existsSync(envFile)) {
+      const lines = fs.readFileSync(envFile, 'utf-8').split('\n')
+      for (const line of lines) {
+        const match = line.match(/^([A-Z_]+)=(.+)$/)
+        if (match) {
+          env[match[1]] = match[2].trim()
+          log('env loaded:', match[1], '=', match[1].includes('KEY') ? '***' : match[2].trim())
+        }
+      }
+    }
+  }
+
   // Prisma 6 usa WASM engine — no necesita .node binary ni PRISMA_QUERY_ENGINE_LIBRARY.
   // Solo verificar que .prisma/client existe para logging.
   if (!isDev) {

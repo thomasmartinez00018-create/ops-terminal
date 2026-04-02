@@ -9,7 +9,7 @@ import {
   TrendingDown, TrendingUp, ClipboardCheck, Activity,
   ShoppingCart, ScanBarcode, Bell, ChevronRight, Plus,
   Utensils, Wine, ClipboardList, Users, ArrowUpRight, ArrowDownRight, Minus,
-  Wifi
+  Wifi, ScanLine
 } from 'lucide-react';
 
 const tipoBadge: Record<string, 'success' | 'info' | 'danger' | 'warning' | 'default'> = {
@@ -98,6 +98,17 @@ function DashboardSimple({ rol }: { rol: string }) {
           </div>
           <p className="text-sm font-extrabold text-foreground">Registrar ingreso</p>
           <p className="text-xs text-on-surface-variant mt-0.5">Llegó mercadería</p>
+        </button>
+
+        <button
+          onClick={() => navigate('/escanear-factura')}
+          className="glass rounded-2xl p-5 text-left hover:scale-[1.02] active:scale-[0.98] transition-all border border-amber-500/20"
+        >
+          <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center mb-3">
+            <ScanLine size={20} className="text-amber-500" />
+          </div>
+          <p className="text-sm font-extrabold text-foreground">Escanear factura</p>
+          <p className="text-xs text-on-surface-variant mt-0.5">IA extrae productos</p>
         </button>
       </div>
 
