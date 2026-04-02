@@ -23,6 +23,66 @@ const tipoLabels: Record<string, string> = {
   consumo_interno: 'Consumo int.', devolucion: 'Devolución',
 };
 
+// ─── Banner de tareas pendientes (para TODOS los roles) ─────────────────────
+function MisTareasPendientes() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [data, setData] = useState<any>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    api.getMisPendientes(user.id).then(setData).catch(() => {});
+  }, [user?.id]);
+
+  if (!data || data.pendientes.length === 0) return null;
+
+  const { pendientes } = data;
+  const urgentes = pendientes.filter((p: any) => p.prioridad === 'urgente' || p.vencida);
+
+  return (
+    <div className="mb-6 space-y-2">
+      {/* Banner principal */}
+      <button
+        onClick={() => navigate('/tareas')}
+        className="w-full bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-left hover:bg-amber-500/15 transition group"
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
+              <Bell size={18} className="text-amber-500 animate-pulse" />
+            </div>
+            <div>
+              <p className="font-bold text-foreground">
+                {pendientes.length === 1 ? 'Tenes 1 tarea pendiente' : `Tenes ${pendientes.length} tareas pendientes`}
+              </p>
+              <p className="text-xs text-on-surface-variant mt-0.5">
+                {pendientes.slice(0, 2).map((t: any) => t.titulo).join(' · ')}
+                {pendientes.length > 2 ? ` y ${pendientes.length - 2} mas` : ''}
+              </p>
+            </div>
+          </div>
+          <ChevronRight size={20} className="text-amber-500 group-hover:translate-x-1 transition-transform" />
+        </div>
+      </button>
+
+      {/* Urgentes/vencidas — se muestran individualmente */}
+      {urgentes.map((t: any) => (
+        <button
+          key={`${t.origen}-${t.id}`}
+          onClick={() => navigate(t.origen === 'orden_compra' ? '/ordenes-compra' : '/tareas')}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-red-500/40 bg-red-500/5 hover:bg-red-500/10 transition text-left"
+        >
+          <AlertTriangle size={16} className="text-red-500 shrink-0" />
+          <p className="text-sm font-bold text-red-400 flex-1">
+            {t.vencida ? 'VENCIDA: ' : 'URGENTE: '}{t.titulo}
+          </p>
+          <ChevronRight size={14} className="text-red-500" />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ─── Dashboard simplificado para cocina/barra ───────────────────────────────
 function DashboardSimple({ rol }: { rol: string }) {
   const { user } = useAuth();
@@ -51,6 +111,8 @@ function DashboardSimple({ rol }: { rol: string }) {
         </p>
         <h1 className="text-xl font-extrabold text-foreground mt-1">Hola, {user?.nombre}</h1>
       </div>
+
+      <MisTareasPendientes />
 
       {/* Acciones principales — botones grandes */}
       <div className="grid grid-cols-2 gap-3 mb-6">
@@ -144,51 +206,16 @@ function DashboardSimple({ rol }: { rol: string }) {
 function DashboardDeposito() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [misPendientes, setMisPendientes] = useState<any[]>([]);
   const [quickOpen, setQuickOpen] = useState(false);
-
-  useEffect(() => {
-    if (!user) return;
-    api.getOrdenesCompra({ responsableId: String(user.id), activas: 'true' }).then(setMisPendientes).catch(() => {});
-  }, [user?.id]);
 
   return (
     <div>
       <div className="mb-6">
-        <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Depósito</p>
+        <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Deposito</p>
         <h1 className="text-xl font-extrabold text-foreground mt-1">Hola, {user?.nombre}</h1>
       </div>
 
-      {/* Mis tareas pendientes */}
-      {misPendientes.length > 0 && (
-        <div className="mb-6 rounded-xl border border-warning/40 bg-warning/5 overflow-hidden">
-          <div className="px-4 py-3 border-b border-warning/20 flex items-center gap-2">
-            <Bell size={16} className="text-warning animate-pulse" />
-            <p className="text-sm font-extrabold text-warning flex-1">
-              {misPendientes.length} {misPendientes.length === 1 ? 'entrega pendiente' : 'entregas pendientes'}
-            </p>
-            <button onClick={() => navigate('/ordenes-compra')} className="text-xs font-bold text-warning">
-              Ver <ChevronRight size={12} className="inline" />
-            </button>
-          </div>
-          {misPendientes.slice(0, 3).map(oc => (
-            <button
-              key={oc.id}
-              onClick={() => navigate('/ordenes-compra')}
-              className="w-full px-4 py-3 flex items-center gap-3 hover:bg-warning/5 text-left border-b border-warning/10 last:border-0"
-            >
-              <ShoppingCart size={14} className="text-warning shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-foreground">{oc.codigo} — {oc.proveedor?.nombre}</p>
-                <p className="text-xs text-on-surface-variant">{oc.fecha}</p>
-              </div>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${oc.estado === 'parcial' ? 'bg-blue-500/10 text-blue-400' : 'bg-warning/10 text-warning'}`}>
-                {oc.estado}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
+      <MisTareasPendientes />
 
       {/* Acciones principales */}
       <div className="grid grid-cols-2 gap-3 mb-6">
@@ -366,25 +393,18 @@ function DashboardAdmin() {
         </button>
       )}
 
-      {/* ── Alertas: solo si hay algo que atender ─────────────────────────── */}
-      {(misPendientes.length > 0 || ocPendientes.length > 0 || discGraves > 0) && (
+      {/* ── Tareas + responsabilidades pendientes (unificado) ─────────── */}
+      <MisTareasPendientes />
+
+      {/* ── Alertas admin ─────────────────────────────────────────────── */}
+      {((user?.rol === 'admin' && ocPendientes.length > 0) || discGraves > 0) && (
         <div className="space-y-2 mb-6">
-          {misPendientes.length > 0 && (
-            <button onClick={() => navigate('/ordenes-compra')}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-warning/40 bg-warning/5 hover:bg-warning/10 transition-colors text-left">
-              <Bell size={16} className="text-warning animate-pulse shrink-0" />
-              <p className="text-sm font-bold text-warning flex-1">
-                {misPendientes.length} entrega{misPendientes.length > 1 ? 's' : ''} pendiente{misPendientes.length > 1 ? 's' : ''} asignada{misPendientes.length > 1 ? 's' : ''} a vos
-              </p>
-              <ChevronRight size={14} className="text-warning" />
-            </button>
-          )}
           {user?.rol === 'admin' && ocPendientes.length > 0 && (
             <button onClick={() => navigate('/ordenes-compra')}
               className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-border bg-surface hover:bg-surface-high/50 transition-colors text-left">
               <ShoppingCart size={16} className="text-warning shrink-0" />
               <p className="text-sm font-semibold text-foreground flex-1">
-                {ocPendientes.length} OC pendiente{ocPendientes.length > 1 ? 's' : ''}
+                {ocPendientes.length} OC pendiente{ocPendientes.length > 1 ? 's' : ''} del equipo
               </p>
               <ChevronRight size={14} className="text-on-surface-variant" />
             </button>
@@ -394,7 +414,7 @@ function DashboardAdmin() {
               className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-destructive/30 bg-destructive/5 hover:bg-destructive/10 transition-colors text-left">
               <AlertTriangle size={16} className="text-destructive shrink-0" />
               <p className="text-sm font-semibold text-foreground flex-1">
-                {discGraves} depósito{discGraves > 1 ? 's' : ''} con discrepancias graves
+                {discGraves} deposito{discGraves > 1 ? 's' : ''} con discrepancias graves
               </p>
               <ChevronRight size={14} className="text-destructive" />
             </button>

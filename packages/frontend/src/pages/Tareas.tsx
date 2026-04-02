@@ -1,0 +1,283 @@
+import { useEffect, useState } from 'react';
+import { api } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import PageTour from '../components/PageTour';
+import Badge from '../components/ui/Badge';
+import Modal from '../components/ui/Modal';
+import Button from '../components/ui/Button';
+import Input from '../components/ui/Input';
+import Select from '../components/ui/Select';
+import {
+  Plus, Check, Clock, AlertTriangle, ChevronRight, User, Calendar,
+  CheckCircle2, Circle, Loader2, MessageSquare, Trash2
+} from 'lucide-react';
+
+const TIPOS = [
+  { value: 'general', label: 'General' },
+  { value: 'recibir_mercaderia', label: 'Recibir mercaderia' },
+  { value: 'inventario', label: 'Inventario' },
+  { value: 'limpieza', label: 'Limpieza' },
+  { value: 'prep', label: 'Mise en place / Prep' },
+  { value: 'cierre', label: 'Cierre de caja / turno' },
+  { value: 'traspaso', label: 'Traspaso de responsabilidad' },
+];
+
+const PRIORIDADES = [
+  { value: 'baja', label: 'Baja', color: 'text-zinc-500' },
+  { value: 'normal', label: 'Normal', color: 'text-blue-400' },
+  { value: 'alta', label: 'Alta', color: 'text-amber-500' },
+  { value: 'urgente', label: 'Urgente', color: 'text-red-500' },
+];
+
+const prioridadBadge: Record<string, 'default' | 'info' | 'warning' | 'danger'> = {
+  baja: 'default', normal: 'info', alta: 'warning', urgente: 'danger',
+};
+
+export default function Tareas() {
+  const { user } = useAuth();
+  const { addToast } = useToast();
+  const [tareas, setTareas] = useState<any[]>([]);
+  const [usuarios, setUsuarios] = useState<any[]>([]);
+  const [filtro, setFiltro] = useState<'mis' | 'creadas' | 'todas'>('mis');
+  const [filtroEstado, setFiltroEstado] = useState('pendientes');
+  const [modalCrear, setModalCrear] = useState(false);
+  const [modalCompletar, setModalCompletar] = useState<any>(null);
+  const [obsCompletar, setObsCompletar] = useState('');
+  const [form, setForm] = useState({
+    titulo: '', descripcion: '', tipo: 'general', prioridad: 'normal',
+    fecha: new Date().toISOString().split('T')[0], horaLimite: '', asignadoAId: '',
+  });
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.getUsuarios({ activo: 'true' }).then(setUsuarios).catch(() => {});
+  }, []);
+
+  const cargar = () => {
+    const params: Record<string, string> = {};
+    if (filtro === 'mis' && user) params.asignadoAId = String(user.id);
+    if (filtro === 'creadas' && user) params.creadoPorId = String(user.id);
+    if (filtroEstado === 'pendientes') params.pendientes = 'true';
+    if (filtroEstado !== 'pendientes' && filtroEstado) params.estado = filtroEstado;
+    api.getTareas(params).then(setTareas).catch(console.error);
+  };
+
+  useEffect(() => { cargar(); }, [filtro, filtroEstado, user?.id]);
+
+  const crear = async () => {
+    setError('');
+    if (!form.titulo || !form.asignadoAId) {
+      setError('Titulo y asignado son requeridos');
+      return;
+    }
+    try {
+      await api.createTarea({
+        ...form,
+        asignadoAId: Number(form.asignadoAId),
+        creadoPorId: user!.id,
+        horaLimite: form.horaLimite || null,
+      });
+      setModalCrear(false);
+      setForm({ titulo: '', descripcion: '', tipo: 'general', prioridad: 'normal', fecha: new Date().toISOString().split('T')[0], horaLimite: '', asignadoAId: '' });
+      addToast('Tarea creada');
+      cargar();
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
+
+  const completar = async () => {
+    if (!modalCompletar) return;
+    try {
+      await api.completarTarea(modalCompletar.id, obsCompletar);
+      setModalCompletar(null);
+      setObsCompletar('');
+      addToast('Tarea completada');
+      cargar();
+    } catch (e: any) {
+      addToast('Error: ' + e.message, 'error');
+    }
+  };
+
+  const hoy = new Date().toISOString().split('T')[0];
+
+  return (
+    <div>
+      <PageTour pageKey="tareas" />
+
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Equipo</p>
+          <h1 className="text-xl font-extrabold text-foreground mt-1">Tareas</h1>
+        </div>
+        <Button onClick={() => setModalCrear(true)}>
+          <Plus size={16} /> Nueva tarea
+        </Button>
+      </div>
+
+      {/* Filtros */}
+      <div className="flex gap-3 mb-4 flex-wrap">
+        <div className="flex rounded-lg overflow-hidden border border-border">
+          {(['mis', 'creadas', 'todas'] as const).map(f => (
+            <button
+              key={f}
+              onClick={() => setFiltro(f)}
+              className={`px-4 py-2 text-sm font-semibold transition ${filtro === f ? 'bg-primary text-black' : 'bg-surface text-on-surface-variant hover:bg-surface-high'}`}
+            >
+              {f === 'mis' ? 'Mis tareas' : f === 'creadas' ? 'Delegadas por mi' : 'Todas'}
+            </button>
+          ))}
+        </div>
+        <Select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)} className="w-44">
+          <option value="pendientes">Pendientes</option>
+          <option value="completada">Completadas</option>
+          <option value="">Todas</option>
+        </Select>
+      </div>
+
+      {/* Lista de tareas */}
+      <div className="space-y-2">
+        {tareas.map(t => {
+          const vencida = t.fecha < hoy && ['pendiente', 'en_progreso'].includes(t.estado);
+          const esMia = t.asignadoAId === user?.id;
+
+          return (
+            <div
+              key={t.id}
+              className={`bg-surface border rounded-xl p-4 transition ${
+                vencida ? 'border-red-500/40 bg-red-500/5' :
+                t.estado === 'completada' ? 'border-emerald-500/20 opacity-70' :
+                esMia ? 'border-amber-500/30 bg-amber-500/5' :
+                'border-border'
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                {/* Check button */}
+                <button
+                  onClick={() => {
+                    if (t.estado !== 'completada') {
+                      setModalCompletar(t);
+                      setObsCompletar('');
+                    }
+                  }}
+                  disabled={t.estado === 'completada'}
+                  className={`mt-0.5 shrink-0 ${t.estado === 'completada' ? 'text-emerald-500' : 'text-zinc-600 hover:text-emerald-400'}`}
+                >
+                  {t.estado === 'completada' ? <CheckCircle2 size={22} /> : <Circle size={22} />}
+                </button>
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className={`font-bold text-sm ${t.estado === 'completada' ? 'line-through text-on-surface-variant' : 'text-foreground'}`}>
+                      {t.titulo}
+                    </p>
+                    <Badge variant={prioridadBadge[t.prioridad] || 'default'}>
+                      {t.prioridad}
+                    </Badge>
+                    {vencida && <Badge variant="danger">Vencida</Badge>}
+                  </div>
+
+                  {t.descripcion && (
+                    <p className="text-xs text-on-surface-variant mt-1">{t.descripcion}</p>
+                  )}
+
+                  <div className="flex items-center gap-4 mt-2 text-xs text-on-surface-variant">
+                    <span className="flex items-center gap-1">
+                      <User size={12} />
+                      <span className={esMia ? 'text-amber-500 font-semibold' : ''}>{t.asignadoA?.nombre}</span>
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Calendar size={12} />
+                      {t.fecha}{t.horaLimite ? ` ${t.horaLimite}` : ''}
+                    </span>
+                    {t.creadoPor && (
+                      <span className="text-zinc-600">por {t.creadoPor.nombre}</span>
+                    )}
+                    {t.tipo !== 'general' && (
+                      <span className="bg-zinc-800 px-1.5 py-0.5 rounded text-[10px]">
+                        {TIPOS.find(tp => tp.value === t.tipo)?.label || t.tipo}
+                      </span>
+                    )}
+                  </div>
+
+                  {t.estado === 'completada' && t.observacion && (
+                    <p className="text-xs text-emerald-400/70 mt-1 flex items-center gap-1">
+                      <MessageSquare size={10} /> {t.observacion}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {tareas.length === 0 && (
+          <div className="text-center py-12 text-on-surface-variant">
+            <CheckCircle2 size={40} className="mx-auto mb-3 opacity-30" />
+            <p className="font-semibold">
+              {filtro === 'mis' ? 'No tenes tareas pendientes' : 'Sin tareas'}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Modal Crear Tarea */}
+      <Modal open={modalCrear} onClose={() => setModalCrear(false)} title="Nueva Tarea">
+        <div className="space-y-4">
+          {error && <p className="text-sm text-destructive font-semibold">{error}</p>}
+
+          <Input label="Titulo *" value={form.titulo} onChange={e => setForm({ ...form, titulo: e.target.value })} placeholder="Ej: Recibir pedido de verduras" />
+
+          <Input label="Descripcion" value={form.descripcion} onChange={e => setForm({ ...form, descripcion: e.target.value })} placeholder="Detalles adicionales..." />
+
+          <Select label="Asignar a *" value={form.asignadoAId} onChange={e => setForm({ ...form, asignadoAId: e.target.value })}>
+            <option value="">Seleccionar persona...</option>
+            {usuarios.map(u => <option key={u.id} value={u.id}>{u.nombre} ({u.rol})</option>)}
+          </Select>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Select label="Tipo" value={form.tipo} onChange={e => setForm({ ...form, tipo: e.target.value })}>
+              {TIPOS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </Select>
+
+            <Select label="Prioridad" value={form.prioridad} onChange={e => setForm({ ...form, prioridad: e.target.value })}>
+              {PRIORIDADES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </Select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Fecha *" type="date" value={form.fecha} onChange={e => setForm({ ...form, fecha: e.target.value })} />
+            <Input label="Hora limite" type="time" value={form.horaLimite} onChange={e => setForm({ ...form, horaLimite: e.target.value })} />
+          </div>
+
+          <Button onClick={crear} className="w-full">
+            <Plus size={16} /> Crear y asignar tarea
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Modal Completar Tarea */}
+      <Modal open={!!modalCompletar} onClose={() => setModalCompletar(null)} title="Completar tarea">
+        <div className="space-y-4">
+          <p className="font-bold text-foreground">{modalCompletar?.titulo}</p>
+          {modalCompletar?.descripcion && (
+            <p className="text-sm text-on-surface-variant">{modalCompletar.descripcion}</p>
+          )}
+
+          <Input
+            label="Nota al completar (opcional)"
+            value={obsCompletar}
+            onChange={e => setObsCompletar(e.target.value)}
+            placeholder="Ej: Se recibieron 18 de 20 cajas"
+          />
+
+          <Button onClick={completar} className="w-full bg-emerald-600 hover:bg-emerald-500">
+            <Check size={16} /> Marcar como completada
+          </Button>
+        </div>
+      </Modal>
+    </div>
+  );
+}

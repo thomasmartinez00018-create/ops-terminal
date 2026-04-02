@@ -20,6 +20,7 @@ import ControlScanner from './pages/ControlScanner';
 import Discrepancias from './pages/Discrepancias';
 import AccesoRed from './pages/AccesoRed';
 import EscanerFactura from './pages/EscanerFactura';
+import Tareas from './pages/Tareas';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -56,6 +57,7 @@ function AppRoutes() {
         <Route path="/vincular" element={<Vincular />} />
         <Route path="/acceso-red" element={<AccesoRed />} />
         <Route path="/escanear-factura" element={<EscanerFactura />} />
+        <Route path="/tareas" element={<Tareas />} />
       </Route>
     </Routes>
   );

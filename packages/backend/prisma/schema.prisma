@@ -80,6 +80,8 @@ model Usuario {
   ordenesCreadas    OrdenCompra[] @relation("ocCreador")
   ordenesAsignadas  OrdenCompra[] @relation("ocResponsable")
   recepciones       Recepcion[]   @relation("recepcionUsuario")
+  tareasCreadas     Tarea[]       @relation("tareasCreadas")
+  tareasAsignadas   Tarea[]       @relation("tareasAsignadas")
 
   @@map("usuarios")
 }
@@ -299,4 +301,29 @@ model RecepcionItem {
   producto  Producto  @relation(fields: [productoId], references: [id])
 
   @@map("recepcion_items")
+}
+
+// ==========================================
+// TAREAS (delegación de responsabilidades)
+// ==========================================
+model Tarea {
+  id            Int      @id @default(autoincrement())
+  titulo        String
+  descripcion   String?
+  tipo          String   @default("general") // general, recibir_mercaderia, inventario, limpieza, prep, cierre
+  estado        String   @default("pendiente") // pendiente, en_progreso, completada, cancelada
+  prioridad     String   @default("normal") // baja, normal, alta, urgente
+  fecha         String   // YYYY-MM-DD — para cuándo
+  horaLimite    String?  @map("hora_limite") // HH:mm — hora límite opcional
+  creadoPorId   Int      @map("creado_por_id")
+  asignadoAId   Int      @map("asignado_a_id")
+  completadaAt  DateTime? @map("completada_at")
+  observacion   String?  // nota al completar
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  creadoPor     Usuario  @relation("tareasCreadas", fields: [creadoPorId], references: [id])
+  asignadoA     Usuario  @relation("tareasAsignadas", fields: [asignadoAId], references: [id])
+
+  @@map("tareas")
 }

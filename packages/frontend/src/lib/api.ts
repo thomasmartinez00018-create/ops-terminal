@@ -139,6 +139,18 @@ export const api = {
   getTrazabilidad: (productoId: number, depositoId: number) =>
     request<any>(`/reportes/trazabilidad/${productoId}/${depositoId}`),
 
+  // Tareas
+  getTareas: (params?: Record<string, string>) => request<any[]>(`/tareas${qs(params)}`),
+  getMisPendientes: (userId: number) => request<any>(`/tareas/mis-pendientes/${userId}`),
+  createTarea: (data: any) =>
+    request<any>('/tareas', { method: 'POST', body: JSON.stringify(data) }),
+  updateTarea: (id: number, data: any) =>
+    request<any>(`/tareas/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  completarTarea: (id: number, observacion?: string) =>
+    request<any>(`/tareas/${id}/completar`, { method: 'PUT', body: JSON.stringify({ observacion }) }),
+  deleteTarea: (id: number) =>
+    request<any>(`/tareas/${id}`, { method: 'DELETE' }),
+
   // Facturas / Escaner IA
   escanearFactura: (data: { imagen: string; mimeType?: string }) =>
     request<any>('/facturas/escanear', { method: 'POST', body: JSON.stringify(data) }),

@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import {
   LayoutDashboard, Package, Warehouse, Users, ArrowRightLeft,
   ClipboardList, LogOut, Menu, X, ChefHat, Truck, ClipboardCheck,
-  Upload, BarChart3, Link2, ShoppingCart, ScanBarcode, AlertTriangle, ScanLine
+  Upload, BarChart3, Link2, ShoppingCart, ScanBarcode, AlertTriangle, ScanLine, ListTodo
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -11,6 +11,7 @@ import { useState } from 'react';
 // adminOnly: solo admin, sin excepción
 const navItems: { to: string; label: string; icon: any; permiso?: string; adminOnly?: boolean }[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/tareas', label: 'Tareas', icon: ListTodo },
   { to: '/ordenes-compra', label: 'Órdenes', icon: ShoppingCart, permiso: 'ordenes-compra' },
   { to: '/control-scanner', label: 'Control', icon: ScanBarcode, permiso: 'control-scanner' },
   { to: '/movimientos', label: 'Movimientos', icon: ArrowRightLeft, permiso: 'movimientos' },

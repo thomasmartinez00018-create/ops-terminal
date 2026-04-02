@@ -33,6 +33,7 @@ export default function OrdenesCompra() {
   const [ordenes, setOrdenes] = useState<any[]>([]);
   const [selectedOrden, setSelectedOrden] = useState<any>(null);
   const [filtroEstado, setFiltroEstado] = useState('');
+  const [soloMias, setSoloMias] = useState(user?.rol !== 'admin');
 
   // Data auxiliar
   const [proveedores, setProveedores] = useState<any[]>([]);
@@ -67,12 +68,13 @@ export default function OrdenesCompra() {
   const cargarOrdenes = () => {
     const params: Record<string, string> = {};
     if (filtroEstado) params.estado = filtroEstado;
+    if (soloMias && user) params.responsableId = String(user.id);
     api.getOrdenesCompra(params).then(setOrdenes).catch(console.error);
   };
 
   useEffect(() => {
     if (view === 'list') cargarOrdenes();
-  }, [view, filtroEstado]);
+  }, [view, filtroEstado, soloMias]);
 
   const verDetalle = async (id: number) => {
     const orden = await api.getOrdenCompra(id);
@@ -343,7 +345,21 @@ export default function OrdenesCompra() {
       </div>
 
       {/* Filtros */}
-      <div className="flex gap-3 mb-4">
+      <div className="flex gap-3 mb-4 flex-wrap">
+        <div className="flex rounded-lg overflow-hidden border border-border">
+          <button
+            onClick={() => setSoloMias(true)}
+            className={`px-4 py-2 text-sm font-semibold transition ${soloMias ? 'bg-primary text-black' : 'bg-surface text-on-surface-variant hover:bg-surface-high'}`}
+          >
+            Mis asignadas
+          </button>
+          <button
+            onClick={() => setSoloMias(false)}
+            className={`px-4 py-2 text-sm font-semibold transition ${!soloMias ? 'bg-primary text-black' : 'bg-surface text-on-surface-variant hover:bg-surface-high'}`}
+          >
+            Todas
+          </button>
+        </div>
         <Select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)} className="w-48">
           <option value="">Todos los estados</option>
           <option value="pendiente">Pendiente</option>
@@ -371,7 +387,7 @@ export default function OrdenesCompra() {
             {ordenes.map(oc => {
               const est = ESTADOS[oc.estado] || ESTADOS.pendiente;
               return (
-                <tr key={oc.id} className="hover:bg-surface-high/50 transition-colors">
+                <tr key={oc.id} className={`hover:bg-surface-high/50 transition-colors ${oc.responsableId === user?.id && ['pendiente', 'parcial'].includes(oc.estado) ? 'bg-amber-500/5 border-l-2 border-l-amber-500' : ''}`}>
                   <td className="p-3 font-bold text-primary">{oc.codigo}</td>
                   <td className="p-3 font-semibold text-foreground">{oc.proveedor?.nombre}</td>
                   <td className="p-3 text-on-surface-variant">{oc.responsable?.nombre}</td>
