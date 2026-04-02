@@ -1,0 +1,520 @@
+import { useEffect, useState } from 'react';
+import { api } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import Button from '../components/ui/Button';
+import Input from '../components/ui/Input';
+import Select from '../components/ui/Select';
+import Modal from '../components/ui/Modal';
+import Badge from '../components/ui/Badge';
+import SearchableSelect from '../components/ui/SearchableSelect';
+import { Plus, FlaskConical, X, Wand2, ArrowRight, ArrowLeft, Package } from 'lucide-react';
+
+interface IngredienteRow {
+  productoId: number | null;
+  cantidad: number | string;
+  unidad: string;
+  depositoOrigenId: number | null;
+}
+
+const emptyIngrediente: IngredienteRow = {
+  productoId: null,
+  cantidad: '',
+  unidad: '',
+  depositoOrigenId: null,
+};
+
+const emptyForm = {
+  recetaId: null as number | null,
+  productoResultadoId: null as number | null,
+  cantidadProducida: '' as string | number,
+  unidadProducida: '',
+  depositoDestinoId: null as number | null,
+  fecha: new Date().toISOString().split('T')[0],
+  hora: new Date().toTimeString().slice(0, 5),
+  observacion: '',
+  ingredientes: [] as IngredienteRow[],
+};
+
+export default function Elaboraciones() {
+  const { user } = useAuth();
+  const { showToast } = useToast();
+
+  const [lotes, setLotes] = useState<any[]>([]);
+  const [productos, setProductos] = useState<any[]>([]);
+  const [depositos, setDepositos] = useState<any[]>([]);
+  const [recetas, setRecetas] = useState<any[]>([]);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [form, setForm] = useState({ ...emptyForm });
+  const [loading, setLoading] = useState(false);
+
+  const cargar = () => {
+    api.getElaboraciones().then(setLotes).catch(console.error);
+  };
+
+  useEffect(() => {
+    cargar();
+    api.getProductos({ activo: 'true' }).then(setProductos).catch(console.error);
+    api.getDepositos({ activo: 'true' }).then(setDepositos).catch(console.error);
+    api.getRecetasConProducto().then(setRecetas).catch(console.error);
+  }, []);
+
+  const abrirModal = () => {
+    setForm({
+      ...emptyForm,
+      fecha: new Date().toISOString().split('T')[0],
+      hora: new Date().toTimeString().slice(0, 5),
+      ingredientes: [{ ...emptyIngrediente }],
+    });
+    setModalOpen(true);
+  };
+
+  // When a recipe is selected, auto-fill producto resultado and ingredients
+  const handleRecetaChange = (recetaId: string) => {
+    const id = recetaId ? Number(recetaId) : null;
+    if (!id) {
+      setForm(f => ({ ...f, recetaId: null }));
+      return;
+    }
+    const receta = recetas.find(r => r.id === id);
+    if (!receta) return;
+
+    const cantBase = Number(form.cantidadProducida) || receta.cantidadProducida || 1;
+    const ratio = receta.cantidadProducida ? cantBase / receta.cantidadProducida : 1;
+
+    const newIngredientes: IngredienteRow[] = receta.ingredientes.map((ing: any) => ({
+      productoId: ing.productoId,
+      cantidad: +(Number(ing.cantidad) * ratio * (1 + Number(ing.mermaEsperada) / 100)).toFixed(3),
+      unidad: ing.unidad,
+      depositoOrigenId: null,
+    }));
+
+    setForm(f => ({
+      ...f,
+      recetaId: id,
+      productoResultadoId: receta.productoResultadoId ?? f.productoResultadoId,
+      cantidadProducida: receta.cantidadProducida ? String(cantBase) : f.cantidadProducida,
+      unidadProducida: receta.unidadProducida || (receta.productoResultado?.unidadUso ?? f.unidadProducida),
+      ingredientes: newIngredientes.length > 0 ? newIngredientes : f.ingredientes,
+    }));
+  };
+
+  // When cantidadProducida changes, proportionally update ingredient quantities IF a recipe is loaded
+  const handleCantidadChange = (val: string) => {
+    const newCant = Number(val);
+    if (form.recetaId && newCant > 0) {
+      const receta = recetas.find(r => r.id === form.recetaId);
+      if (receta && receta.cantidadProducida) {
+        const ratio = newCant / receta.cantidadProducida;
+        const newIngredientes = receta.ingredientes.map((ing: any) => ({
+          productoId: ing.productoId,
+          cantidad: +(Number(ing.cantidad) * ratio * (1 + Number(ing.mermaEsperada) / 100)).toFixed(3),
+          unidad: ing.unidad,
+          depositoOrigenId: (form.ingredientes.find(fi => fi.productoId === ing.productoId)?.depositoOrigenId) ?? null,
+        }));
+        setForm(f => ({ ...f, cantidadProducida: val, ingredientes: newIngredientes }));
+        return;
+      }
+    }
+    setForm(f => ({ ...f, cantidadProducida: val }));
+  };
+
+  const handleProductoResultadoChange = (v: string) => {
+    const prod = productos.find(p => p.id === Number(v));
+    setForm(f => ({
+      ...f,
+      productoResultadoId: v ? Number(v) : null,
+      unidadProducida: prod?.unidadUso ?? f.unidadProducida,
+    }));
+  };
+
+  const agregarIngrediente = () => {
+    setForm(f => ({ ...f, ingredientes: [...f.ingredientes, { ...emptyIngrediente }] }));
+  };
+
+  const quitarIngrediente = (idx: number) => {
+    setForm(f => ({ ...f, ingredientes: f.ingredientes.filter((_, i) => i !== idx) }));
+  };
+
+  const actualizarIngrediente = (idx: number, campo: keyof IngredienteRow, valor: any) => {
+    const nuevos = [...form.ingredientes];
+    nuevos[idx] = { ...nuevos[idx], [campo]: valor };
+    if (campo === 'productoId' && valor) {
+      const prod = productos.find(p => p.id === Number(valor));
+      if (prod) nuevos[idx].unidad = prod.unidadUso;
+    }
+    setForm(f => ({ ...f, ingredientes: nuevos }));
+  };
+
+  // Merma calculation
+  const totalInput = form.ingredientes.reduce((acc, ing) => acc + Number(ing.cantidad || 0), 0);
+  const totalOutput = Number(form.cantidadProducida || 0);
+  const mermaImplicita = totalInput > 0 && totalOutput > 0 && form.ingredientes.length === 1
+    ? Math.max(0, totalInput - totalOutput)
+    : null;
+  const mermaPorc = mermaImplicita !== null && totalInput > 0
+    ? ((mermaImplicita / totalInput) * 100).toFixed(1)
+    : null;
+
+  const guardar = async () => {
+    if (!form.productoResultadoId) {
+      showToast('Seleccioná el producto a elaborar', 'error');
+      return;
+    }
+    if (!form.cantidadProducida || Number(form.cantidadProducida) <= 0) {
+      showToast('Ingresá la cantidad producida', 'error');
+      return;
+    }
+    if (!form.ingredientes.length || form.ingredientes.every(i => !i.productoId)) {
+      showToast('Agregá al menos un ingrediente', 'error');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await api.createElaboracion({
+        productoResultadoId: form.productoResultadoId,
+        cantidadProducida: Number(form.cantidadProducida),
+        unidadProducida: form.unidadProducida || 'unidad',
+        depositoDestinoId: form.depositoDestinoId,
+        recetaId: form.recetaId,
+        usuarioId: user!.id,
+        fecha: form.fecha,
+        hora: form.hora,
+        observacion: form.observacion || null,
+        ingredientes: form.ingredientes
+          .filter(i => i.productoId && Number(i.cantidad) > 0)
+          .map(i => ({
+            productoId: i.productoId,
+            cantidad: Number(i.cantidad),
+            unidad: i.unidad,
+            depositoOrigenId: i.depositoOrigenId,
+          })),
+      });
+      showToast('Elaboración registrada', 'success');
+      setModalOpen(false);
+      cargar();
+    } catch (e: any) {
+      showToast(e.message || 'Error al registrar', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const productoResultado = productos.find(p => p.id === form.productoResultadoId);
+
+  return (
+    <div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+        <div>
+          <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Producción</p>
+          <h1 className="text-xl font-extrabold text-foreground mt-1">Elaboraciones</h1>
+          <p className="text-xs text-on-surface-variant mt-1">Transformación de ingredientes en productos elaborados</p>
+        </div>
+        <Button onClick={abrirModal}>
+          <Plus size={16} /> Registrar elaboración
+        </Button>
+      </div>
+
+      {/* History table */}
+      <div className="bg-surface rounded-xl border border-border overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Código</th>
+                <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Fecha</th>
+                <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Producto elaborado</th>
+                <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Cantidad</th>
+                <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden md:table-cell">Ingredientes consumidos</th>
+                <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden lg:table-cell">Depósito destino</th>
+                <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden lg:table-cell">Registró</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {lotes.map(lote => (
+                <tr key={lote.id} className="hover:bg-surface-high/50 transition-colors">
+                  <td className="p-3 font-mono text-xs text-primary">{lote.codigo}</td>
+                  <td className="p-3 text-on-surface-variant text-xs">{lote.fecha}</td>
+                  <td className="p-3 font-semibold text-foreground">
+                    <div className="flex items-center gap-2">
+                      <FlaskConical size={14} className="text-primary shrink-0" />
+                      {lote.productoResultado?.nombre}
+                    </div>
+                    {lote.receta && (
+                      <div className="text-xs text-on-surface-variant mt-0.5">Receta: {lote.receta.nombre}</div>
+                    )}
+                  </td>
+                  <td className="p-3">
+                    <span className="font-bold text-emerald-400">{lote.cantidadProducida}</span>
+                    <span className="text-on-surface-variant ml-1 text-xs">{lote.unidadProducida}</span>
+                  </td>
+                  <td className="p-3 hidden md:table-cell">
+                    <div className="space-y-0.5">
+                      {lote.movimientos?.map((mov: any, i: number) => (
+                        <div key={i} className="text-xs text-on-surface-variant">
+                          <span className="text-orange-400 font-semibold">{mov.cantidad} {mov.unidad}</span>
+                          {' '}{mov.producto?.nombre}
+                          {mov.depositoOrigen && <span className="text-[10px]"> ({mov.depositoOrigen.nombre})</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="p-3 hidden lg:table-cell text-on-surface-variant text-xs">
+                    {lote.depositoDestino?.nombre ?? '—'}
+                  </td>
+                  <td className="p-3 hidden lg:table-cell text-on-surface-variant text-xs">
+                    {lote.usuario?.nombre}
+                  </td>
+                </tr>
+              ))}
+              {lotes.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="p-8 text-center text-on-surface-variant font-medium">
+                    No hay elaboraciones registradas
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Modal nueva elaboración */}
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title="Registrar elaboración"
+      >
+        <div className="space-y-4">
+          {/* Fecha/hora */}
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Fecha"
+              id="fecha"
+              type="date"
+              value={form.fecha}
+              onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))}
+            />
+            <Input
+              label="Hora"
+              id="hora"
+              type="time"
+              value={form.hora}
+              onChange={e => setForm(f => ({ ...f, hora: e.target.value }))}
+            />
+          </div>
+
+          {/* Recipe selector */}
+          <div>
+            <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1.5">Receta (opcional)</p>
+            <div className="flex gap-2 items-center">
+              <div className="flex-1">
+                <SearchableSelect
+                  value={form.recetaId?.toString() || ''}
+                  onChange={handleRecetaChange}
+                  options={[
+                    { value: '', label: 'Sin receta' },
+                    ...recetas.map(r => ({
+                      value: r.id.toString(),
+                      label: r.nombre + (r.productoResultado ? ` → ${r.productoResultado.nombre}` : ''),
+                    }))
+                  ]}
+                  placeholder="Seleccionar receta..."
+                />
+              </div>
+              {form.recetaId && (
+                <button
+                  onClick={() => setForm(f => ({ ...f, recetaId: null }))}
+                  className="p-1.5 rounded-lg hover:bg-destructive/10 text-on-surface-variant hover:text-destructive transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            {form.recetaId && (
+              <p className="text-xs text-primary mt-1 flex items-center gap-1">
+                <Wand2 size={10} />
+                Ingredientes cargados desde receta
+              </p>
+            )}
+          </div>
+
+          {/* Output section */}
+          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+            <div className="flex items-center gap-2 mb-3">
+              <ArrowRight size={14} className="text-emerald-400" />
+              <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Producto elaborado (output)</p>
+            </div>
+            <div className="space-y-2">
+              <div>
+                <p className="text-[10px] font-semibold text-on-surface-variant mb-1">Producto resultado</p>
+                <SearchableSelect
+                  value={form.productoResultadoId?.toString() || ''}
+                  onChange={handleProductoResultadoChange}
+                  options={productos.map(p => ({ value: p.id.toString(), label: p.nombre }))}
+                  placeholder="Seleccionar producto..."
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  label="Cantidad producida"
+                  id="cantidadProducida"
+                  type="number"
+                  value={form.cantidadProducida}
+                  onChange={e => handleCantidadChange(e.target.value)}
+                  placeholder="0"
+                />
+                <Input
+                  label="Unidad"
+                  id="unidadProducida"
+                  value={form.unidadProducida}
+                  onChange={e => setForm(f => ({ ...f, unidadProducida: e.target.value }))}
+                  placeholder="kg, lt, unidad..."
+                />
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold text-on-surface-variant mb-1">Depósito destino</p>
+                <Select
+                  id="depositoDestino"
+                  value={form.depositoDestinoId?.toString() || ''}
+                  onChange={e => setForm(f => ({ ...f, depositoDestinoId: e.target.value ? Number(e.target.value) : null }))}
+                  options={depositos.map(d => ({ value: d.id.toString(), label: d.nombre }))}
+                  placeholder="Sin asignar"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Input section */}
+          <div className="rounded-xl border border-orange-500/20 bg-orange-500/5 p-3">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <ArrowLeft size={14} className="text-orange-400" />
+                <p className="text-[10px] font-bold text-orange-400 uppercase tracking-widest">Ingredientes consumidos (input)</p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {form.ingredientes.map((ing, idx) => (
+                <div key={idx} className="bg-surface-high/50 rounded-lg p-2">
+                  <div className="grid grid-cols-12 gap-2 items-start">
+                    <div className="col-span-4">
+                      <SearchableSelect
+                        value={ing.productoId?.toString() || ''}
+                        onChange={v => actualizarIngrediente(idx, 'productoId', v ? Number(v) : null)}
+                        options={productos.map(p => ({ value: p.id.toString(), label: p.nombre }))}
+                        placeholder="Producto..."
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <input
+                        type="number"
+                        placeholder="Cant."
+                        value={ing.cantidad}
+                        onChange={e => actualizarIngrediente(idx, 'cantidad', e.target.value)}
+                        className="w-full px-2 py-1.5 rounded-lg bg-surface-high border-0 text-foreground text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <input
+                        type="text"
+                        placeholder="Unidad"
+                        value={ing.unidad}
+                        onChange={e => actualizarIngrediente(idx, 'unidad', e.target.value)}
+                        className="w-full px-2 py-1.5 rounded-lg bg-surface-high border-0 text-on-surface-variant text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary/50"
+                        readOnly
+                      />
+                    </div>
+                    <div className="col-span-3">
+                      <Select
+                        id={`dep-origen-${idx}`}
+                        value={ing.depositoOrigenId?.toString() || ''}
+                        onChange={e => actualizarIngrediente(idx, 'depositoOrigenId', e.target.value ? Number(e.target.value) : null)}
+                        options={depositos.map(d => ({ value: d.id.toString(), label: d.nombre }))}
+                        placeholder="Depósito..."
+                      />
+                    </div>
+                    <div className="col-span-1 flex justify-end pt-1">
+                      <button
+                        onClick={() => quitarIngrediente(idx)}
+                        className="p-1 rounded-lg hover:bg-destructive/10 text-on-surface-variant hover:text-destructive transition-colors"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <button
+                onClick={agregarIngrediente}
+                className="flex items-center gap-1 text-xs font-bold text-orange-400 hover:text-orange-300 transition-colors"
+              >
+                <Plus size={13} /> Agregar ingrediente
+              </button>
+            </div>
+          </div>
+
+          {/* Preview / merma panel */}
+          {(form.productoResultadoId || form.ingredientes.some(i => i.productoId)) && (
+            <div className="rounded-xl border border-border bg-surface-high/30 p-3 space-y-1.5">
+              <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                <Package size={11} /> Vista previa de movimientos
+              </p>
+              {form.productoResultadoId && Number(form.cantidadProducida) > 0 && (
+                <div className="flex items-center gap-2 text-xs">
+                  <ArrowRight size={12} className="text-emerald-400 shrink-0" />
+                  <span className="text-emerald-400 font-bold">+{form.cantidadProducida} {form.unidadProducida}</span>
+                  <span className="text-on-surface-variant">elaboración de</span>
+                  <span className="font-semibold text-foreground">{productoResultado?.nombre}</span>
+                  {form.depositoDestinoId && (
+                    <span className="text-on-surface-variant">→ {depositos.find(d => d.id === form.depositoDestinoId)?.nombre}</span>
+                  )}
+                </div>
+              )}
+              {form.ingredientes.filter(i => i.productoId && Number(i.cantidad) > 0).map((ing, idx) => {
+                const prod = productos.find(p => p.id === ing.productoId);
+                const dep = depositos.find(d => d.id === ing.depositoOrigenId);
+                return (
+                  <div key={idx} className="flex items-center gap-2 text-xs">
+                    <ArrowLeft size={12} className="text-orange-400 shrink-0" />
+                    <span className="text-orange-400 font-bold">-{ing.cantidad} {ing.unidad}</span>
+                    <span className="text-on-surface-variant">consumo de</span>
+                    <span className="font-semibold text-foreground">{prod?.nombre}</span>
+                    {dep && <span className="text-on-surface-variant">(de {dep.nombre})</span>}
+                  </div>
+                );
+              })}
+              {mermaImplicita !== null && mermaImplicita > 0 && (
+                <div className="mt-2 pt-2 border-t border-border">
+                  <div className="flex items-center gap-2 text-xs text-on-surface-variant">
+                    <span className="font-bold text-amber-400">Merma implícita: {mermaImplicita.toFixed(3)} {form.ingredientes[0]?.unidad}</span>
+                    <Badge>{mermaPorc}%</Badge>
+                    <span className="text-[10px]">(input - output, no genera movimiento extra)</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Observacion */}
+          <Input
+            label="Observación (opcional)"
+            id="observacion"
+            value={form.observacion}
+            onChange={e => setForm(f => ({ ...f, observacion: e.target.value }))}
+            placeholder="Notas adicionales..."
+          />
+
+          <div className="flex gap-2 pt-1">
+            <Button onClick={guardar} disabled={loading} className="flex-1">
+              {loading ? 'Guardando...' : 'Registrar elaboración'}
+            </Button>
+            <Button variant="secondary" onClick={() => setModalOpen(false)}>
+              Cancelar
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}

@@ -21,6 +21,7 @@ import Discrepancias from './pages/Discrepancias';
 import AccesoRed from './pages/AccesoRed';
 import EscanerFactura from './pages/EscanerFactura';
 import Tareas from './pages/Tareas';
+import Elaboraciones from './pages/Elaboraciones';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -58,6 +59,7 @@ function AppRoutes() {
         <Route path="/acceso-red" element={<AccesoRed />} />
         <Route path="/escanear-factura" element={<EscanerFactura />} />
         <Route path="/tareas" element={<Tareas />} />
+        <Route path="/elaboraciones" element={<Elaboraciones />} />
       </Route>
     </Routes>
   );

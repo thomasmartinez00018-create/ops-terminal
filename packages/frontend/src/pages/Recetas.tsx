@@ -7,7 +7,7 @@ import Select from '../components/ui/Select';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
 import SearchableSelect from '../components/ui/SearchableSelect';
-import { Plus, Pencil, Trash2, ChefHat, DollarSign, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, ChefHat, DollarSign, X, Package } from 'lucide-react';
 
 const CATEGORIAS = [
   { value: 'entrada', label: 'Entrada' },
@@ -36,6 +36,9 @@ const emptyForm = {
   nombre: '',
   categoria: '',
   porciones: 1,
+  productoResultadoId: null as number | null,
+  cantidadProducida: '' as string | number,
+  unidadProducida: '',
   ingredientes: [] as Ingrediente[],
 };
 
@@ -43,6 +46,7 @@ export default function Recetas() {
   const [recetas, setRecetas] = useState<any[]>([]);
   const [productos, setProductos] = useState<any[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
+  const [productosAll, setProductosAll] = useState<any[]>([]);
   const [costoModal, setCostoModal] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -55,7 +59,10 @@ export default function Recetas() {
 
   useEffect(() => {
     cargar();
-    api.getProductos({ activo: 'true' }).then(setProductos).catch(console.error);
+    api.getProductos({ activo: 'true' }).then(prods => {
+      setProductos(prods);
+      setProductosAll(prods);
+    }).catch(console.error);
   }, []);
 
   const abrir = (receta?: any) => {
@@ -66,6 +73,9 @@ export default function Recetas() {
         nombre: receta.nombre,
         categoria: receta.categoria,
         porciones: receta.porciones,
+        productoResultadoId: receta.productoResultadoId ?? null,
+        cantidadProducida: receta.cantidadProducida ?? '',
+        unidadProducida: receta.unidadProducida ?? '',
         ingredientes: receta.ingredientes?.map((ing: any) => ({
           productoId: ing.productoId,
           cantidad: ing.cantidad,
@@ -89,6 +99,9 @@ export default function Recetas() {
         nombre: form.nombre,
         categoria: form.categoria,
         porciones: Number(form.porciones),
+        productoResultadoId: form.productoResultadoId ?? null,
+        cantidadProducida: form.cantidadProducida !== '' ? Number(form.cantidadProducida) : null,
+        unidadProducida: form.unidadProducida || null,
         ingredientes: form.ingredientes.map(ing => ({
           productoId: ing.productoId,
           cantidad: Number(ing.cantidad),
@@ -248,6 +261,52 @@ export default function Recetas() {
               value={form.porciones}
               onChange={e => setForm({ ...form, porciones: Number(e.target.value) })}
             />
+          </div>
+
+          {/* Producto resultado para elaboraciones */}
+          <div className="rounded-xl border border-border bg-surface-high/20 p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <Package size={13} className="text-primary" />
+              <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Producto que produce esta receta (para elaboraciones)</p>
+            </div>
+            <div className="space-y-2">
+              <div>
+                <p className="text-[10px] font-semibold text-on-surface-variant mb-1">Producto resultado</p>
+                <SearchableSelect
+                  value={form.productoResultadoId?.toString() || ''}
+                  onChange={v => {
+                    const prod = productosAll.find(p => p.id === Number(v));
+                    setForm(f => ({
+                      ...f,
+                      productoResultadoId: v ? Number(v) : null,
+                      unidadProducida: prod?.unidadUso ?? f.unidadProducida,
+                    }));
+                  }}
+                  options={[
+                    { value: '', label: 'Sin producto resultado' },
+                    ...productosAll.map(p => ({ value: p.id.toString(), label: p.nombre }))
+                  ]}
+                  placeholder="Seleccionar producto elaborado..."
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  label="Cantidad producida"
+                  id="cantidadProducida"
+                  type="number"
+                  value={form.cantidadProducida}
+                  onChange={e => setForm(f => ({ ...f, cantidadProducida: e.target.value }))}
+                  placeholder="ej: 7"
+                />
+                <Input
+                  label="Unidad producida"
+                  id="unidadProducida"
+                  value={form.unidadProducida}
+                  onChange={e => setForm(f => ({ ...f, unidadProducida: e.target.value }))}
+                  placeholder="kg, lt, unidad..."
+                />
+              </div>
+            </div>
           </div>
 
           {/* Ingredientes */}

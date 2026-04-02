@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import {
   LayoutDashboard, Package, Warehouse, Users, ArrowRightLeft,
   ClipboardList, LogOut, Menu, X, ChefHat, Truck, ClipboardCheck,
-  Upload, BarChart3, Link2, ShoppingCart, ScanBarcode, AlertTriangle, ScanLine, ListTodo
+  Upload, BarChart3, Link2, ShoppingCart, ScanBarcode, AlertTriangle, ScanLine, ListTodo, FlaskConical
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -15,6 +15,7 @@ const navItems: { to: string; label: string; icon: any; permiso?: string; adminO
   { to: '/ordenes-compra', label: 'Órdenes', icon: ShoppingCart, permiso: 'ordenes-compra' },
   { to: '/control-scanner', label: 'Control', icon: ScanBarcode, permiso: 'control-scanner' },
   { to: '/movimientos', label: 'Movimientos', icon: ArrowRightLeft, permiso: 'movimientos' },
+  { to: '/elaboraciones', label: 'Elaborar', icon: FlaskConical, permiso: 'movimientos' },
   { to: '/stock', label: 'Stock', icon: ClipboardList, permiso: 'stock' },
   { to: '/productos', label: 'Maestro', icon: Package, permiso: 'productos' },
   { to: '/depositos', label: 'Depósitos', icon: Warehouse, permiso: 'depositos' },

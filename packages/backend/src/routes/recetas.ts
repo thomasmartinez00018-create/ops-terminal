@@ -14,6 +14,7 @@ router.get('/', async (req: Request, res: Response) => {
     const recetas = await prisma.receta.findMany({
       where,
       include: {
+        productoResultado: { select: { id: true, nombre: true, unidadUso: true } },
         ingredientes: {
           include: {
             producto: { select: { codigo: true, nombre: true, unidadUso: true } }
@@ -34,6 +35,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     const receta = await prisma.receta.findUnique({
       where: { id: parseInt(req.params.id as string) },
       include: {
+        productoResultado: { select: { id: true, nombre: true, unidadUso: true } },
         ingredientes: {
           include: {
             producto: { select: { codigo: true, nombre: true, unidadUso: true } }
@@ -54,7 +56,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 // POST /api/recetas
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { codigo, nombre, categoria, porciones, ingredientes } = req.body;
+    const { codigo, nombre, categoria, porciones, productoResultadoId, cantidadProducida, unidadProducida, ingredientes } = req.body;
 
     const receta = await prisma.$transaction(async (tx) => {
       const nuevaReceta = await tx.receta.create({
@@ -63,6 +65,9 @@ router.post('/', async (req: Request, res: Response) => {
           nombre,
           categoria,
           porciones,
+          productoResultadoId: productoResultadoId ? Number(productoResultadoId) : null,
+          cantidadProducida: cantidadProducida ? Number(cantidadProducida) : null,
+          unidadProducida: unidadProducida || null,
           ingredientes: {
             create: ingredientes.map((ing: any) => ({
               productoId: ing.productoId,
@@ -73,6 +78,7 @@ router.post('/', async (req: Request, res: Response) => {
           }
         },
         include: {
+          productoResultado: { select: { id: true, nombre: true, unidadUso: true } },
           ingredientes: {
             include: {
               producto: { select: { codigo: true, nombre: true, unidadUso: true } }
@@ -97,12 +103,17 @@ router.post('/', async (req: Request, res: Response) => {
 router.put('/:id', async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id as string);
-    const { codigo, nombre, categoria, porciones, ingredientes } = req.body;
+    const { codigo, nombre, categoria, porciones, productoResultadoId, cantidadProducida, unidadProducida, ingredientes } = req.body;
 
     const receta = await prisma.$transaction(async (tx) => {
       const recetaActualizada = await tx.receta.update({
         where: { id },
-        data: { codigo, nombre, categoria, porciones }
+        data: {
+          codigo, nombre, categoria, porciones,
+          productoResultadoId: productoResultadoId ? Number(productoResultadoId) : null,
+          cantidadProducida: cantidadProducida ? Number(cantidadProducida) : null,
+          unidadProducida: unidadProducida || null,
+        }
       });
 
       await tx.recetaIngrediente.deleteMany({
@@ -122,6 +133,7 @@ router.put('/:id', async (req: Request, res: Response) => {
       return tx.receta.findUnique({
         where: { id },
         include: {
+          productoResultado: { select: { id: true, nombre: true, unidadUso: true } },
           ingredientes: {
             include: {
               producto: { select: { codigo: true, nombre: true, unidadUso: true } }

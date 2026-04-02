@@ -18,6 +18,7 @@ import ordenesCompraRouter from './routes/ordenesCompra';
 import scannerRouter from './routes/controlScanner';
 import facturasRouter from './routes/facturas';
 import tareasRouter from './routes/tareas';
+import elaboracionesRouter from './routes/elaboraciones';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -43,6 +44,7 @@ app.use('/api/ordenes-compra', ordenesCompraRouter);
 app.use('/api/scanner', scannerRouter);
 app.use('/api/facturas', facturasRouter);
 app.use('/api/tareas', tareasRouter);
+app.use('/api/elaboraciones', elaboracionesRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {

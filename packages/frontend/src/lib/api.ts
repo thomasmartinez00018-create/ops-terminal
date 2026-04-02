@@ -161,4 +161,10 @@ export const api = {
   syncExport: () => request<any>('/sync/export'),
   syncImport: (data: any) =>
     request<any>('/sync/import', { method: 'POST', body: JSON.stringify(data) }),
+
+  // Elaboraciones
+  getElaboraciones: (params?: Record<string, string>) => request<any[]>('/elaboraciones' + (params ? '?' + new URLSearchParams(params).toString() : '')),
+  createElaboracion: (data: any) => request<any>('/elaboraciones', { method: 'POST', body: JSON.stringify(data) }),
+  getElaboracion: (id: number) => request<any>(`/elaboraciones/${id}`),
+  getRecetasConProducto: () => request<any[]>('/recetas?activo=true'),
 };
