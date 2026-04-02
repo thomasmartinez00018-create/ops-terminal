@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -9,8 +10,8 @@ import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import {
-  Plus, Check, Clock, AlertTriangle, ChevronRight, User, Calendar,
-  CheckCircle2, Circle, Loader2, MessageSquare, Trash2
+  Plus, Check, AlertTriangle, User, Calendar,
+  CheckCircle2, Circle, MessageSquare, ShoppingCart
 } from 'lucide-react';
 
 const TIPOS = [
@@ -36,6 +37,7 @@ const prioridadBadge: Record<string, 'default' | 'info' | 'warning' | 'danger'> 
 
 export default function Tareas() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { addToast } = useToast();
   const [tareas, setTareas] = useState<any[]>([]);
   const [usuarios, setUsuarios] = useState<any[]>([]);
@@ -55,12 +57,19 @@ export default function Tareas() {
   }, []);
 
   const cargar = () => {
-    const params: Record<string, string> = {};
-    if (filtro === 'mis' && user) params.asignadoAId = String(user.id);
-    if (filtro === 'creadas' && user) params.creadoPorId = String(user.id);
-    if (filtroEstado === 'pendientes') params.pendientes = 'true';
-    if (filtroEstado !== 'pendientes' && filtroEstado) params.estado = filtroEstado;
-    api.getTareas(params).then(setTareas).catch(console.error);
+    if (filtro === 'mis' && user && filtroEstado === 'pendientes') {
+      // Unificado: tareas + ordenes de compra asignadas
+      api.getMisPendientes(user.id).then((data: any) => {
+        setTareas(data.pendientes || []);
+      }).catch(console.error);
+    } else {
+      const params: Record<string, string> = {};
+      if (filtro === 'mis' && user) params.asignadoAId = String(user.id);
+      if (filtro === 'creadas' && user) params.creadoPorId = String(user.id);
+      if (filtroEstado === 'pendientes') params.pendientes = 'true';
+      if (filtroEstado !== 'pendientes' && filtroEstado) params.estado = filtroEstado;
+      api.getTareas(params).then(setTareas).catch(console.error);
+    }
   };
 
   useEffect(() => { cargar(); }, [filtro, filtroEstado, user?.id]);
@@ -140,12 +149,13 @@ export default function Tareas() {
       {/* Lista de tareas */}
       <div className="space-y-2">
         {tareas.map(t => {
-          const vencida = t.fecha < hoy && ['pendiente', 'en_progreso'].includes(t.estado);
-          const esMia = t.asignadoAId === user?.id;
+          const vencida = t.vencida || (t.fecha < hoy && ['pendiente', 'en_progreso', 'parcial'].includes(t.estado));
+          const esMia = (t.asignadoAId === user?.id) || (t.origen === 'orden_compra');
+          const esOC = t.origen === 'orden_compra';
 
           return (
             <div
-              key={t.id}
+              key={`${t.origen || 'tarea'}-${t.id}`}
               className={`bg-surface border rounded-xl p-4 transition ${
                 vencida ? 'border-red-500/40 bg-red-500/5' :
                 t.estado === 'completada' ? 'border-emerald-500/20 opacity-70' :
@@ -154,19 +164,29 @@ export default function Tareas() {
               }`}
             >
               <div className="flex items-start gap-3">
-                {/* Check button */}
-                <button
-                  onClick={() => {
-                    if (t.estado !== 'completada') {
-                      setModalCompletar(t);
-                      setObsCompletar('');
-                    }
-                  }}
-                  disabled={t.estado === 'completada'}
-                  className={`mt-0.5 shrink-0 ${t.estado === 'completada' ? 'text-emerald-500' : 'text-zinc-600 hover:text-emerald-400'}`}
-                >
-                  {t.estado === 'completada' ? <CheckCircle2 size={22} /> : <Circle size={22} />}
-                </button>
+                {/* Check button — solo para tareas, no OCs */}
+                {esOC ? (
+                  <button
+                    onClick={() => navigate('/ordenes-compra')}
+                    className="mt-0.5 shrink-0 text-amber-500 hover:text-amber-400"
+                    title="Ir a Ordenes de Compra"
+                  >
+                    <ShoppingCart size={22} />
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      if (t.estado !== 'completada') {
+                        setModalCompletar(t);
+                        setObsCompletar('');
+                      }
+                    }}
+                    disabled={t.estado === 'completada'}
+                    className={`mt-0.5 shrink-0 ${t.estado === 'completada' ? 'text-emerald-500' : 'text-zinc-600 hover:text-emerald-400'}`}
+                  >
+                    {t.estado === 'completada' ? <CheckCircle2 size={22} /> : <Circle size={22} />}
+                  </button>
+                )}
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -176,6 +196,7 @@ export default function Tareas() {
                     <Badge variant={prioridadBadge[t.prioridad] || 'default'}>
                       {t.prioridad}
                     </Badge>
+                    {esOC && <Badge variant="warning">Orden de Compra</Badge>}
                     {vencida && <Badge variant="danger">Vencida</Badge>}
                   </div>
 
@@ -184,10 +205,12 @@ export default function Tareas() {
                   )}
 
                   <div className="flex items-center gap-4 mt-2 text-xs text-on-surface-variant">
-                    <span className="flex items-center gap-1">
-                      <User size={12} />
-                      <span className={esMia ? 'text-amber-500 font-semibold' : ''}>{t.asignadoA?.nombre}</span>
-                    </span>
+                    {t.asignadoA && (
+                      <span className="flex items-center gap-1">
+                        <User size={12} />
+                        <span className={esMia ? 'text-amber-500 font-semibold' : ''}>{t.asignadoA?.nombre}</span>
+                      </span>
+                    )}
                     <span className="flex items-center gap-1">
                       <Calendar size={12} />
                       {t.fecha}{t.horaLimite ? ` ${t.horaLimite}` : ''}
@@ -195,7 +218,7 @@ export default function Tareas() {
                     {t.creadoPor && (
                       <span className="text-zinc-600">por {t.creadoPor.nombre}</span>
                     )}
-                    {t.tipo !== 'general' && (
+                    {t.tipo && t.tipo !== 'general' && (
                       <span className="bg-zinc-800 px-1.5 py-0.5 rounded text-[10px]">
                         {TIPOS.find(tp => tp.value === t.tipo)?.label || t.tipo}
                       </span>
