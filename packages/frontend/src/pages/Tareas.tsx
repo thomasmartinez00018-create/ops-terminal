@@ -10,7 +10,7 @@ import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import {
-  Plus, Check, AlertTriangle, User, Calendar,
+  Plus, Check, AlertTriangle, User, Calendar, ChevronRight,
   CheckCircle2, Circle, MessageSquare, ShoppingCart
 } from 'lucide-react';
 
@@ -43,6 +43,7 @@ export default function Tareas() {
   const [usuarios, setUsuarios] = useState<any[]>([]);
   const [filtro, setFiltro] = useState<'mis' | 'creadas' | 'todas'>('mis');
   const [filtroEstado, setFiltroEstado] = useState('pendientes');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [modalCrear, setModalCrear] = useState(false);
   const [modalCompletar, setModalCompletar] = useState<any>(null);
   const [obsCompletar, setObsCompletar] = useState('');
@@ -152,40 +153,31 @@ export default function Tareas() {
           const vencida = t.vencida || (t.fecha < hoy && ['pendiente', 'en_progreso', 'parcial'].includes(t.estado));
           const esMia = (t.asignadoAId === user?.id) || (t.origen === 'orden_compra');
           const esOC = t.origen === 'orden_compra';
+          const key = `${t.origen || 'tarea'}-${t.id}`;
+          const expanded = expandedId === key;
 
           return (
             <div
-              key={`${t.origen || 'tarea'}-${t.id}`}
-              className={`bg-surface border rounded-xl p-4 transition ${
+              key={key}
+              className={`bg-surface border rounded-xl overflow-hidden transition ${
                 vencida ? 'border-red-500/40 bg-red-500/5' :
-                t.estado === 'completada' ? 'border-emerald-500/20 opacity-70' :
+                t.estado === 'completada' ? 'border-emerald-500/20' :
                 esMia ? 'border-amber-500/30 bg-amber-500/5' :
                 'border-border'
               }`}
             >
-              <div className="flex items-start gap-3">
-                {/* Check button — solo para tareas, no OCs */}
+              {/* Fila principal — clickeable para expandir */}
+              <button
+                onClick={() => setExpandedId(expanded ? null : key)}
+                className="w-full p-4 text-left flex items-start gap-3"
+              >
+                {/* Icono */}
                 {esOC ? (
-                  <button
-                    onClick={() => navigate('/ordenes-compra')}
-                    className="mt-0.5 shrink-0 text-amber-500 hover:text-amber-400"
-                    title="Ir a Ordenes de Compra"
-                  >
-                    <ShoppingCart size={22} />
-                  </button>
+                  <ShoppingCart size={20} className="mt-0.5 shrink-0 text-amber-500" />
+                ) : t.estado === 'completada' ? (
+                  <CheckCircle2 size={20} className="mt-0.5 shrink-0 text-emerald-500" />
                 ) : (
-                  <button
-                    onClick={() => {
-                      if (t.estado !== 'completada') {
-                        setModalCompletar(t);
-                        setObsCompletar('');
-                      }
-                    }}
-                    disabled={t.estado === 'completada'}
-                    className={`mt-0.5 shrink-0 ${t.estado === 'completada' ? 'text-emerald-500' : 'text-zinc-600 hover:text-emerald-400'}`}
-                  >
-                    {t.estado === 'completada' ? <CheckCircle2 size={22} /> : <Circle size={22} />}
-                  </button>
+                  <Circle size={20} className="mt-0.5 shrink-0 text-zinc-600" />
                 )}
 
                 <div className="flex-1 min-w-0">
@@ -196,42 +188,108 @@ export default function Tareas() {
                     <Badge variant={prioridadBadge[t.prioridad] || 'default'}>
                       {t.prioridad}
                     </Badge>
-                    {esOC && <Badge variant="warning">Orden de Compra</Badge>}
+                    {esOC && <Badge variant="warning">OC</Badge>}
                     {vencida && <Badge variant="danger">Vencida</Badge>}
+                    {t.estado === 'completada' && <Badge variant="success">Completada</Badge>}
                   </div>
 
-                  {t.descripcion && (
-                    <p className="text-xs text-on-surface-variant mt-1">{t.descripcion}</p>
-                  )}
-
-                  <div className="flex items-center gap-4 mt-2 text-xs text-on-surface-variant">
+                  <div className="flex items-center gap-4 mt-1.5 text-xs text-on-surface-variant">
                     {t.asignadoA && (
                       <span className="flex items-center gap-1">
-                        <User size={12} />
+                        <User size={11} />
                         <span className={esMia ? 'text-amber-500 font-semibold' : ''}>{t.asignadoA?.nombre}</span>
                       </span>
                     )}
                     <span className="flex items-center gap-1">
-                      <Calendar size={12} />
-                      {t.fecha}{t.horaLimite ? ` ${t.horaLimite}` : ''}
+                      <Calendar size={11} /> {t.fecha}
                     </span>
-                    {t.creadoPor && (
-                      <span className="text-zinc-600">por {t.creadoPor.nombre}</span>
+                    {t.creadoPor && <span className="text-zinc-600">por {t.creadoPor.nombre}</span>}
+                  </div>
+                </div>
+
+                <ChevronRight size={16} className={`shrink-0 text-zinc-600 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+              </button>
+
+              {/* Panel expandido */}
+              {expanded && (
+                <div className="px-4 pb-4 pt-0 border-t border-border/50 space-y-3">
+                  {/* Detalles */}
+                  <div className="grid grid-cols-2 gap-3 text-xs mt-3">
+                    {t.descripcion && (
+                      <div className="col-span-2">
+                        <p className="text-zinc-500 font-semibold mb-0.5">Descripcion</p>
+                        <p className="text-on-surface-variant">{t.descripcion}</p>
+                      </div>
                     )}
                     {t.tipo && t.tipo !== 'general' && (
-                      <span className="bg-zinc-800 px-1.5 py-0.5 rounded text-[10px]">
-                        {TIPOS.find(tp => tp.value === t.tipo)?.label || t.tipo}
-                      </span>
+                      <div>
+                        <p className="text-zinc-500 font-semibold mb-0.5">Tipo</p>
+                        <p>{TIPOS.find(tp => tp.value === t.tipo)?.label || t.tipo}</p>
+                      </div>
+                    )}
+                    {t.horaLimite && (
+                      <div>
+                        <p className="text-zinc-500 font-semibold mb-0.5">Hora limite</p>
+                        <p>{t.horaLimite}</p>
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-zinc-500 font-semibold mb-0.5">Estado</p>
+                      <p className="capitalize">{t.estado}</p>
+                    </div>
+                    {t.creadoPor && (
+                      <div>
+                        <p className="text-zinc-500 font-semibold mb-0.5">Creada por</p>
+                        <p>{t.creadoPor.nombre}</p>
+                      </div>
+                    )}
+                    {t.estado === 'completada' && t.completadaAt && (
+                      <div>
+                        <p className="text-zinc-500 font-semibold mb-0.5">Completada</p>
+                        <p>{new Date(t.completadaAt).toLocaleString('es-AR')}</p>
+                      </div>
+                    )}
+                    {t.estado === 'completada' && t.observacion && (
+                      <div className="col-span-2">
+                        <p className="text-zinc-500 font-semibold mb-0.5">Nota de resolucion</p>
+                        <p className="text-emerald-400">{t.observacion}</p>
+                      </div>
                     )}
                   </div>
 
-                  {t.estado === 'completada' && t.observacion && (
-                    <p className="text-xs text-emerald-400/70 mt-1 flex items-center gap-1">
-                      <MessageSquare size={10} /> {t.observacion}
-                    </p>
-                  )}
+                  {/* Acciones */}
+                  <div className="flex gap-2 pt-2">
+                    {esOC && (
+                      <button
+                        onClick={() => navigate('/ordenes-compra')}
+                        className="flex items-center gap-1.5 px-3 py-2 bg-amber-600 hover:bg-amber-500 text-black font-bold text-xs rounded-lg transition"
+                      >
+                        <ShoppingCart size={14} /> Ir a Ordenes de Compra
+                      </button>
+                    )}
+                    {!esOC && t.estado !== 'completada' && (
+                      <button
+                        onClick={() => { setModalCompletar(t); setObsCompletar(''); }}
+                        className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition"
+                      >
+                        <Check size={14} /> Marcar completada
+                      </button>
+                    )}
+                    {!esOC && t.estado === 'pendiente' && (
+                      <button
+                        onClick={async () => {
+                          await api.updateTarea(t.id, { estado: 'en_progreso' });
+                          addToast('En progreso');
+                          cargar();
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-lg transition"
+                      >
+                        <AlertTriangle size={14} /> En progreso
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           );
         })}
@@ -240,7 +298,8 @@ export default function Tareas() {
           <div className="text-center py-12 text-on-surface-variant">
             <CheckCircle2 size={40} className="mx-auto mb-3 opacity-30" />
             <p className="font-semibold">
-              {filtro === 'mis' ? 'No tenes tareas pendientes' : 'Sin tareas'}
+              {filtro === 'mis' && filtroEstado === 'pendientes' ? 'No tenes tareas pendientes' :
+               filtroEstado === 'completada' ? 'No hay tareas completadas' : 'Sin tareas'}
             </p>
           </div>
         )}

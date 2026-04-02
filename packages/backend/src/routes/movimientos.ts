@@ -55,6 +55,28 @@ router.post('/', async (req: Request, res: Response) => {
         depositoDestino: { select: { nombre: true } }
       }
     });
+
+    // Auto-crear tarea cuando hay responsable delegado
+    if (req.body.responsableId && req.body.responsableId !== req.body.usuarioId) {
+      const tipoLabel: Record<string, string> = {
+        ingreso: 'Ingreso', transferencia: 'Transferencia', merma: 'Merma',
+        elaboracion: 'Elaboracion', ajuste: 'Ajuste', consumo_interno: 'Consumo interno',
+        devolucion: 'Devolucion', conteo: 'Conteo',
+      };
+      const destino = movimiento.depositoDestino?.nombre || movimiento.depositoOrigen?.nombre || '';
+      await prisma.tarea.create({
+        data: {
+          titulo: `${tipoLabel[req.body.tipo] || req.body.tipo}: ${movimiento.producto.nombre}`,
+          descripcion: `${movimiento.cantidad} ${movimiento.unidad} — ${destino}. Registrado por ${movimiento.usuario.nombre}.`,
+          tipo: req.body.tipo === 'ingreso' ? 'recibir_mercaderia' : 'general',
+          prioridad: 'normal',
+          fecha: req.body.fecha || new Date().toISOString().split('T')[0],
+          asignadoAId: Number(req.body.responsableId),
+          creadoPorId: Number(req.body.usuarioId),
+        }
+      });
+    }
+
     res.status(201).json(movimiento);
   } catch (error) {
     console.error(error);
