@@ -122,7 +122,7 @@ export default function Discrepancias() {
             <h1 className="text-xl font-extrabold text-foreground mt-1">{selectedDep.deposito.nombre}</h1>
             {selectedDep.ultimoInventario && (
               <p className="text-sm text-on-surface-variant mt-1">
-                Inventario del {selectedDep.ultimoInventario.fecha} por {selectedDep.ultimoInventario.usuario}
+                Inventario del {selectedDep.ultimoInventario?.fecha} por {selectedDep.ultimoInventario?.usuario}
               </p>
             )}
           </div>
@@ -154,7 +154,7 @@ export default function Discrepancias() {
                 <tbody className="divide-y divide-border">
                   {selectedDep.discrepancias.map((d: any, i: number) => (
                     <tr
-                      key={i}
+                      key={d.producto?.id || i}
                       className={`${
                         Math.abs(d.diferencia) > 2 ? 'bg-destructive/5' : 'bg-warning/5'
                       } hover:bg-surface-high/50 transition-colors`}
@@ -250,7 +250,7 @@ export default function Discrepancias() {
                     <p className={`text-sm font-semibold ${colorInfo.iconColor}`}>{colorInfo.label}</p>
 
                     <p className="text-xs text-on-surface-variant mt-2">
-                      {dep.ultimoInventario.fecha} · {dep.responsable}
+                      {dep.ultimoInventario?.fecha} · {dep.responsable}
                     </p>
 
                     {dep.discrepancias.length > 0 && (

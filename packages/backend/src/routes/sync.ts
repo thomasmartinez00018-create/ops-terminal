@@ -66,7 +66,7 @@ router.post('/import', async (req: Request, res: Response) => {
   try {
     const { productos = [], proveedores = [], precios = [], source } = req.body;
 
-    if (!Array.isArray(productos) && !Array.isArray(proveedores)) {
+    if (!Array.isArray(productos) || !Array.isArray(proveedores)) {
       return res.status(400).json({ error: 'Formato de datos inválido' });
     }
 

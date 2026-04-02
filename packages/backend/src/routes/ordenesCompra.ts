@@ -81,48 +81,49 @@ router.post('/', async (req: Request, res: Response) => {
   try {
     const { proveedorId, creadoPorId, responsableId, depositoDestinoId, observacion, items } = req.body;
 
-    // Auto-generar código OC-XXX
-    const lastOC = await prisma.ordenCompra.findFirst({
-      orderBy: { id: 'desc' },
-      select: { codigo: true }
-    });
-    let nextNum = 1;
-    if (lastOC) {
-      const match = lastOC.codigo.match(/OC-(\d+)/);
-      if (match) nextNum = parseInt(match[1]) + 1;
-    }
-    const codigo = `OC-${String(nextNum).padStart(3, '0')}`;
-
     const hoy = new Date().toISOString().split('T')[0];
 
-    const orden = await prisma.ordenCompra.create({
-      data: {
-        codigo,
-        fecha: hoy,
-        proveedorId,
-        creadoPorId,
-        responsableId,
-        depositoDestinoId: depositoDestinoId || null,
-        observacion,
-        items: {
-          create: items.map((item: any) => ({
-            productoId: item.productoId,
-            cantidadPedida: item.cantidadPedida,
-            unidad: item.unidad,
-            precioEstimado: item.precioEstimado || null
-          }))
-        }
-      },
-      include: {
-        proveedor: { select: { nombre: true } },
-        creadoPor: { select: { nombre: true } },
-        responsable: { select: { nombre: true } },
-        items: {
-          include: {
-            producto: { select: { codigo: true, nombre: true } }
+    const orden = await prisma.$transaction(async (tx) => {
+      const lastOC = await tx.ordenCompra.findFirst({
+        orderBy: { id: 'desc' },
+        select: { codigo: true }
+      });
+      let nextNum = 1;
+      if (lastOC) {
+        const match = lastOC.codigo.match(/OC-(\d+)/);
+        if (match) nextNum = parseInt(match[1]) + 1;
+      }
+      const codigo = `OC-${String(nextNum).padStart(3, '0')}`;
+
+      return tx.ordenCompra.create({
+        data: {
+          codigo,
+          fecha: hoy,
+          proveedorId,
+          creadoPorId,
+          responsableId,
+          depositoDestinoId: depositoDestinoId || null,
+          observacion,
+          items: {
+            create: items.map((item: any) => ({
+              productoId: item.productoId,
+              cantidadPedida: item.cantidadPedida,
+              unidad: item.unidad,
+              precioEstimado: item.precioEstimado || null
+            }))
+          }
+        },
+        include: {
+          proveedor: { select: { nombre: true } },
+          creadoPor: { select: { nombre: true } },
+          responsable: { select: { nombre: true } },
+          items: {
+            include: {
+              producto: { select: { codigo: true, nombre: true } }
+            }
           }
         }
-      }
+      });
     });
 
     res.status(201).json(orden);

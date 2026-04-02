@@ -66,7 +66,25 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     const movimiento = await prisma.movimiento.create({
-      data: req.body,
+      data: {
+        tipo: req.body.tipo,
+        productoId: Number(req.body.productoId),
+        cantidad: Number(req.body.cantidad),
+        unidad: req.body.unidad || 'unidad',
+        usuarioId: Number(req.body.usuarioId),
+        fecha: req.body.fecha,
+        hora: req.body.hora,
+        depositoOrigenId: req.body.depositoOrigenId ? Number(req.body.depositoOrigenId) : null,
+        depositoDestinoId: req.body.depositoDestinoId ? Number(req.body.depositoDestinoId) : null,
+        lote: req.body.lote || null,
+        motivo: req.body.motivo || null,
+        costoUnitario: req.body.costoUnitario ? Number(req.body.costoUnitario) : null,
+        proveedorId: req.body.proveedorId ? Number(req.body.proveedorId) : null,
+        documentoRef: req.body.documentoRef || null,
+        observacion: req.body.observacion || null,
+        responsableId: req.body.responsableId ? Number(req.body.responsableId) : null,
+        recepcionId: req.body.recepcionId ? Number(req.body.recepcionId) : null,
+      },
       include: {
         usuario: { select: { nombre: true } },
         responsable: { select: { nombre: true } },

@@ -305,7 +305,7 @@ export default function QuickMovimiento({ open, onClose, tipoInicial = 'consumo_
             onChange={e => setResponsableId(e.target.value)}
             className="w-full px-3 py-2.5 rounded-xl bg-surface-high border-0 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
           >
-            <option value="">Sin asignar — responsable: {user?.nombre}</option>
+            <option value="">Sin asignar — responsable: {user?.nombre || 'Usuario'}</option>
             {usuarios.filter(u => u.id !== user?.id).map(u => (
               <option key={u.id} value={u.id}>{u.nombre} · {u.rol}</option>
             ))}

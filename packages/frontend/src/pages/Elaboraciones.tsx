@@ -266,7 +266,7 @@ export default function Elaboraciones() {
                   <td className="p-3 hidden md:table-cell">
                     <div className="space-y-0.5">
                       {lote.movimientos?.map((mov: any, i: number) => (
-                        <div key={i} className="text-xs text-on-surface-variant">
+                        <div key={mov.id || i} className="text-xs text-on-surface-variant">
                           <span className="text-orange-400 font-semibold">{mov.cantidad} {mov.unidad}</span>
                           {' '}{mov.producto?.nombre}
                           {mov.depositoOrigen && <span className="text-[10px]"> ({mov.depositoOrigen.nombre})</span>}

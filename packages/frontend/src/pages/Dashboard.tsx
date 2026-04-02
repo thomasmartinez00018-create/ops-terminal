@@ -34,7 +34,7 @@ function MisTareasPendientes() {
     api.getMisPendientes(user.id).then(setData).catch(() => {});
   }, [user?.id]);
 
-  if (!data || data.pendientes.length === 0) return null;
+  if (!data?.pendientes?.length) return null;
 
   const { pendientes } = data;
   const urgentes = pendientes.filter((p: any) => p.prioridad === 'urgente' || p.vencida);

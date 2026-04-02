@@ -58,6 +58,11 @@ router.post('/', async (req: Request, res: Response) => {
   try {
     const { codigo, nombre, categoria, porciones, productoResultadoId, cantidadProducida, unidadProducida, ingredientes } = req.body;
 
+    if (!ingredientes || !Array.isArray(ingredientes) || ingredientes.length === 0) {
+      res.status(400).json({ error: 'Se requiere al menos un ingrediente' });
+      return;
+    }
+
     const receta = await prisma.$transaction(async (tx) => {
       const nuevaReceta = await tx.receta.create({
         data: {
@@ -104,6 +109,11 @@ router.put('/:id', async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id as string);
     const { codigo, nombre, categoria, porciones, productoResultadoId, cantidadProducida, unidadProducida, ingredientes } = req.body;
+
+    if (!ingredientes || !Array.isArray(ingredientes) || ingredientes.length === 0) {
+      res.status(400).json({ error: 'Se requiere al menos un ingrediente' });
+      return;
+    }
 
     const receta = await prisma.$transaction(async (tx) => {
       const recetaActualizada = await tx.receta.update({
