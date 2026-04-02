@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
-import { Camera, Upload, Loader2, Check, X, AlertTriangle, Trash2, ScanLine, ChevronLeft } from 'lucide-react';
+import { Camera, Upload, Loader2, Check, AlertTriangle, Trash2, ScanLine, ChevronLeft } from 'lucide-react';
 
 interface FacturaItem {
   index: number;
