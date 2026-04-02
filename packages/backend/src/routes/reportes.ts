@@ -332,6 +332,9 @@ router.get('/comparar-periodos', async (req: Request, res: Response) => {
 // GET /api/reportes/discrepancias - Discrepancias por depósito
 router.get('/discrepancias', async (_req: Request, res: Response) => {
   try {
+    const TIPOS_ENTRADA = ['ingreso', 'elaboracion', 'devolucion'];
+    const TIPOS_SALIDA = ['merma', 'consumo_interno'];
+
     const depositos = await prisma.deposito.findMany({
       where: { activo: true },
       select: { id: true, codigo: true, nombre: true, tipo: true }
@@ -348,7 +351,8 @@ router.get('/discrepancias', async (_req: Request, res: Response) => {
           usuario: { select: { nombre: true } },
           detalles: {
             include: {
-              producto: { select: { codigo: true, nombre: true, unidadUso: true } }
+              // id is required so "Ver movimientos" can query trazabilidad by product
+              producto: { select: { id: true, codigo: true, nombre: true, unidadUso: true } }
             }
           }
         }
@@ -366,15 +370,54 @@ router.get('/discrepancias', async (_req: Request, res: Response) => {
         continue;
       }
 
+      // Build current theoretical stock map for this depot from all movements
+      const movimientosDeposito = await prisma.movimiento.findMany({
+        where: {
+          OR: [
+            { depositoDestinoId: dep.id },
+            { depositoOrigenId: dep.id }
+          ]
+        },
+        select: {
+          tipo: true,
+          productoId: true,
+          depositoOrigenId: true,
+          depositoDestinoId: true,
+          cantidad: true
+        }
+      });
+
+      const stockDepMap = new Map<number, number>();
+      for (const mov of movimientosDeposito) {
+        const { tipo, productoId, depositoOrigenId, depositoDestinoId, cantidad } = mov;
+        const cur = stockDepMap.get(productoId) || 0;
+        if (tipo === 'transferencia') {
+          if (depositoOrigenId === dep.id) stockDepMap.set(productoId, cur - cantidad);
+          if (depositoDestinoId === dep.id) stockDepMap.set(productoId, cur + cantidad);
+        } else if (tipo === 'ajuste') {
+          if (depositoDestinoId === dep.id) stockDepMap.set(productoId, cur + cantidad);
+        } else if (TIPOS_ENTRADA.includes(tipo)) {
+          const depId = depositoDestinoId ?? depositoOrigenId;
+          if (depId === dep.id) stockDepMap.set(productoId, cur + cantidad);
+        } else if (TIPOS_SALIDA.includes(tipo)) {
+          const depId = depositoOrigenId ?? depositoDestinoId;
+          if (depId === dep.id) stockDepMap.set(productoId, cur - cantidad);
+        }
+      }
+
       const discrepancias = ultimoInventario.detalles
         .filter(d => d.diferencia && d.diferencia !== 0)
-        .map(d => ({
-          producto: d.producto,
-          cantidadFisica: d.cantidadFisica,
-          stockTeorico: d.stockTeorico,
-          diferencia: d.diferencia,
-          observacion: d.observacion
-        }));
+        .map(d => {
+          const stockActual = Math.round((stockDepMap.get(d.productoId) || 0) * 100) / 100;
+          return {
+            producto: d.producto,
+            cantidadFisica: d.cantidadFisica,
+            stockTeorico: d.stockTeorico,
+            diferencia: d.diferencia,
+            stockActual,
+            observacion: d.observacion
+          };
+        });
 
       let color: 'verde' | 'amarillo' | 'rojo' = 'verde';
       if (discrepancias.length > 0) {
