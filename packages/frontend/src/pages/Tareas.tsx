@@ -11,7 +11,7 @@ import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import {
   Plus, Check, AlertTriangle, User, Calendar, ChevronRight,
-  CheckCircle2, Circle, MessageSquare, ShoppingCart
+  CheckCircle2, Circle, ShoppingCart
 } from 'lucide-react';
 
 const TIPOS = [

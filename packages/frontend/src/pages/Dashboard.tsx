@@ -352,14 +352,12 @@ function DashboardAdmin() {
   const [stats, setStats] = useState<any>(null);
   const [discrepancias, setDiscrepancias] = useState<any[]>([]);
   const [ocPendientes, setOcPendientes] = useState<any[]>([]);
-  const [misPendientes, setMisPendientes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [quickOpen, setQuickOpen] = useState(false);
   const [networkUrl, setNetworkUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
-    api.getOrdenesCompra({ responsableId: String(user.id), activas: 'true' }).then(setMisPendientes).catch(() => {});
     if (user.rol === 'admin' || user.rol === 'compras') {
       api.getDiscrepancias().then(setDiscrepancias).catch(() => {});
       api.getOrdenesCompra({ activas: 'true' }).then(setOcPendientes).catch(() => {});
