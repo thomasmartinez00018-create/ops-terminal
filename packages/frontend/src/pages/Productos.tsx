@@ -107,8 +107,8 @@ export default function Productos() {
     }
   };
 
-  const eliminar = async (id: number) => {
-    if (!confirm('Desactivar este producto?')) return;
+  const eliminar = async (id: number, nombre: string) => {
+    if (!confirm(`¿Desactivar el producto "${nombre}"? Esta acción se puede revertir.`)) return;
     await api.deleteProducto(id);
     cargar();
   };
@@ -179,7 +179,7 @@ export default function Productos() {
                       <button onClick={() => abrir(p)} className="p-1.5 rounded-lg hover:bg-surface-high text-on-surface-variant hover:text-foreground transition-colors">
                         <Pencil size={14} />
                       </button>
-                      <button onClick={() => eliminar(p.id)} className="p-1.5 rounded-lg hover:bg-destructive/10 text-on-surface-variant hover:text-destructive transition-colors">
+                      <button onClick={() => eliminar(p.id, p.nombre)} className="p-1.5 rounded-lg hover:bg-destructive/10 text-on-surface-variant hover:text-destructive transition-colors">
                         <Trash2 size={14} />
                       </button>
                     </div>

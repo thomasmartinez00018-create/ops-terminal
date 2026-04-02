@@ -8,6 +8,7 @@ import Select from '../components/ui/Select';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
 import SearchableSelect from '../components/ui/SearchableSelect';
+import PageTour from '../components/PageTour';
 import { Plus, FlaskConical, X, Wand2, ArrowRight, ArrowLeft, Package } from 'lucide-react';
 
 interface IngredienteRow {
@@ -47,9 +48,11 @@ export default function Elaboraciones() {
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState({ ...emptyForm });
   const [loading, setLoading] = useState(false);
+  const [loadingList, setLoadingList] = useState(true);
 
   const cargar = () => {
-    api.getElaboraciones().then(setLotes).catch(console.error);
+    setLoadingList(true);
+    api.getElaboraciones().then(setLotes).catch(console.error).finally(() => setLoadingList(false));
   };
 
   useEffect(() => {
@@ -205,6 +208,7 @@ export default function Elaboraciones() {
 
   return (
     <div>
+      <PageTour pageKey="elaboraciones" />
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <div>
           <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Producción</p>
@@ -232,7 +236,17 @@ export default function Elaboraciones() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {lotes.map(lote => (
+              {loadingList && (
+                <tr>
+                  <td colSpan={7} className="p-8 text-center">
+                    <div className="flex items-center justify-center gap-2 text-on-surface-variant">
+                      <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                      <span className="text-sm font-medium">Cargando elaboraciones...</span>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              {!loadingList && lotes.map(lote => (
                 <tr key={lote.id} className="hover:bg-surface-high/50 transition-colors">
                   <td className="p-3 font-mono text-xs text-primary">{lote.codigo}</td>
                   <td className="p-3 text-on-surface-variant text-xs">{lote.fecha}</td>
@@ -268,7 +282,7 @@ export default function Elaboraciones() {
                   </td>
                 </tr>
               ))}
-              {lotes.length === 0 && (
+              {!loadingList && lotes.length === 0 && (
                 <tr>
                   <td colSpan={7} className="p-8 text-center text-on-surface-variant font-medium">
                     No hay elaboraciones registradas

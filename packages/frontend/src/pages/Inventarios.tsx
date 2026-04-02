@@ -133,8 +133,8 @@ export default function Inventarios() {
   };
 
   // ─── Delete inventario ───
-  const eliminar = async (id: number) => {
-    if (!confirm('¿Eliminar este inventario? Esta acción no se puede deshacer.')) return;
+  const eliminar = async (id: number, descripcion: string) => {
+    if (!confirm(`¿Eliminar el inventario "${descripcion}"? Esta acción no se puede deshacer.`)) return;
     try {
       await api.deleteInventario(id);
       cargarLista();
@@ -408,7 +408,7 @@ export default function Inventarios() {
                       </button>
                       {inv.estado === 'abierto' && (
                         <button
-                          onClick={() => eliminar(inv.id)}
+                          onClick={() => eliminar(inv.id, `${inv.deposito?.nombre || 'Sin depósito'} - ${inv.fecha}`)}
                           className="p-1.5 rounded-lg hover:bg-destructive/10 text-destructive"
                           title="Eliminar"
                         >

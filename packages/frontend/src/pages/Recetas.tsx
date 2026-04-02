@@ -8,6 +8,7 @@ import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import { Plus, Pencil, Trash2, ChefHat, DollarSign, X, Package } from 'lucide-react';
+import { useToast } from '../context/ToastContext';
 
 const CATEGORIAS = [
   { value: 'entrada', label: 'Entrada' },
@@ -43,6 +44,7 @@ const emptyForm = {
 };
 
 export default function Recetas() {
+  const { addToast } = useToast();
   const [recetas, setRecetas] = useState<any[]>([]);
   const [productos, setProductos] = useState<any[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
@@ -107,20 +109,28 @@ export default function Recetas() {
       };
       if (editId) {
         await api.updateReceta(editId, data);
+        addToast('Receta actualizada correctamente');
       } else {
         await api.createReceta(data);
+        addToast('Receta creada correctamente');
       }
       setModalOpen(false);
       cargar();
     } catch (e: any) {
       setError(e.message);
+      addToast('Error al guardar la receta', 'error');
     }
   };
 
-  const eliminar = async (id: number) => {
-    if (!confirm('Desactivar esta receta?')) return;
-    await api.deleteReceta(id);
-    cargar();
+  const eliminar = async (id: number, nombre: string) => {
+    if (!confirm(`¿Desactivar la receta "${nombre}"? Esta acción se puede revertir.`)) return;
+    try {
+      await api.deleteReceta(id);
+      addToast('Receta desactivada');
+      cargar();
+    } catch (e: any) {
+      addToast('Error al desactivar la receta', 'error');
+    }
   };
 
   const verCosto = async (id: number) => {
@@ -199,7 +209,7 @@ export default function Recetas() {
                       <button onClick={() => abrir(r)} className="p-1.5 rounded-lg hover:bg-surface-high text-on-surface-variant hover:text-foreground transition-colors">
                         <Pencil size={14} />
                       </button>
-                      <button onClick={() => eliminar(r.id)} className="p-1.5 rounded-lg hover:bg-destructive/10 text-on-surface-variant hover:text-destructive transition-colors">
+                      <button onClick={() => eliminar(r.id, r.nombre)} className="p-1.5 rounded-lg hover:bg-destructive/10 text-on-surface-variant hover:text-destructive transition-colors">
                         <Trash2 size={14} />
                       </button>
                     </div>

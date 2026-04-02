@@ -119,8 +119,8 @@ export default function Usuarios() {
     }
   };
 
-  const eliminar = async (id: number) => {
-    if (!confirm('Desactivar este usuario?')) return;
+  const eliminar = async (id: number, nombre: string) => {
+    if (!confirm(`¿Desactivar al usuario "${nombre}"? Esta acción se puede revertir.`)) return;
     await api.deleteUsuario(id);
     cargar();
   };
@@ -181,7 +181,7 @@ export default function Usuarios() {
                     <button onClick={() => abrir(u)} className="p-1.5 rounded-lg hover:bg-surface-high text-on-surface-variant hover:text-foreground transition-colors">
                       <Pencil size={14} />
                     </button>
-                    <button onClick={() => eliminar(u.id)} className="p-1.5 rounded-lg hover:bg-destructive/10 text-on-surface-variant hover:text-destructive transition-colors">
+                    <button onClick={() => eliminar(u.id, u.nombre)} className="p-1.5 rounded-lg hover:bg-destructive/10 text-on-surface-variant hover:text-destructive transition-colors">
                       <Trash2 size={14} />
                     </button>
                   </div>

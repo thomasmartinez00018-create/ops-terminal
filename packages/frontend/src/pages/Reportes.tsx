@@ -5,7 +5,7 @@ import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import PageTour from '../components/PageTour';
 import Badge from '../components/ui/Badge';
-import { BarChart3, TrendingDown, DollarSign, Package, Filter, Download } from 'lucide-react';
+import { BarChart3, TrendingDown, DollarSign, Package, Filter, Download, RefreshCw } from 'lucide-react';
 
 type Tab = 'movimientos' | 'mermas' | 'valorizado' | 'historial';
 
@@ -126,6 +126,18 @@ export default function Reportes() {
     { key: 'historial', label: 'Historial producto', icon: <Package size={14} /> },
   ];
 
+  const isCurrentTabLoading = tab === 'movimientos' ? loadingMov
+    : tab === 'mermas' ? loadingMermas
+    : tab === 'valorizado' ? loadingStock
+    : loadingHistorial;
+
+  const refreshCurrentTab = () => {
+    if (tab === 'movimientos') fetchMovPorTipo();
+    else if (tab === 'mermas') fetchMermas();
+    else if (tab === 'valorizado') fetchStockValorizado();
+    else if (tab === 'historial') fetchHistorial();
+  };
+
   const maxCount = movPorTipo.length > 0 ? Math.max(...movPorTipo.map(m => m.cantidad || 0), 1) : 1;
 
   const mermasTotal = mermas?.detalle?.length || 0;
@@ -142,6 +154,14 @@ export default function Reportes() {
           <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Análisis</p>
           <h1 className="text-xl font-extrabold text-foreground mt-1">Reportes</h1>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={refreshCurrentTab}
+          disabled={isCurrentTabLoading}
+        >
+          <RefreshCw size={14} className={isCurrentTabLoading ? 'animate-spin' : ''} /> Actualizar
+        </Button>
       </div>
 
       {/* Tabs */}
@@ -232,7 +252,9 @@ export default function Reportes() {
                   {movPorTipo.length === 0 && !loadingMov && (
                     <tr>
                       <td colSpan={4} className="p-8 text-center text-on-surface-variant font-medium">
-                        Sin datos para el rango seleccionado
+                        {fechaDesde || fechaHasta
+                          ? 'No hay movimientos para el periodo seleccionado. Probá ajustando las fechas.'
+                          : 'Seleccioná un rango de fechas y hacé clic en Filtrar para ver los movimientos.'}
                       </td>
                     </tr>
                   )}
@@ -349,7 +371,9 @@ export default function Reportes() {
                   {(!mermas?.detalle || mermas.detalle.length === 0) && !loadingMermas && (
                     <tr>
                       <td colSpan={7} className="p-8 text-center text-on-surface-variant font-medium">
-                        Sin mermas registradas para el rango seleccionado
+                        {fechaDesde || fechaHasta || depositoId
+                          ? 'No hay mermas registradas para los filtros seleccionados. Probá con otro rango o deposito.'
+                          : 'Aplicá filtros de fecha o deposito y hacé clic en Filtrar para consultar las mermas.'}
                       </td>
                     </tr>
                   )}
@@ -420,7 +444,7 @@ export default function Reportes() {
                   {stockVal.length === 0 && !loadingStock && (
                     <tr>
                       <td colSpan={4} className="p-8 text-center text-on-surface-variant font-medium">
-                        Sin datos de stock valorizado
+                        No hay datos de stock valorizado. Verificá que existan productos con stock y costo unitario cargado.
                       </td>
                     </tr>
                   )}
@@ -523,7 +547,9 @@ export default function Reportes() {
                   {historial.length === 0 && !loadingHistorial && (
                     <tr>
                       <td colSpan={6} className="p-8 text-center text-on-surface-variant font-medium">
-                        {productoId ? 'Sin movimientos para este producto' : 'Seleccione un producto para ver su historial'}
+                        {productoId
+                          ? 'No hay movimientos para este producto en el periodo seleccionado. Probá ampliando las fechas.'
+                          : 'Seleccioná un producto y hacé clic en Filtrar para ver su historial de movimientos.'}
                       </td>
                     </tr>
                   )}

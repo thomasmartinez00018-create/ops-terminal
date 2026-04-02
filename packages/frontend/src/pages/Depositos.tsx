@@ -61,8 +61,8 @@ export default function Depositos() {
     }
   };
 
-  const eliminar = async (id: number) => {
-    if (!confirm('Desactivar este depósito?')) return;
+  const eliminar = async (id: number, nombre: string) => {
+    if (!confirm(`¿Desactivar el depósito "${nombre}"? Esta acción se puede revertir.`)) return;
     await api.deleteDeposito(id);
     cargar();
   };
@@ -101,7 +101,7 @@ export default function Depositos() {
                 <button onClick={() => abrir(dep)} className="p-1.5 rounded-lg hover:bg-surface-high text-on-surface-variant hover:text-foreground transition-colors">
                   <Pencil size={14} />
                 </button>
-                <button onClick={() => eliminar(dep.id)} className="p-1.5 rounded-lg hover:bg-destructive/10 text-on-surface-variant hover:text-destructive transition-colors">
+                <button onClick={() => eliminar(dep.id, dep.nombre)} className="p-1.5 rounded-lg hover:bg-destructive/10 text-on-surface-variant hover:text-destructive transition-colors">
                   <Trash2 size={14} />
                 </button>
               </div>

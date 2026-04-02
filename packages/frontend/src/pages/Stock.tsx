@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import Badge from '../components/ui/Badge';
-import { AlertTriangle, Search } from 'lucide-react';
+import { AlertTriangle, Search, RefreshCw } from 'lucide-react';
 import PageTour from '../components/PageTour';
 
 export default function Stock() {
@@ -10,12 +10,14 @@ export default function Stock() {
   const [filtroDeposito, setFiltroDeposito] = useState('');
   const [filtroBajoMinimo, setFiltroBajoMinimo] = useState(false);
   const [busqueda, setBusqueda] = useState('');
+  const [loading, setLoading] = useState(true);
 
   const cargar = () => {
+    setLoading(true);
     const params: Record<string, string> = {};
     if (filtroDeposito) params.depositoId = filtroDeposito;
     if (filtroBajoMinimo) params.bajosDeMinimo = 'true';
-    api.getStock(params).then(setStock).catch(console.error);
+    api.getStock(params).then(setStock).catch(console.error).finally(() => setLoading(false));
   };
 
   useEffect(() => { cargar(); }, [filtroDeposito, filtroBajoMinimo]);
@@ -59,6 +61,13 @@ export default function Stock() {
           />
           Solo bajo mínimo
         </label>
+        <button
+          onClick={cargar}
+          className="p-2.5 rounded-lg bg-surface-high hover:bg-primary/10 text-on-surface-variant hover:text-primary transition"
+          title="Actualizar"
+        >
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+        </button>
       </div>
 
       <div className="bg-surface rounded-xl border border-border overflow-hidden">
@@ -75,7 +84,17 @@ export default function Stock() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {stock.filter(s => !busqueda || s.nombre.toLowerCase().includes(busqueda.toLowerCase()) || s.codigo.toLowerCase().includes(busqueda.toLowerCase())).map(s => (
+              {loading && (
+                <tr>
+                  <td colSpan={6} className="p-8 text-center">
+                    <div className="flex items-center justify-center gap-2 text-on-surface-variant">
+                      <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                      <span className="text-sm font-medium">Cargando stock...</span>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              {!loading && stock.filter(s => !busqueda || s.nombre.toLowerCase().includes(busqueda.toLowerCase()) || s.codigo.toLowerCase().includes(busqueda.toLowerCase())).map(s => (
                 <tr key={s.productoId} className={`hover:bg-surface-high/50 transition-colors ${s.bajoMinimo ? 'bg-destructive/5' : ''}`}>
                   <td className="p-3 font-mono text-xs text-primary">{s.codigo}</td>
                   <td className="p-3 font-semibold text-foreground">
@@ -104,7 +123,7 @@ export default function Stock() {
                   </td>
                 </tr>
               ))}
-              {stock.filter(s => !busqueda || s.nombre.toLowerCase().includes(busqueda.toLowerCase()) || s.codigo.toLowerCase().includes(busqueda.toLowerCase())).length === 0 && (
+              {!loading && stock.filter(s => !busqueda || s.nombre.toLowerCase().includes(busqueda.toLowerCase()) || s.codigo.toLowerCase().includes(busqueda.toLowerCase())).length === 0 && (
                 <tr>
                   <td colSpan={6} className="p-8 text-center text-on-surface-variant font-medium">
                     {busqueda

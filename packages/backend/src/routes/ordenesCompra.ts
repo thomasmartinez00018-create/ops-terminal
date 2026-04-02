@@ -300,10 +300,6 @@ router.post('/:id/recibir', async (req: Request, res: Response) => {
           recibidoPorProducto.set(ri.productoId, (recibidoPorProducto.get(ri.productoId) || 0) + ri.cantidadRecibida);
         }
       }
-      // Sumar lo de esta recepción también
-      for (const item of items) {
-        recibidoPorProducto.set(item.productoId, (recibidoPorProducto.get(item.productoId) || 0) + item.cantidadRecibida);
-      }
 
       let todoRecibido = true;
       for (const ocItem of orden.items) {

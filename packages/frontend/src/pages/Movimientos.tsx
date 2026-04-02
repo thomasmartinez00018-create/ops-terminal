@@ -49,11 +49,14 @@ export default function Movimientos() {
     cantidad: '', unidad: '', lote: '', motivo: '', observacion: '', responsableId: ''
   });
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const cargar = () => {
+    setLoading(true);
     const params: Record<string, string> = {};
     if (filtroTipo) params.tipo = filtroTipo;
-    api.getMovimientos(params).then(setMovimientos).catch(console.error);
+    api.getMovimientos(params).then(setMovimientos).catch(console.error).finally(() => setLoading(false));
   };
 
   useEffect(() => { cargar(); }, [filtroTipo]);
@@ -84,6 +87,27 @@ export default function Movimientos() {
 
   const guardar = async () => {
     setError('');
+    if (!form.productoId) {
+      setError('Seleccioná un producto');
+      return;
+    }
+    if (!form.cantidad || Number(form.cantidad) <= 0) {
+      setError('La cantidad debe ser mayor a 0');
+      return;
+    }
+    if (!form.unidad) {
+      setError('Indicá la unidad');
+      return;
+    }
+    if (needsOrigen && !form.depositoOrigenId) {
+      setError('Seleccioná el depósito de origen');
+      return;
+    }
+    if (needsDestino && !form.depositoDestinoId) {
+      setError('Seleccioná el depósito de destino');
+      return;
+    }
+    setSaving(true);
     const now = new Date();
     try {
       await api.createMovimiento({
@@ -109,6 +133,8 @@ export default function Movimientos() {
     } catch (e: any) {
       setError(e.message);
       addToast('Error al registrar el movimiento', 'error');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -162,7 +188,17 @@ export default function Movimientos() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {movimientos.map(m => (
+              {loading && (
+                <tr>
+                  <td colSpan={7} className="p-8 text-center">
+                    <div className="flex items-center justify-center gap-2 text-on-surface-variant">
+                      <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                      <span className="text-sm font-medium">Cargando movimientos...</span>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              {!loading && movimientos.map(m => (
                 <tr key={m.id} className="hover:bg-surface-high/50 transition-colors">
                   <td className="p-3 text-xs text-on-surface-variant">{m.fecha} {m.hora}</td>
                   <td className="p-3">
@@ -186,10 +222,12 @@ export default function Movimientos() {
                   </td>
                 </tr>
               ))}
-              {movimientos.length === 0 && (
+              {!loading && movimientos.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="p-8 text-center text-on-surface-variant font-medium">
-                    Sin movimientos registrados
+                  <td colSpan={7} className="p-8 text-center text-on-surface-variant font-medium">
+                    {filtroTipo
+                      ? `Sin movimientos de tipo "${TIPOS_MOV.find(t => t.value === filtroTipo)?.label || filtroTipo}"`
+                      : 'Sin movimientos registrados. Usá el botón "Registrar movimiento" para comenzar.'}
                   </td>
                 </tr>
               )}
@@ -300,7 +338,7 @@ export default function Movimientos() {
           />
           {error && <p className="text-sm text-destructive font-semibold">{error}</p>}
           <div className="flex gap-2 pt-2">
-            <Button onClick={guardar} className="flex-1">Registrar</Button>
+            <Button onClick={guardar} className="flex-1" disabled={saving}>{saving ? 'Registrando...' : 'Registrar'}</Button>
             <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button>
           </div>
         </div>

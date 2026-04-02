@@ -45,6 +45,26 @@ router.get('/', async (req: Request, res: Response) => {
 // POST /api/movimientos
 router.post('/', async (req: Request, res: Response) => {
   try {
+    const { tipo, productoId, cantidad, usuarioId } = req.body;
+    const tiposValidos = ['ingreso', 'venta', 'elaboracion', 'merma', 'transferencia', 'ajuste', 'conteo', 'consumo_interno', 'devolucion'];
+
+    if (!tipo || !tiposValidos.includes(tipo)) {
+      res.status(400).json({ error: 'Tipo de movimiento inválido' });
+      return;
+    }
+    if (!productoId || isNaN(Number(productoId))) {
+      res.status(400).json({ error: 'Producto es requerido' });
+      return;
+    }
+    if (!cantidad || Number(cantidad) <= 0) {
+      res.status(400).json({ error: 'Cantidad debe ser mayor a 0' });
+      return;
+    }
+    if (!usuarioId) {
+      res.status(400).json({ error: 'Usuario es requerido' });
+      return;
+    }
+
     const movimiento = await prisma.movimiento.create({
       data: req.body,
       include: {

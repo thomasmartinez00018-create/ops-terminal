@@ -88,8 +88,8 @@ export default function Proveedores() {
     }
   };
 
-  const eliminarProv = async (id: number) => {
-    if (!confirm('¿Desactivar este proveedor?')) return;
+  const eliminarProv = async (id: number, nombre: string) => {
+    if (!confirm(`¿Desactivar al proveedor "${nombre}"? Esta acción se puede revertir.`)) return;
     await api.deleteProveedor(id);
     if (selectedProveedor?.id === id) {
       setSelectedProveedor(null);
@@ -140,9 +140,9 @@ export default function Proveedores() {
     }
   };
 
-  const eliminarMap = async (mapId: number) => {
+  const eliminarMap = async (mapId: number, productoNombre: string) => {
     if (!selectedProveedor) return;
-    if (!confirm('¿Eliminar este mapeo de producto?')) return;
+    if (!confirm(`¿Eliminar el mapeo del producto "${productoNombre}" de ${selectedProveedor.nombre}?`)) return;
     await api.deleteProveedorProducto(selectedProveedor.id, mapId);
     cargarProductosProveedor(selectedProveedor);
   };
@@ -199,7 +199,7 @@ export default function Proveedores() {
                   <Pencil size={14} />
                 </button>
                 <button
-                  onClick={e => { e.stopPropagation(); eliminarProv(prov.id); }}
+                  onClick={e => { e.stopPropagation(); eliminarProv(prov.id, prov.nombre); }}
                   className="p-1.5 rounded-lg hover:bg-destructive/10 text-on-surface-variant hover:text-destructive transition-colors"
                 >
                   <Trash2 size={14} />
@@ -289,7 +289,7 @@ export default function Proveedores() {
                               <Pencil size={14} />
                             </button>
                             <button
-                              onClick={() => eliminarMap(pp.id)}
+                              onClick={() => eliminarMap(pp.id, prod?.nombre || `#${pp.productoId}`)}
                               className="p-1.5 rounded-lg hover:bg-destructive/10 text-on-surface-variant hover:text-destructive transition-colors"
                             >
                               <Trash2 size={14} />

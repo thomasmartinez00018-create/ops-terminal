@@ -192,8 +192,8 @@ export default function OrdenesCompra() {
     }
   };
 
-  const handleCancelar = async (id: number) => {
-    if (!confirm('Cancelar esta orden?')) return;
+  const handleCancelar = async (id: number, codigo: string) => {
+    if (!confirm(`¿Cancelar la orden "${codigo}"? Esta acción no se puede deshacer.`)) return;
     await api.cancelarOrdenCompra(id);
     if (view === 'detail') verDetalle(id);
     else cargarOrdenes();
@@ -218,7 +218,7 @@ export default function OrdenesCompra() {
                 <Button onClick={abrirRecibir}>
                   <Check size={16} className="mr-1" /> Recibir
                 </Button>
-                <Button variant="ghost" onClick={() => handleCancelar(selectedOrden.id)}>
+                <Button variant="ghost" onClick={() => handleCancelar(selectedOrden.id, selectedOrden.codigo)}>
                   Cancelar OC
                 </Button>
               </>
