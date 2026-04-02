@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import os from 'os';
+import prisma from './lib/prisma';
 import productosRouter from './routes/productos';
 import depositosRouter from './routes/depositos';
 import usuariosRouter from './routes/usuarios';
@@ -88,6 +89,56 @@ function getLocalIPs(): string[] {
   }
   return ips;
 }
+
+// ── Auto-migrate: agregar columnas/tablas faltantes en DBs existentes ────────
+async function autoMigrate() {
+  try {
+    const migrations = [
+      `ALTER TABLE movimientos ADD COLUMN elaboracion_lote_id INTEGER REFERENCES elaboracion_lotes(id)`,
+      `ALTER TABLE recepcion_items ADD COLUMN cantidad_pedida REAL`,
+      `ALTER TABLE recepcion_items ADD COLUMN atribucion TEXT`,
+      `ALTER TABLE recepcion_items ADD COLUMN motivo_diferencia TEXT`,
+      `ALTER TABLE recetas ADD COLUMN producto_resultado_id INTEGER REFERENCES productos(id)`,
+      `ALTER TABLE recetas ADD COLUMN cantidad_producida REAL`,
+      `ALTER TABLE recetas ADD COLUMN unidad_producida TEXT`,
+    ];
+
+    // Crear tabla elaboracion_lotes si no existe
+    await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS elaboracion_lotes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      codigo TEXT UNIQUE NOT NULL,
+      fecha TEXT NOT NULL,
+      hora TEXT NOT NULL,
+      usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+      receta_id INTEGER REFERENCES recetas(id),
+      producto_resultado_id INTEGER NOT NULL REFERENCES productos(id),
+      cantidad_producida REAL NOT NULL,
+      unidad_producida TEXT NOT NULL,
+      deposito_destino_id INTEGER REFERENCES depositos(id),
+      observacion TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
+    // Agregar columnas faltantes (SQLite ignora si ya existen con este pattern)
+    for (const sql of migrations) {
+      try {
+        await prisma.$executeRawUnsafe(sql);
+        console.log(`MIGRATE OK: ${sql.substring(0, 60)}...`);
+      } catch (e: any) {
+        // "duplicate column" es esperado si ya existe — silenciar
+        if (!e.message?.includes('duplicate column')) {
+          console.log(`MIGRATE SKIP: ${e.message?.substring(0, 80)}`);
+        }
+      }
+    }
+  } catch (e: any) {
+    console.error('Auto-migrate error:', e.message);
+  }
+}
+
+autoMigrate().then(() => {
+  console.log('DB schema verificado');
+});
 
 app.listen(Number(PORT), '0.0.0.0', () => {
   const ips = getLocalIPs();

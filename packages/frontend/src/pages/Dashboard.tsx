@@ -393,6 +393,18 @@ function DashboardAdmin() {
             ultimosMovimientos: movimientos,
             actividadEquipo: [],
           });
+        }).catch(() => {
+          setStats({
+            productosActivos: 0, depositos: 0,
+            movimientosHoy: 0, movimientosAyer: 0,
+            movimientosSemana: 0, movimientosSemanaAnt: 0,
+            bajosDeMinimo: 0,
+            mermasDelMes: 0, mermasMesAnt: 0,
+            ingresosDelMes: 0, ingresosMesAnt: 0,
+            inventariosAbiertos: 0,
+            ultimosMovimientos: [],
+            actividadEquipo: [],
+          });
         });
       })
       .finally(() => setLoading(false));

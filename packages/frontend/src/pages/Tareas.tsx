@@ -77,15 +77,27 @@ export default function Tareas() {
 
   const crear = async () => {
     setError('');
+    if (!user) {
+      setError('Debés estar logueado para crear una tarea');
+      return;
+    }
     if (!form.titulo || !form.asignadoAId) {
       setError('Titulo y asignado son requeridos');
       return;
     }
+    if (!form.fecha) {
+      setError('La fecha es requerida');
+      return;
+    }
     try {
       await api.createTarea({
-        ...form,
+        titulo: form.titulo,
+        descripcion: form.descripcion || null,
+        tipo: form.tipo,
+        prioridad: form.prioridad,
+        fecha: form.fecha,
         asignadoAId: Number(form.asignadoAId),
-        creadoPorId: user!.id,
+        creadoPorId: user.id,
         horaLimite: form.horaLimite || null,
       });
       setModalCrear(false);

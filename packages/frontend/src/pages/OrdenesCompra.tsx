@@ -62,7 +62,7 @@ export default function OrdenesCompra() {
       setUsuarios(usr);
       setProductos(prod);
       setDepositos(dep);
-    });
+    }).catch(console.error);
   }, []);
 
   const cargarOrdenes = () => {

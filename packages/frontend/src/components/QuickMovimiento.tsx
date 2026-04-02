@@ -120,7 +120,18 @@ export default function QuickMovimiento({ open, onClose, tipoInicial = 'consumo_
   };
 
   const guardar = async () => {
-    if (!productoId || !cantidad) return;
+    if (!productoId || !cantidad) {
+      addToast('Seleccioná un producto y cantidad', 'error');
+      return;
+    }
+    if (needsOrigen && !depositoOrigenId) {
+      addToast('Seleccioná el depósito de origen', 'error');
+      return;
+    }
+    if (needsDestino && !depositoDestinoId) {
+      addToast('Seleccioná el depósito de destino', 'error');
+      return;
+    }
     setLoading(true);
     const now = new Date();
     try {
@@ -130,8 +141,8 @@ export default function QuickMovimiento({ open, onClose, tipoInicial = 'consumo_
         usuarioId: user!.id,
         fecha: now.toISOString().split('T')[0],
         hora: now.toTimeString().slice(0, 5),
-        depositoOrigenId: ['merma', 'transferencia', 'consumo_interno', 'venta'].includes(tipo) && depositoOrigenId ? Number(depositoOrigenId) : null,
-        depositoDestinoId: ['ingreso', 'transferencia'].includes(tipo) && depositoDestinoId ? Number(depositoDestinoId) : null,
+        depositoOrigenId: needsOrigen && depositoOrigenId ? Number(depositoOrigenId) : null,
+        depositoDestinoId: needsDestino && depositoDestinoId ? Number(depositoDestinoId) : null,
         cantidad: Number(cantidad),
         unidad,
         responsableId: responsableId ? Number(responsableId) : null,
