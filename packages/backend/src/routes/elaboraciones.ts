@@ -55,19 +55,19 @@ router.post('/', async (req: Request, res: Response) => {
       return;
     }
 
-    // Auto-generate code ELAB-XXX
-    const lastLote = await prisma.elaboracionLote.findFirst({ orderBy: { id: 'desc' }, select: { codigo: true } });
-    let nextNum = 1;
-    if (lastLote) {
-      const match = lastLote.codigo.match(/ELAB-(\d+)/);
-      if (match) nextNum = parseInt(match[1]) + 1;
-    }
-    const codigo = `ELAB-${String(nextNum).padStart(3, '0')}`;
-
     const fechaFinal = fecha || new Date().toISOString().split('T')[0];
     const horaFinal = hora || new Date().toTimeString().slice(0, 5);
 
     const lote = await prisma.$transaction(async (tx) => {
+      // Auto-generate code ELAB-XXX inside transaction to avoid race conditions
+      const lastLote = await tx.elaboracionLote.findFirst({ orderBy: { id: 'desc' }, select: { codigo: true } });
+      let nextNum = 1;
+      if (lastLote) {
+        const match = lastLote.codigo.match(/ELAB-(\d+)/);
+        if (match) nextNum = parseInt(match[1]) + 1;
+      }
+      const codigo = `ELAB-${String(nextNum).padStart(3, '0')}`;
+
       // Create the elaboracion lote
       const lote = await tx.elaboracionLote.create({
         data: {

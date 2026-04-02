@@ -46,7 +46,6 @@ export default function Recetas() {
   const [recetas, setRecetas] = useState<any[]>([]);
   const [productos, setProductos] = useState<any[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
-  const [productosAll, setProductosAll] = useState<any[]>([]);
   const [costoModal, setCostoModal] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -59,10 +58,7 @@ export default function Recetas() {
 
   useEffect(() => {
     cargar();
-    api.getProductos({ activo: 'true' }).then(prods => {
-      setProductos(prods);
-      setProductosAll(prods);
-    }).catch(console.error);
+    api.getProductos({ activo: 'true' }).then(setProductos).catch(console.error);
   }, []);
 
   const abrir = (receta?: any) => {
@@ -275,7 +271,7 @@ export default function Recetas() {
                 <SearchableSelect
                   value={form.productoResultadoId?.toString() || ''}
                   onChange={v => {
-                    const prod = productosAll.find(p => p.id === Number(v));
+                    const prod = productos.find(p => p.id === Number(v));
                     setForm(f => ({
                       ...f,
                       productoResultadoId: v ? Number(v) : null,
@@ -284,7 +280,7 @@ export default function Recetas() {
                   }}
                   options={[
                     { value: '', label: 'Sin producto resultado' },
-                    ...productosAll.map(p => ({ value: p.id.toString(), label: p.nombre }))
+                    ...productos.map(p => ({ value: p.id.toString(), label: p.nombre }))
                   ]}
                   placeholder="Seleccionar producto elaborado..."
                 />

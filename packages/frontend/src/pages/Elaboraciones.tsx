@@ -38,7 +38,7 @@ const emptyForm = {
 
 export default function Elaboraciones() {
   const { user } = useAuth();
-  const { showToast } = useToast();
+  const { addToast } = useToast();
 
   const [lotes, setLotes] = useState<any[]>([]);
   const [productos, setProductos] = useState<any[]>([]);
@@ -158,15 +158,15 @@ export default function Elaboraciones() {
 
   const guardar = async () => {
     if (!form.productoResultadoId) {
-      showToast('Seleccioná el producto a elaborar', 'error');
+      addToast('Seleccioná el producto a elaborar', 'error');
       return;
     }
     if (!form.cantidadProducida || Number(form.cantidadProducida) <= 0) {
-      showToast('Ingresá la cantidad producida', 'error');
+      addToast('Ingresá la cantidad producida', 'error');
       return;
     }
     if (!form.ingredientes.length || form.ingredientes.every(i => !i.productoId)) {
-      showToast('Agregá al menos un ingrediente', 'error');
+      addToast('Agregá al menos un ingrediente', 'error');
       return;
     }
 
@@ -191,11 +191,11 @@ export default function Elaboraciones() {
             depositoOrigenId: i.depositoOrigenId,
           })),
       });
-      showToast('Elaboración registrada', 'success');
+      addToast('Elaboración registrada', 'success');
       setModalOpen(false);
       cargar();
     } catch (e: any) {
-      showToast(e.message || 'Error al registrar', 'error');
+      addToast(e.message || 'Error al registrar', 'error');
     } finally {
       setLoading(false);
     }
