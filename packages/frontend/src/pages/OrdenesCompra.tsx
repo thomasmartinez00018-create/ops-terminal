@@ -8,7 +8,7 @@ import Select from '../components/ui/Select';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
 import SearchableSelect from '../components/ui/SearchableSelect';
-import { Plus, Eye, X as XIcon, Check, CheckCheck } from 'lucide-react';
+import { Plus, Eye, X as XIcon, Check, CheckCheck, AlertTriangle, TrendingDown, TrendingUp } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 
 const ESTADOS: Record<string, { label: string; variant: 'default' | 'success' | 'warning' | 'danger' | 'info' }> = {
@@ -144,6 +144,8 @@ export default function OrdenesCompra() {
         costoUnitario: item.precioEstimado || null,
         lote: '',
         observacion: '',
+        atribucion: '',
+        motivoDiferencia: '',
       }))
     );
     setModalRecibir(true);
@@ -151,19 +153,35 @@ export default function OrdenesCompra() {
 
   const handleRecibir = async () => {
     setError('');
+    // Validar que items con diferencia tengan atribución
+    const sinAtribucion = recepcionItems.filter(i => {
+      const dif = parseFloat(i.cantidadRecibida) - i.cantidadPedida;
+      return Math.abs(dif) > 0.001 && !i.atribucion;
+    });
+    if (sinAtribucion.length > 0) {
+      setError(`Indicá a quién se atribuye la diferencia en: ${sinAtribucion.map(i => i.nombre).join(', ')}`);
+      return;
+    }
     try {
       await api.recibirOrdenCompra(selectedOrden.id, {
         recibidoPorId: user?.id,
         observacion: null,
         depositoDestinoId: selectedOrden.depositoDestinoId,
-        items: recepcionItems.map(i => ({
-          productoId: i.productoId,
-          cantidadRecibida: parseFloat(i.cantidadRecibida) || 0,
-          unidad: i.unidad,
-          costoUnitario: i.costoUnitario ? parseFloat(i.costoUnitario) : null,
-          lote: i.lote || null,
-          observacion: i.observacion || null,
-        })),
+        items: recepcionItems.map(i => {
+          const recibida = parseFloat(i.cantidadRecibida) || 0;
+          const dif = recibida - i.cantidadPedida;
+          return {
+            productoId: i.productoId,
+            cantidadPedida: i.cantidadPedida,
+            cantidadRecibida: recibida,
+            unidad: i.unidad,
+            costoUnitario: i.costoUnitario ? parseFloat(i.costoUnitario) : null,
+            lote: i.lote || null,
+            observacion: i.observacion || null,
+            atribucion: Math.abs(dif) > 0.001 ? (i.atribucion || null) : null,
+            motivoDiferencia: i.motivoDiferencia || null,
+          };
+        }),
       });
       addToast(`Recepción confirmada para ${selectedOrden.codigo}`);
       setModalRecibir(false);
@@ -259,67 +277,205 @@ export default function OrdenesCompra() {
         {selectedOrden.recepciones?.length > 0 && (
           <div className="bg-surface rounded-xl border border-border">
             <div className="p-4 border-b border-border">
-              <h2 className="text-xs font-extrabold text-foreground uppercase tracking-widest">Recepciones</h2>
+              <h2 className="text-xs font-extrabold text-foreground uppercase tracking-widest">
+                Recepciones ({selectedOrden.recepciones.length})
+              </h2>
             </div>
-            {selectedOrden.recepciones.map((rec: any) => (
-              <div key={rec.id} className="p-4 border-b border-border last:border-0">
-                <div className="flex justify-between mb-2">
-                  <p className="text-xs font-bold text-foreground">
-                    {rec.fecha} {rec.hora} — {rec.recibidoPor?.nombre}
-                  </p>
-                </div>
-                <div className="space-y-1">
-                  {rec.items?.map((ri: any) => (
-                    <p key={ri.id} className="text-sm text-on-surface-variant">
-                      {ri.producto?.nombre}: <span className="text-foreground font-semibold">{ri.cantidadRecibida} {ri.unidad}</span>
-                      {ri.costoUnitario && <span className="ml-2 text-primary">${ri.costoUnitario}</span>}
+            {selectedOrden.recepciones.map((rec: any) => {
+              const hayDiferencias = rec.items?.some((ri: any) => ri.cantidadPedida && Math.abs(ri.cantidadRecibida - ri.cantidadPedida) > 0.001);
+              return (
+                <div key={rec.id} className="p-4 border-b border-border last:border-0">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs font-bold text-foreground">
+                      {rec.fecha} {rec.hora} · {rec.recibidoPor?.nombre}
                     </p>
-                  ))}
+                    {hayDiferencias && (
+                      <span className="flex items-center gap-1 text-[10px] font-bold text-warning uppercase tracking-wider">
+                        <AlertTriangle size={12} /> Con diferencias
+                      </span>
+                    )}
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider border-b border-border/50">
+                          <th className="text-left pb-1">Producto</th>
+                          <th className="text-center pb-1">Pedido</th>
+                          <th className="text-center pb-1">Recibido</th>
+                          <th className="text-center pb-1">Dif.</th>
+                          <th className="text-left pb-1">Atribuido a</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/30">
+                        {rec.items?.map((ri: any) => {
+                          const pedido = ri.cantidadPedida ?? null;
+                          const dif = pedido !== null ? ri.cantidadRecibida - pedido : null;
+                          const hayDif = dif !== null && Math.abs(dif) > 0.001;
+                          return (
+                            <tr key={ri.id} className={hayDif ? (dif! < 0 ? 'bg-destructive/5' : 'bg-warning/5') : ''}>
+                              <td className="py-1.5 font-semibold text-foreground">
+                                {ri.producto?.nombre}
+                                {ri.costoUnitario && <span className="ml-1 text-primary font-normal">${ri.costoUnitario}/u</span>}
+                              </td>
+                              <td className="py-1.5 text-center text-on-surface-variant">
+                                {pedido !== null ? `${pedido} ${ri.unidad}` : '—'}
+                              </td>
+                              <td className="py-1.5 text-center font-bold text-foreground">
+                                {ri.cantidadRecibida} {ri.unidad}
+                              </td>
+                              <td className="py-1.5 text-center">
+                                {hayDif ? (
+                                  <span className={`font-extrabold flex items-center justify-center gap-0.5 ${dif! < 0 ? 'text-destructive' : 'text-warning'}`}>
+                                    {dif! < 0 ? <TrendingDown size={11} /> : <TrendingUp size={11} />}
+                                    {dif! > 0 ? '+' : ''}{Math.round(dif! * 100) / 100}
+                                  </span>
+                                ) : (
+                                  <span className="text-success font-bold">✓</span>
+                                )}
+                              </td>
+                              <td className="py-1.5">
+                                {ri.atribucion === 'proveedor' && (
+                                  <span className="text-[10px] font-bold bg-destructive/10 text-destructive px-1.5 py-0.5 rounded">Proveedor</span>
+                                )}
+                                {ri.atribucion === 'recepcion' && (
+                                  <span className="text-[10px] font-bold bg-warning/10 text-warning px-1.5 py-0.5 rounded">Error recepción</span>
+                                )}
+                                {ri.motivoDiferencia && (
+                                  <p className="text-[10px] text-on-surface-variant mt-0.5">{ri.motivoDiferencia}</p>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
         {/* Modal Recibir */}
         <Modal open={modalRecibir} onClose={() => setModalRecibir(false)} title="Recibir mercadería">
           <div className="space-y-3">
-            {error && <p className="text-sm text-destructive font-semibold">{error}</p>}
+            {error && <p className="text-sm text-destructive font-semibold bg-destructive/10 p-3 rounded-lg">{error}</p>}
             <button
-              onClick={() => setRecepcionItems(prev => prev.map(i => ({ ...i, cantidadRecibida: i.cantidadPedida })))}
+              onClick={() => setRecepcionItems(prev => prev.map(i => ({ ...i, cantidadRecibida: i.cantidadPedida, atribucion: '', motivoDiferencia: '' })))}
               className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-success/10 border border-success/30 text-success text-sm font-bold hover:bg-success/20 transition-colors"
             >
-              <CheckCheck size={15} /> Recibir todo como pedido
+              <CheckCheck size={15} /> Todo llegó como pedido
             </button>
-            {recepcionItems.map((item, idx) => (
-              <div key={idx} className="flex items-center gap-3 p-3 bg-surface-high rounded-lg">
-                <div className="flex-1">
-                  <p className="text-sm font-semibold text-foreground">{item.nombre}</p>
-                  <p className="text-xs text-on-surface-variant">Pedido: {item.cantidadPedida} {item.unidad}</p>
+
+            {recepcionItems.map((item, idx) => {
+              const recibida = parseFloat(String(item.cantidadRecibida)) || 0;
+              const dif = recibida - item.cantidadPedida;
+              const hayDif = Math.abs(dif) > 0.001;
+              return (
+                <div key={idx} className={`p-3 rounded-lg border transition-colors ${
+                  hayDif
+                    ? dif < 0 ? 'bg-destructive/5 border-destructive/30' : 'bg-warning/5 border-warning/30'
+                    : 'bg-surface-high border-transparent'
+                }`}>
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-foreground">{item.nombre}</p>
+                      <p className="text-xs text-on-surface-variant">Pedido: <strong>{item.cantidadPedida} {item.unidad}</strong></p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-center">
+                        <p className="text-[10px] text-on-surface-variant mb-1">Recibido</p>
+                        <Input
+                          type="number"
+                          value={item.cantidadRecibida}
+                          onChange={e => {
+                            const updated = [...recepcionItems];
+                            updated[idx].cantidadRecibida = e.target.value;
+                            // Si se igualó al pedido, limpiar atribución
+                            if (Math.abs(parseFloat(e.target.value) - item.cantidadPedida) <= 0.001) {
+                              updated[idx].atribucion = '';
+                              updated[idx].motivoDiferencia = '';
+                            }
+                            setRecepcionItems(updated);
+                          }}
+                          className="w-24 text-center"
+                        />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[10px] text-on-surface-variant mb-1">$/u</p>
+                        <Input
+                          type="number"
+                          placeholder="—"
+                          value={item.costoUnitario || ''}
+                          onChange={e => {
+                            const updated = [...recepcionItems];
+                            updated[idx].costoUnitario = e.target.value;
+                            setRecepcionItems(updated);
+                          }}
+                          className="w-24 text-center"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Diferencia detectada → pedir atribución */}
+                  {hayDif && (
+                    <div className="mt-2 pt-2 border-t border-border/50 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle size={13} className={dif < 0 ? 'text-destructive' : 'text-warning'} />
+                        <p className="text-xs font-bold text-foreground">
+                          {dif < 0
+                            ? `Faltaron ${Math.abs(Math.round(dif * 100) / 100)} ${item.unidad} — ¿por qué?`
+                            : `Sobraron ${Math.round(dif * 100) / 100} ${item.unidad} — ¿por qué?`
+                          }
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            const updated = [...recepcionItems];
+                            updated[idx].atribucion = 'proveedor';
+                            setRecepcionItems(updated);
+                          }}
+                          className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold border transition-all ${
+                            item.atribucion === 'proveedor'
+                              ? 'bg-destructive text-white border-destructive'
+                              : 'bg-surface border-border text-on-surface-variant hover:border-destructive hover:text-destructive'
+                          }`}
+                        >
+                          🚚 Proveedor despachó mal
+                        </button>
+                        <button
+                          onClick={() => {
+                            const updated = [...recepcionItems];
+                            updated[idx].atribucion = 'recepcion';
+                            setRecepcionItems(updated);
+                          }}
+                          className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold border transition-all ${
+                            item.atribucion === 'recepcion'
+                              ? 'bg-warning text-black border-warning'
+                              : 'bg-surface border-border text-on-surface-variant hover:border-warning hover:text-warning'
+                          }`}
+                        >
+                          📋 Error al recibir/cargar
+                        </button>
+                      </div>
+                      <Input
+                        placeholder="Nota opcional (ej: remito dice 5kg pero pesó 4.2kg)"
+                        value={item.motivoDiferencia || ''}
+                        onChange={e => {
+                          const updated = [...recepcionItems];
+                          updated[idx].motivoDiferencia = e.target.value;
+                          setRecepcionItems(updated);
+                        }}
+                        className="text-xs"
+                      />
+                    </div>
+                  )}
                 </div>
-                <Input
-                  type="number"
-                  value={item.cantidadRecibida}
-                  onChange={e => {
-                    const updated = [...recepcionItems];
-                    updated[idx].cantidadRecibida = e.target.value;
-                    setRecepcionItems(updated);
-                  }}
-                  className="w-24 text-center"
-                />
-                <Input
-                  type="number"
-                  placeholder="$/u"
-                  value={item.costoUnitario || ''}
-                  onChange={e => {
-                    const updated = [...recepcionItems];
-                    updated[idx].costoUnitario = e.target.value;
-                    setRecepcionItems(updated);
-                  }}
-                  className="w-24 text-center"
-                />
-              </div>
-            ))}
+              );
+            })}
+
             <div className="flex justify-end gap-2 pt-3">
               <Button variant="ghost" onClick={() => setModalRecibir(false)}>Cancelar</Button>
               <Button onClick={handleRecibir}>Confirmar recepción</Button>

@@ -250,11 +250,14 @@ router.post('/:id/recibir', async (req: Request, res: Response) => {
           items: {
             create: items.map((item: any) => ({
               productoId: item.productoId,
+              cantidadPedida: item.cantidadPedida ? Number(item.cantidadPedida) : null,
               cantidadRecibida: item.cantidadRecibida,
               unidad: item.unidad,
               costoUnitario: item.costoUnitario || null,
               lote: item.lote || null,
-              observacion: item.observacion || null
+              observacion: item.observacion || null,
+              atribucion: item.atribucion || null,
+              motivoDiferencia: item.motivoDiferencia || null,
             }))
           }
         }

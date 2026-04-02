@@ -288,14 +288,17 @@ model Recepcion {
 }
 
 model RecepcionItem {
-  id               Int    @id @default(autoincrement())
-  recepcionId      Int    @map("recepcion_id")
-  productoId       Int    @map("producto_id")
-  cantidadRecibida Float  @map("cantidad_recibida")
+  id               Int     @id @default(autoincrement())
+  recepcionId      Int     @map("recepcion_id")
+  productoId       Int     @map("producto_id")
+  cantidadPedida   Float?  @map("cantidad_pedida")   // copia de la OC al momento de recibir
+  cantidadRecibida Float   @map("cantidad_recibida")
   unidad           String
-  costoUnitario    Float? @map("costo_unitario")
+  costoUnitario    Float?  @map("costo_unitario")
   lote             String?
   observacion      String?
+  atribucion       String? // 'proveedor' | 'recepcion' | null — a quién se atribuye la diferencia
+  motivoDiferencia String? @map("motivo_diferencia")
 
   recepcion Recepcion @relation(fields: [recepcionId], references: [id], onDelete: Cascade)
   producto  Producto  @relation(fields: [productoId], references: [id])
