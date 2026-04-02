@@ -285,6 +285,67 @@ function TrendBadge({ current, previous }: { current: number; previous: number }
 }
 
 // ─── Dashboard admin / compras (completo) ────────────────────────────────────
+// ─── Equipo hoy — expandible con detalles por usuario ───────────────────────
+function EquipoHoyList({ equipo, movimientos }: { equipo: any[]; movimientos: any[] }) {
+  const [expandedUser, setExpandedUser] = useState<number | null>(null);
+
+  return (
+    <div className="divide-y divide-border">
+      {equipo.map((u: any) => {
+        const expanded = expandedUser === u.id;
+        const userMov = movimientos.filter((m: any) => m.usuarioId === u.id || m.usuario?.id === u.id);
+
+        return (
+          <div key={u.id}>
+            <button
+              onClick={() => setExpandedUser(expanded ? null : u.id)}
+              className="w-full p-4 flex items-center gap-3 hover:bg-surface-high/30 transition text-left"
+            >
+              <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                <span className="text-xs font-extrabold text-primary">{u.nombre.charAt(0).toUpperCase()}</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-bold text-foreground truncate">{u.nombre}</p>
+                  <span className="text-[10px] font-semibold text-on-surface-variant bg-surface-high px-1.5 py-0.5 rounded">{u.rol}</span>
+                </div>
+                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                  {Object.entries(u.tipos as Record<string, number>).map(([tipo, count]) => (
+                    <Badge key={tipo} variant={tipoBadge[tipo] || 'default'}>
+                      {count} {tipoLabels[tipo] || tipo}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+              <p className="text-lg font-extrabold text-foreground shrink-0">{u.total}</p>
+              <ChevronRight size={14} className={`text-zinc-600 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+            </button>
+
+            {expanded && userMov.length > 0 && (
+              <div className="px-4 pb-3 space-y-1.5">
+                {userMov.map((m: any) => (
+                  <div key={m.id} className="flex items-center gap-2 text-xs bg-surface-high/50 rounded-lg px-3 py-2">
+                    <Badge variant={tipoBadge[m.tipo] || 'default'}>
+                      {tipoLabels[m.tipo] || m.tipo}
+                    </Badge>
+                    <span className="font-semibold text-foreground truncate">{m.producto?.nombre || '—'}</span>
+                    <span className="text-on-surface-variant">{m.cantidad} {m.unidad}</span>
+                    {m.depositoDestino && <span className="text-zinc-600">→ {m.depositoDestino.nombre}</span>}
+                    <span className="ml-auto text-zinc-600 shrink-0">{m.hora}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {expanded && userMov.length === 0 && (
+              <p className="px-4 pb-3 text-xs text-on-surface-variant">Sin detalle disponible</p>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function DashboardAdmin() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -460,29 +521,7 @@ function DashboardAdmin() {
             <p className="text-sm text-on-surface-variant font-medium">Nadie registró movimientos hoy todavía</p>
           </div>
         ) : (
-          <div className="divide-y divide-border">
-            {stats.actividadEquipo.map((u: any) => (
-              <div key={u.id} className="p-4 flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <span className="text-xs font-extrabold text-primary">{u.nombre.charAt(0).toUpperCase()}</span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-bold text-foreground truncate">{u.nombre}</p>
-                    <span className="text-[10px] font-semibold text-on-surface-variant bg-surface-high px-1.5 py-0.5 rounded">{u.rol}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                    {Object.entries(u.tipos as Record<string, number>).map(([tipo, count]) => (
-                      <Badge key={tipo} variant={tipoBadge[tipo] || 'default'}>
-                        {count} {tipoLabels[tipo] || tipo}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-                <p className="text-lg font-extrabold text-foreground shrink-0">{u.total}</p>
-              </div>
-            ))}
-          </div>
+          <EquipoHoyList equipo={stats.actividadEquipo} movimientos={stats.ultimosMovimientos || []} />
         )}
       </div>
 

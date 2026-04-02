@@ -47,15 +47,15 @@ export default function Sidebar() {
     }`;
 
   const nav = (
-    <>
-      <div className="p-5 mb-4">
+    <div className="flex flex-col h-full">
+      <div className="p-5 mb-2 shrink-0">
         <div className="text-lg font-extrabold tracking-tight text-foreground">OPS<span className="text-primary">TERMINAL</span></div>
         <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em] mt-1">
           Stock Gastro
         </p>
       </div>
 
-      <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
+      <nav className="flex-1 px-3 space-y-1 overflow-y-auto min-h-0">
         {filteredItems.map(item => (
           <NavLink
             key={item.to}
@@ -69,8 +69,8 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      <div className="p-3 border-t border-border mt-auto">
-        <div className="px-4 py-3">
+      <div className="p-3 border-t border-border shrink-0">
+        <div className="px-4 py-2">
           <p className="text-xs font-bold text-foreground">{user?.nombre}</p>
           <p className="text-[10px] text-on-surface-variant font-medium uppercase tracking-widest">{user?.rol}</p>
         </div>
@@ -82,7 +82,7 @@ export default function Sidebar() {
           Cerrar sesión
         </button>
       </div>
-    </>
+    </div>
   );
 
   return (
