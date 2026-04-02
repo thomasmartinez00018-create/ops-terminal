@@ -333,7 +333,7 @@ router.get('/comparar-periodos', async (req: Request, res: Response) => {
 router.get('/discrepancias', async (_req: Request, res: Response) => {
   try {
     const TIPOS_ENTRADA = ['ingreso', 'elaboracion', 'devolucion'];
-    const TIPOS_SALIDA = ['merma', 'consumo_interno'];
+    const TIPOS_SALIDA = ['merma', 'consumo_interno', 'venta'];
 
     const depositos = await prisma.deposito.findMany({
       where: { activo: true },

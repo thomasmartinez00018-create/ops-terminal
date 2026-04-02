@@ -10,6 +10,7 @@ import SearchableSelect from './ui/SearchableSelect';
 import { ScanBarcode, X } from 'lucide-react';
 
 const TIPOS = [
+  { value: 'venta', label: 'Venta', icon: '🛒', color: 'bg-primary/10 text-primary border-primary/30' },
   { value: 'consumo_interno', label: 'Consumo / Uso', icon: '🍽️', color: 'bg-blue-500/10 text-blue-400 border-blue-500/30' },
   { value: 'merma', label: 'Merma', icon: '🗑️', color: 'bg-destructive/10 text-destructive border-destructive/30' },
   { value: 'transferencia', label: 'Transferencia', icon: '↔️', color: 'bg-warning/10 text-warning border-warning/30' },
@@ -129,7 +130,7 @@ export default function QuickMovimiento({ open, onClose, tipoInicial = 'consumo_
         usuarioId: user!.id,
         fecha: now.toISOString().split('T')[0],
         hora: now.toTimeString().slice(0, 5),
-        depositoOrigenId: ['merma', 'transferencia', 'consumo_interno'].includes(tipo) && depositoOrigenId ? Number(depositoOrigenId) : null,
+        depositoOrigenId: ['merma', 'transferencia', 'consumo_interno', 'venta'].includes(tipo) && depositoOrigenId ? Number(depositoOrigenId) : null,
         depositoDestinoId: ['ingreso', 'transferencia'].includes(tipo) && depositoDestinoId ? Number(depositoDestinoId) : null,
         cantidad: Number(cantidad),
         unidad,
@@ -152,7 +153,7 @@ export default function QuickMovimiento({ open, onClose, tipoInicial = 'consumo_
     }
   };
 
-  const needsOrigen = ['merma', 'transferencia', 'consumo_interno'].includes(tipo);
+  const needsOrigen = ['merma', 'transferencia', 'consumo_interno', 'venta'].includes(tipo);
   const needsDestino = ['ingreso', 'transferencia'].includes(tipo);
   const selectedProd = productos.find(p => p.id === Number(productoId));
 

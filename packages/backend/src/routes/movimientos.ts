@@ -61,7 +61,7 @@ router.post('/', async (req: Request, res: Response) => {
       const tipoLabel: Record<string, string> = {
         ingreso: 'Ingreso', transferencia: 'Transferencia', merma: 'Merma',
         elaboracion: 'Elaboracion', ajuste: 'Ajuste', consumo_interno: 'Consumo interno',
-        devolucion: 'Devolucion', conteo: 'Conteo',
+        devolucion: 'Devolucion', conteo: 'Conteo', venta: 'Venta',
       };
       const destino = movimiento.depositoDestino?.nombre || movimiento.depositoOrigen?.nombre || '';
       await prisma.tarea.create({
@@ -88,6 +88,7 @@ router.post('/', async (req: Request, res: Response) => {
 router.get('/tipos', (_req: Request, res: Response) => {
   res.json([
     { value: 'ingreso', label: 'Ingreso / Compra' },
+    { value: 'venta', label: 'Venta' },
     { value: 'elaboracion', label: 'Elaboración' },
     { value: 'merma', label: 'Merma' },
     { value: 'transferencia', label: 'Transferencia' },
@@ -104,7 +105,8 @@ router.get('/motivos/:tipo', (req: Request, res: Response) => {
     merma: ['Vencimiento', 'Rotura', 'Deterioro', 'Error de elaboración', 'Derrame', 'Otro'],
     ajuste: ['Diferencia de inventario', 'Corrección de carga', 'Error de sistema', 'Otro'],
     consumo_interno: ['Comida de personal', 'Degustación', 'Cortesía', 'Otro'],
-    devolucion: ['Producto en mal estado', 'Error de pedido', 'Otro']
+    devolucion: ['Producto en mal estado', 'Error de pedido', 'Otro'],
+    venta: ['Venta al público', 'Venta mayorista', 'Delivery', 'Catering', 'Venta a empleado', 'Otro'],
   };
   res.json(motivos[req.params.tipo as string] || []);
 });

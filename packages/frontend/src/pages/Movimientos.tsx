@@ -15,6 +15,7 @@ import { useNavigate } from 'react-router-dom';
 
 const TIPOS_MOV = [
   { value: 'ingreso', label: 'Ingreso / Compra' },
+  { value: 'venta', label: 'Venta' },
   { value: 'elaboracion', label: 'Elaboración' },
   { value: 'merma', label: 'Merma' },
   { value: 'transferencia', label: 'Transferencia' },
@@ -24,10 +25,12 @@ const TIPOS_MOV = [
 ];
 
 const MOTIVOS_MERMA = ['Vencimiento', 'Rotura', 'Deterioro', 'Error de elaboración', 'Derrame', 'Otro'];
+const MOTIVOS_VENTA = ['Venta al público', 'Venta mayorista', 'Delivery', 'Catering', 'Venta a empleado', 'Otro'];
 
 const tipoBadge: Record<string, 'success' | 'info' | 'danger' | 'warning' | 'default'> = {
   ingreso: 'success', elaboracion: 'info', merma: 'danger',
   transferencia: 'warning', ajuste: 'default', consumo_interno: 'default', devolucion: 'warning',
+  venta: 'info',
 };
 
 export default function Movimientos() {
@@ -109,7 +112,7 @@ export default function Movimientos() {
     }
   };
 
-  const needsOrigen = ['merma', 'transferencia', 'consumo_interno'].includes(form.tipo);
+  const needsOrigen = ['merma', 'transferencia', 'consumo_interno', 'venta'].includes(form.tipo);
   const needsDestino = ['ingreso', 'elaboracion', 'transferencia', 'ajuste', 'devolucion'].includes(form.tipo);
 
   return (
@@ -257,6 +260,16 @@ export default function Movimientos() {
               onChange={e => setForm({ ...form, motivo: e.target.value })}
               options={MOTIVOS_MERMA.map(m => ({ value: m, label: m }))}
               placeholder="Seleccionar motivo..."
+            />
+          )}
+          {form.tipo === 'venta' && (
+            <Select
+              label="Canal de venta"
+              id="motivo"
+              value={form.motivo}
+              onChange={e => setForm({ ...form, motivo: e.target.value })}
+              options={MOTIVOS_VENTA.map(m => ({ value: m, label: m }))}
+              placeholder="Seleccionar canal..."
             />
           )}
           <Input

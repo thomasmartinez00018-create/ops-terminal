@@ -3,7 +3,7 @@ import prisma from '../lib/prisma';
 // Tipos que suman stock a un depósito destino
 const TIPOS_ENTRADA = ['ingreso', 'elaboracion', 'devolucion'];
 // Tipos que restan stock de un depósito origen
-const TIPOS_SALIDA = ['merma', 'consumo_interno'];
+const TIPOS_SALIDA = ['merma', 'consumo_interno', 'venta'];
 
 /**
  * Calcula el stock teórico de un producto en un depósito específico
