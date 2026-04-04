@@ -22,6 +22,10 @@ import AccesoRed from './pages/AccesoRed';
 import EscanerFactura from './pages/EscanerFactura';
 import Tareas from './pages/Tareas';
 import Elaboraciones from './pages/Elaboraciones';
+import Configuracion from './pages/Configuracion';
+import Facturas from './pages/Facturas';
+import CuentasPorPagar from './pages/CuentasPorPagar';
+import ReportesCostos from './pages/ReportesCostos';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -58,6 +62,10 @@ function AppRoutes() {
         <Route path="/vincular" element={<Vincular />} />
         <Route path="/acceso-red" element={<AccesoRed />} />
         <Route path="/escanear-factura" element={<EscanerFactura />} />
+        <Route path="/facturas" element={<Facturas />} />
+        <Route path="/cuentas-por-pagar" element={<CuentasPorPagar />} />
+        <Route path="/reportes-costos" element={<ReportesCostos />} />
+        <Route path="/configuracion" element={<Configuracion />} />
         <Route path="/tareas" element={<Tareas />} />
         <Route path="/elaboraciones" element={<Elaboraciones />} />
       </Route>

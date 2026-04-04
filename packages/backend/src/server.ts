@@ -20,6 +20,9 @@ import scannerRouter from './routes/controlScanner';
 import facturasRouter from './routes/facturas';
 import tareasRouter from './routes/tareas';
 import elaboracionesRouter from './routes/elaboraciones';
+import contabilidadRouter from './routes/contabilidad';
+import configRouter from './routes/config';
+import aiChatRouter from './routes/aiChat';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -46,6 +49,9 @@ app.use('/api/scanner', scannerRouter);
 app.use('/api/facturas', facturasRouter);
 app.use('/api/tareas', tareasRouter);
 app.use('/api/elaboraciones', elaboracionesRouter);
+app.use('/api/contabilidad', contabilidadRouter);
+app.use('/api/config', configRouter);
+app.use('/api/ai', aiChatRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -118,6 +124,54 @@ async function autoMigrate() {
       observacion TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
+
+    // Crear tablas de contabilidad
+    await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS facturas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      codigo TEXT UNIQUE NOT NULL,
+      tipo_comprobante TEXT NOT NULL DEFAULT 'ticket',
+      numero TEXT NOT NULL DEFAULT '',
+      fecha TEXT NOT NULL,
+      fecha_vencimiento TEXT,
+      proveedor_id INTEGER NOT NULL REFERENCES proveedores(id),
+      orden_compra_id INTEGER REFERENCES ordenes_compra(id),
+      subtotal REAL DEFAULT 0,
+      iva REAL DEFAULT 0,
+      total REAL DEFAULT 0,
+      estado TEXT DEFAULT 'pendiente',
+      imagen_base64 TEXT,
+      observacion TEXT,
+      creado_por_id INTEGER NOT NULL REFERENCES usuarios(id),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
+    await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS factura_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      factura_id INTEGER NOT NULL REFERENCES facturas(id) ON DELETE CASCADE,
+      producto_id INTEGER REFERENCES productos(id),
+      descripcion TEXT NOT NULL,
+      cantidad REAL NOT NULL,
+      unidad TEXT NOT NULL,
+      precio_unitario REAL NOT NULL,
+      alicuota_iva REAL DEFAULT 21,
+      subtotal REAL DEFAULT 0,
+      iva REAL DEFAULT 0
+    )`);
+
+    await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS pagos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      factura_id INTEGER NOT NULL REFERENCES facturas(id),
+      fecha TEXT NOT NULL,
+      monto REAL NOT NULL,
+      medio_pago TEXT NOT NULL DEFAULT 'efectivo',
+      referencia TEXT,
+      observacion TEXT,
+      creado_por_id INTEGER NOT NULL REFERENCES usuarios(id),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
+    migrations.push(`ALTER TABLE movimientos ADD COLUMN factura_id INTEGER REFERENCES facturas(id)`);
 
     // Agregar columnas faltantes (SQLite ignora si ya existen con este pattern)
     for (const sql of migrations) {

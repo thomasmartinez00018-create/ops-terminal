@@ -37,6 +37,7 @@ model Producto {
   recepcionItems      RecepcionItem[]
   recetasResultado    Receta[]             @relation("recetaProducto")
   elaboraciones       ElaboracionLote[]    @relation("elaborProducto")
+  facturaItems        FacturaItem[]
 
   @@map("productos")
 }
@@ -86,6 +87,8 @@ model Usuario {
   tareasCreadas     Tarea[]       @relation("tareasCreadas")
   tareasAsignadas   Tarea[]       @relation("tareasAsignadas")
   elaboraciones     ElaboracionLote[] @relation("elaborUsuario")
+  facturasCreadas   Factura[]     @relation("facturaCreador")
+  pagosCreados      Pago[]        @relation("pagoCreador")
 
   @@map("usuarios")
 }
@@ -113,6 +116,7 @@ model Movimiento {
   responsableId    Int?     @map("responsable_id")
   recepcionId      Int?     @map("recepcion_id")
   elaboracionLoteId Int?    @map("elaboracion_lote_id")
+  facturaId        Int?     @map("factura_id")
   createdAt        DateTime @default(now()) @map("created_at")
 
   usuario          Usuario          @relation("movUsuario", fields: [usuarioId], references: [id])
@@ -123,6 +127,7 @@ model Movimiento {
   proveedor        Proveedor?       @relation(fields: [proveedorId], references: [id])
   recepcion        Recepcion?       @relation(fields: [recepcionId], references: [id])
   elaboracionLote  ElaboracionLote? @relation(fields: [elaboracionLoteId], references: [id])
+  factura          Factura?         @relation(fields: [facturaId], references: [id])
 
   @@map("movimientos")
 }
@@ -142,6 +147,7 @@ model Proveedor {
   movimientos        Movimiento[]
   proveedorProductos ProveedorProducto[]
   ordenesCompra      OrdenCompra[]
+  facturas           Factura[]
 
   @@map("proveedores")
 }
@@ -286,6 +292,7 @@ model OrdenCompra {
   depositoDestino Deposito? @relation("ocDeposito", fields: [depositoDestinoId], references: [id])
   items           OrdenCompraItem[]
   recepciones     Recepcion[]
+  facturas        Factura[]
 
   @@map("ordenes_compra")
 }
@@ -366,4 +373,74 @@ model Tarea {
   asignadoA     Usuario  @relation("tareasAsignadas", fields: [asignadoAId], references: [id])
 
   @@map("tareas")
+}
+
+// ==========================================
+// FACTURAS RECIBIDAS (contabilidad)
+// ==========================================
+model Factura {
+  id                Int       @id @default(autoincrement())
+  codigo            String    @unique                         // FAC-001 auto
+  tipoComprobante   String    @map("tipo_comprobante")        // "A","B","C","ticket","remito"
+  numero            String                                    // nro original del proveedor
+  fecha             String                                    // YYYY-MM-DD fecha de emisión
+  fechaVencimiento  String?   @map("fecha_vencimiento")       // YYYY-MM-DD fecha de pago
+  proveedorId       Int       @map("proveedor_id")
+  ordenCompraId     Int?      @map("orden_compra_id")
+  subtotal          Float     @default(0)
+  iva               Float     @default(0)
+  total             Float     @default(0)
+  estado            String    @default("pendiente")           // pendiente|parcial|pagada|anulada
+  imagenBase64      String?   @map("imagen_base64")
+  observacion       String?
+  creadoPorId       Int       @map("creado_por_id")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  proveedor    Proveedor      @relation(fields: [proveedorId], references: [id])
+  ordenCompra  OrdenCompra?   @relation(fields: [ordenCompraId], references: [id])
+  creadoPor    Usuario        @relation("facturaCreador", fields: [creadoPorId], references: [id])
+  items        FacturaItem[]
+  pagos        Pago[]
+  movimientos  Movimiento[]
+
+  @@map("facturas")
+}
+
+model FacturaItem {
+  id              Int     @id @default(autoincrement())
+  facturaId       Int     @map("factura_id")
+  productoId      Int?    @map("producto_id")
+  descripcion     String
+  cantidad        Float
+  unidad          String
+  precioUnitario  Float   @map("precio_unitario")
+  alicuotaIva     Float   @default(21) @map("alicuota_iva")  // 0, 10.5, 21, 27
+  subtotal        Float   @default(0)
+  iva             Float   @default(0)
+
+  factura   Factura   @relation(fields: [facturaId], references: [id], onDelete: Cascade)
+  producto  Producto? @relation(fields: [productoId], references: [id])
+
+  @@map("factura_items")
+}
+
+// ==========================================
+// PAGOS (contra facturas)
+// ==========================================
+model Pago {
+  id          Int      @id @default(autoincrement())
+  facturaId   Int      @map("factura_id")
+  fecha       String                                      // YYYY-MM-DD
+  monto       Float
+  medioPago   String   @map("medio_pago")                 // efectivo|transferencia|cheque|debito|credito
+  referencia  String?
+  observacion String?
+  creadoPorId Int      @map("creado_por_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  factura   Factura @relation(fields: [facturaId], references: [id])
+  creadoPor Usuario @relation("pagoCreador", fields: [creadoPorId], references: [id])
+
+  @@map("pagos")
 }

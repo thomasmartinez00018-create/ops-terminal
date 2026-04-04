@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Wifi, Copy, Check, Smartphone, Monitor, RefreshCw } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 
 export default function AccesoRed() {
   const [networkUrl, setNetworkUrl] = useState<string | null>(null);
@@ -76,11 +77,12 @@ export default function AccesoRed() {
           {/* QR grande centrado */}
           <div className="glass rounded-2xl border border-primary/30 p-6 flex flex-col items-center gap-4">
             <div className="bg-white rounded-2xl p-3 shadow-lg">
-              <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(networkUrl)}`}
-                alt="QR de acceso"
-                width={200}
-                height={200}
+              <QRCodeSVG
+                value={networkUrl}
+                size={200}
+                bgColor="#ffffff"
+                fgColor="#000000"
+                level="M"
                 className="rounded-xl"
               />
             </div>

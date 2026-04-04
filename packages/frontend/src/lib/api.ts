@@ -167,4 +167,37 @@ export const api = {
   createElaboracion: (data: any) => request<any>('/elaboraciones', { method: 'POST', body: JSON.stringify(data) }),
   getElaboracion: (id: number) => request<any>(`/elaboraciones/${id}`),
   getRecetasConProducto: () => request<any[]>('/recetas?activo=true'),
+
+  // Contabilidad — Facturas
+  getFacturas: (params?: Record<string, string>) => request<any[]>(`/contabilidad/facturas${qs(params)}`),
+  getFactura: (id: number) => request<any>(`/contabilidad/facturas/${id}`),
+  createFacturaManual: (data: any) =>
+    request<any>('/contabilidad/facturas', { method: 'POST', body: JSON.stringify(data) }),
+  updateFactura: (id: number, data: any) =>
+    request<any>(`/contabilidad/facturas/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  anularFactura: (id: number) =>
+    request<any>(`/contabilidad/facturas/${id}/anular`, { method: 'PUT' }),
+  vincularFacturaOC: (id: number, ordenCompraId: number | null) =>
+    request<any>(`/contabilidad/facturas/${id}/vincular-oc`, { method: 'PUT', body: JSON.stringify({ ordenCompraId }) }),
+
+  // Contabilidad — Pagos
+  registrarPago: (facturaId: number, data: any) =>
+    request<any>(`/contabilidad/facturas/${facturaId}/pagos`, { method: 'POST', body: JSON.stringify(data) }),
+  eliminarPago: (pagoId: number) =>
+    request<any>(`/contabilidad/pagos/${pagoId}`, { method: 'DELETE' }),
+
+  // Asistente IA
+  aiChat: (data: { message: string; pageContext?: string; historial?: { role: string; text: string }[] }) =>
+    request<{ reply: string }>('/ai/chat', { method: 'POST', body: JSON.stringify(data) }),
+
+  // Config / Reseteo
+  getConfigStats: () => request<any>('/config/stats'),
+  resetOperativo: (usuarioId: number) => request<any>('/config/reset-operativo', { method: 'POST', body: JSON.stringify({ usuarioId }) }),
+  resetTotal: (usuarioId: number) => request<any>('/config/reset-total', { method: 'POST', body: JSON.stringify({ usuarioId }) }),
+
+  // Contabilidad — Reportes
+  getCuentasPorPagar: () => request<any>('/contabilidad/cuentas-por-pagar'),
+  getSaldoProveedor: (proveedorId: number) => request<any>(`/contabilidad/saldo-proveedor/${proveedorId}`),
+  getCogs: (params?: Record<string, string>) => request<any>(`/contabilidad/cogs${qs(params)}`),
+  getHistorialPrecios: (productoId: number) => request<any[]>(`/contabilidad/historial-precios/${productoId}`),
 };

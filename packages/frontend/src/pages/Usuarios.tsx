@@ -29,6 +29,7 @@ const PERMISOS_DISPONIBLES = [
   { key: 'inventarios', label: 'Inventarios' },
   { key: 'discrepancias', label: 'Discrepancias' },
   { key: 'reportes', label: 'Reportes' },
+  { key: 'contabilidad', label: 'Contabilidad' },
   { key: 'importar', label: 'Importar datos' },
   { key: 'vincular', label: 'Vincular' },
 ];
@@ -39,7 +40,7 @@ const PERMISOS_POR_ROL: Record<string, string[]> = {
   cocina: ['movimientos', 'stock', 'recetas'],
   deposito: ['ordenes-compra', 'control-scanner', 'movimientos', 'stock', 'inventarios'],
   barra: ['stock', 'movimientos'],
-  compras: ['ordenes-compra', 'control-scanner', 'movimientos', 'stock', 'productos', 'proveedores', 'reportes'],
+  compras: ['ordenes-compra', 'control-scanner', 'movimientos', 'stock', 'productos', 'proveedores', 'reportes', 'contabilidad'],
 };
 
 const emptyForm = { codigo: '', nombre: '', rol: 'cocina', pin: '', depositoDefectoId: '' };

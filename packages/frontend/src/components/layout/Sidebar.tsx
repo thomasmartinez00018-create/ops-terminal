@@ -3,7 +3,8 @@ import { useAuth } from '../../context/AuthContext';
 import {
   LayoutDashboard, Package, Warehouse, Users, ArrowRightLeft,
   ClipboardList, LogOut, Menu, X, ChefHat, Truck, ClipboardCheck,
-  Upload, BarChart3, Link2, ShoppingCart, ScanBarcode, AlertTriangle, ScanLine, ListTodo, FlaskConical
+  Upload, BarChart3, Link2, ShoppingCart, ScanBarcode, AlertTriangle, ScanLine, ListTodo, FlaskConical,
+  FileText, DollarSign, TrendingUp, Settings
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -24,10 +25,14 @@ const navItems: { to: string; label: string; icon: any; permiso?: string; adminO
   { to: '/inventarios', label: 'Inventarios', icon: ClipboardCheck, permiso: 'inventarios' },
   { to: '/discrepancias', label: 'Discrepancias', icon: AlertTriangle, permiso: 'discrepancias' },
   { to: '/reportes', label: 'Reportes', icon: BarChart3, permiso: 'reportes' },
-  { to: '/escanear-factura', label: 'Escanear Factura', icon: ScanLine, permiso: 'importar' },
+  { to: '/facturas', label: 'Facturas', icon: FileText, permiso: 'contabilidad' },
+  { to: '/cuentas-por-pagar', label: 'Cuentas x Pagar', icon: DollarSign, permiso: 'contabilidad' },
+  { to: '/reportes-costos', label: 'Costos', icon: TrendingUp, permiso: 'contabilidad' },
+  { to: '/escanear-factura', label: 'Escanear Factura', icon: ScanLine, permiso: 'contabilidad' },
   { to: '/importar', label: 'Importar', icon: Upload, permiso: 'importar' },
   { to: '/vincular', label: 'Vincular', icon: Link2, permiso: 'vincular' },
   { to: '/usuarios', label: 'Usuarios', icon: Users, adminOnly: true },
+  { to: '/configuracion', label: 'Configuración', icon: Settings, adminOnly: true },
 ];
 
 export default function Sidebar() {

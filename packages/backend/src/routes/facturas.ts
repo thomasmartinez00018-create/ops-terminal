@@ -4,7 +4,7 @@ import prisma from '../lib/prisma';
 
 const router = Router();
 
-// ── Prompt para Gemini ──────────────────────────────────────────────────────
+// ── Prompt para Gemini — detecta tipo comprobante + IVA ────────────────────
 const EXTRACTION_PROMPT = `Analizá esta imagen de factura/remito de un proveedor gastronómico argentino.
 Extraé la información en formato JSON estricto (sin markdown, sin backticks, solo JSON puro):
 
@@ -12,17 +12,27 @@ Extraé la información en formato JSON estricto (sin markdown, sin backticks, s
   "proveedor": "nombre del proveedor",
   "fecha": "YYYY-MM-DD",
   "numero_factura": "número de factura o remito",
+  "tipo_comprobante": "A",
   "items": [
     {
       "descripcion": "nombre del producto tal como aparece",
       "cantidad": 10.5,
       "unidad": "kg",
-      "precio_unitario": 150.50
+      "precio_unitario": 150.50,
+      "alicuota_iva": 21
     }
-  ]
+  ],
+  "subtotal": 1500.00,
+  "iva_total": 315.00,
+  "total": 1815.00
 }
 
 Reglas:
+- Detectá el tipo de comprobante: "A", "B", "C", "ticket" o "remito".
+  Buscá la letra grande en el centro-superior del documento. Si dice "FACTURA" con una letra (A, B, C), usá esa. Si parece un ticket de caja, poné "ticket". Si dice REMITO, poné "remito".
+- Para Factura A: el IVA está discriminado. Extraé alicuota_iva por item (21, 10.5, 27 o 0).
+- Para Factura B/C/Ticket: el IVA está incluido en el precio. Poné alicuota_iva: 0 en cada item.
+- Incluí subtotal, iva_total, total si están impresos en el documento.
 - Cantidades siempre como número decimal
 - Precios en pesos argentinos sin símbolo $
 - Si no podés leer un campo, poné null
@@ -71,7 +81,7 @@ router.post('/escanear', async (req, res) => {
 
     // Llamar a Gemini
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite-preview' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
 
     const result = await model.generateContent([
       EXTRACTION_PROMPT,
@@ -106,6 +116,7 @@ router.post('/escanear', async (req, res) => {
       cantidad: item.cantidad,
       unidad: item.unidad,
       precioUnitario: item.precio_unitario,
+      alicuotaIva: item.alicuota_iva ?? 0,
       ...matchProducto(item.descripcion || '', productos),
     }));
 
@@ -127,6 +138,10 @@ router.post('/escanear', async (req, res) => {
         proveedorMatch,
         fecha: parsed.fecha,
         numeroFactura: parsed.numero_factura,
+        tipoComprobante: parsed.tipo_comprobante || 'ticket',
+        subtotal: parsed.subtotal ?? null,
+        ivaTotal: parsed.iva_total ?? null,
+        total: parsed.total ?? null,
       },
       items,
     });
@@ -136,10 +151,16 @@ router.post('/escanear', async (req, res) => {
   }
 });
 
-// ── POST /api/facturas/confirmar ────────────────────────────────────────────
+// ── POST /api/facturas/confirmar ── Persiste Factura + Items + Movimientos ──
 router.post('/confirmar', async (req, res) => {
   try {
-    const { items, proveedorId, depositoDestinoId, usuarioId, fecha, documentoRef } = req.body;
+    const {
+      items, proveedorId, depositoDestinoId, usuarioId,
+      fecha, documentoRef,
+      tipoComprobante, fechaVencimiento,
+      subtotal, iva, total,
+      imagenBase64,
+    } = req.body;
 
     if (!items?.length) {
       return res.status(400).json({ error: 'No hay items para registrar' });
@@ -149,9 +170,53 @@ router.post('/confirmar', async (req, res) => {
     const hora = now.toTimeString().slice(0, 5);
     const fechaFinal = fecha || now.toISOString().split('T')[0];
 
-    const movimientos = await prisma.$transaction(
-      items.map((item: any) =>
-        prisma.movimiento.create({
+    const resultado = await prisma.$transaction(async (tx) => {
+      // Generar código FAC-NNNN dentro de la transacción para evitar race conditions
+      const last = await tx.factura.findFirst({ orderBy: { id: 'desc' } });
+      const nextNum = (last?.id || 0) + 1;
+      const codigo = `FAC-${String(nextNum).padStart(4, '0')}`;
+
+      // 1. Crear Factura
+      const factura = await tx.factura.create({
+        data: {
+          codigo,
+          tipoComprobante: tipoComprobante || 'ticket',
+          numero: documentoRef || '',
+          fecha: fechaFinal,
+          fechaVencimiento: fechaVencimiento || null,
+          proveedorId: proveedorId ? Number(proveedorId) : 1, // fallback
+          subtotal: Number(subtotal || 0),
+          iva: Number(iva || 0),
+          total: Number(total || 0),
+          estado: 'pendiente',
+          imagenBase64: imagenBase64 || null,
+          observacion: `Ingreso desde factura escaneada`,
+          creadoPorId: Number(usuarioId),
+        },
+      });
+
+      // 2. Crear FacturaItems
+      const itemsValidos = items.filter((i: any) => i.productoId && i.cantidad);
+      for (const item of items) {
+        await tx.facturaItem.create({
+          data: {
+            facturaId: factura.id,
+            productoId: item.productoId ? Number(item.productoId) : null,
+            descripcion: item.descripcion || '',
+            cantidad: Number(item.cantidad || 0),
+            unidad: item.unidad || 'unidad',
+            precioUnitario: Number(item.precioUnitario || 0),
+            alicuotaIva: Number(item.alicuotaIva ?? 0),
+            subtotal: Number(item.cantidad || 0) * Number(item.precioUnitario || 0),
+            iva: Number(item.cantidad || 0) * Number(item.precioUnitario || 0) * Number(item.alicuotaIva ?? 0) / 100,
+          },
+        });
+      }
+
+      // 3. Crear Movimientos de ingreso (solo items con producto asignado)
+      const movimientos = [];
+      for (const item of itemsValidos) {
+        const mov = await tx.movimiento.create({
           data: {
             tipo: 'ingreso',
             productoId: Number(item.productoId),
@@ -164,24 +229,51 @@ router.post('/confirmar', async (req, res) => {
             depositoOrigenId: null,
             fecha: fechaFinal,
             hora,
-            documentoRef: documentoRef || null,
-            observacion: `Ingreso desde factura escaneada`,
+            documentoRef: factura.codigo,
+            observacion: `Ingreso desde ${factura.codigo}`,
             motivo: null,
             lote: null,
             responsableId: null,
+            facturaId: factura.id,
           },
-        })
-      )
-    );
+        });
+        movimientos.push(mov);
+      }
+
+      // 4. Actualizar ultimoPrecio en ProveedorProducto si hay proveedor
+      if (proveedorId) {
+        for (const item of itemsValidos) {
+          if (item.precioUnitario) {
+            try {
+              await tx.proveedorProducto.updateMany({
+                where: {
+                  proveedorId: Number(proveedorId),
+                  productoId: Number(item.productoId),
+                },
+                data: {
+                  ultimoPrecio: Number(item.precioUnitario),
+                },
+              });
+            } catch {
+              // ProveedorProducto puede no existir, está bien
+            }
+          }
+        }
+      }
+
+      return { factura, movimientos };
+    });
 
     res.json({
       ok: true,
-      registrados: movimientos.length,
-      mensaje: `${movimientos.length} ingresos registrados desde factura`,
+      facturaCodigo: resultado.factura.codigo,
+      facturaId: resultado.factura.id,
+      registrados: resultado.movimientos.length,
+      mensaje: `Factura ${resultado.factura.codigo} registrada con ${resultado.movimientos.length} ingresos`,
     });
   } catch (err: any) {
     console.error('[facturas/confirmar]', err);
-    res.status(500).json({ error: err.message || 'Error al registrar ingresos' });
+    res.status(500).json({ error: err.message || 'Error al registrar factura' });
   }
 });
 

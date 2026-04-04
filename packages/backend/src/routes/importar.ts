@@ -1,7 +1,5 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
-import { readFileSync } from 'fs';
-import { join } from 'path';
 
 const router = Router();
 
