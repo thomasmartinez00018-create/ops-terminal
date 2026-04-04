@@ -56,11 +56,21 @@ router.post('/', async (req: Request, res: Response) => {
 // PUT /api/usuarios/:id
 router.put('/:id', async (req: Request, res: Response) => {
   try {
+    const { codigo, nombre, rol, pin, permisos, depositoDefectoId, activo } = req.body;
+    const updateData: any = {};
+    if (codigo !== undefined) updateData.codigo = String(codigo);
+    if (nombre !== undefined) updateData.nombre = String(nombre);
+    if (rol !== undefined) updateData.rol = String(rol);
+    if (pin !== undefined && pin !== '' && pin !== null) updateData.pin = String(pin);
+    if (permisos !== undefined) updateData.permisos = String(permisos);
+    if (depositoDefectoId !== undefined) updateData.depositoDefectoId = depositoDefectoId ? Number(depositoDefectoId) : null;
+    if (activo !== undefined) updateData.activo = Boolean(activo);
+
     const usuario = await prisma.usuario.update({
       where: { id: parseInt(req.params.id as string) },
-      data: req.body
+      data: updateData
     });
-    const { pin, ...data } = usuario;
+    const { pin: _pin, ...data } = usuario;
     res.json(data);
   } catch (error: any) {
     if (error.code === 'P2002') {

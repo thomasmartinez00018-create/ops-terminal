@@ -6,7 +6,7 @@ import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
-import { Plus, Pencil, Trash2, Search } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, Download } from 'lucide-react';
 
 const RUBROS = [
   'Verduras', 'Frutas', 'Carnes', 'Pescados', 'Lácteos', 'Fiambres',
@@ -113,6 +113,29 @@ export default function Productos() {
     cargar();
   };
 
+  const exportarCSV = () => {
+    const headers = ['Código', 'Nombre', 'Rubro', 'Tipo', 'Unidad Compra', 'Unidad Uso', 'Stock Mínimo', 'Stock Ideal', 'Código Barras'];
+    const rows = productos.map(p => [
+      p.codigo,
+      p.nombre,
+      p.rubro,
+      p.tipo,
+      p.unidadCompra,
+      p.unidadUso,
+      p.stockMinimo,
+      p.stockIdeal,
+      p.codigoBarras || '',
+    ]);
+    const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `productos-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div>
       <PageTour pageKey="productos" />
@@ -121,9 +144,19 @@ export default function Productos() {
           <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Maestro</p>
           <h1 className="text-xl font-extrabold text-foreground mt-1">Productos</h1>
         </div>
-        <Button onClick={() => abrir()}>
-          <Plus size={16} /> Nuevo producto
-        </Button>
+        <div className="flex gap-2">
+          <button
+            onClick={exportarCSV}
+            disabled={productos.length === 0}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-surface-high border border-border text-sm font-semibold text-on-surface-variant hover:text-foreground hover:border-primary/30 transition-colors disabled:opacity-40"
+            title="Exportar lista a CSV (Excel)"
+          >
+            <Download size={14} /> Exportar CSV
+          </button>
+          <Button onClick={() => abrir()}>
+            <Plus size={16} /> Nuevo producto
+          </Button>
+        </div>
       </div>
 
       {/* Filtros */}

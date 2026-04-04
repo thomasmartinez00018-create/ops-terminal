@@ -1,13 +1,14 @@
 import { useEffect, useState, useRef } from 'react';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import PageTour from '../components/PageTour';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
-import { Plus, ClipboardCheck, Lock, Trash2, AlertTriangle } from 'lucide-react';
+import { Plus, ClipboardCheck, Lock, Trash2, AlertTriangle, ScanBarcode, X } from 'lucide-react';
 
 interface DetalleRow {
   productoId: number;
@@ -21,6 +22,7 @@ interface DetalleRow {
 
 export default function Inventarios() {
   const { user } = useAuth();
+  const { addToast } = useToast();
   const [view, setView] = useState<'list' | 'detail'>('list');
   const [selectedInventarioId, setSelectedInventarioId] = useState<number | null>(null);
 
@@ -36,9 +38,19 @@ export default function Inventarios() {
   // ─── Detail state ───
   const [inventario, setInventario] = useState<any>(null);
   const [detalles, setDetalles] = useState<DetalleRow[]>([]);
+  const [allProductos, setAllProductos] = useState<any[]>([]);
   const [resumen, setResumen] = useState<any>(null);
   const [confirmCerrar, setConfirmCerrar] = useState(false);
   const [saving, setSaving] = useState<number | null>(null);
+
+  // ─── Scanner state ───
+  const [scannerMode, setScannerMode] = useState(false);
+  const [scanBuffer, setScanBuffer] = useState('');
+  const [scannedRow, setScannedRow] = useState<DetalleRow | null>(null);
+  const [scanQty, setScanQty] = useState('');
+  const [scanFeedback, setScanFeedback] = useState<{ nombre: string; found: boolean } | null>(null);
+  const scanInputRef = useRef<HTMLInputElement>(null);
+  const scanQtyRef = useRef<HTMLInputElement>(null);
 
   // ─── Load depositos once ───
   useEffect(() => {
@@ -65,6 +77,7 @@ export default function Inventarios() {
         api.getProductos({ activo: 'true' }),
       ]);
       setInventario(inv);
+      setAllProductos(productos);
 
       const detallesMap = new Map<number, any>();
       if (inv.detalles) {
@@ -89,6 +102,53 @@ export default function Inventarios() {
       api.getInventarioResumen(id).then(setResumen).catch(console.error);
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  // ─── Scanner handlers ───
+  useEffect(() => {
+    if (scannerMode && view === 'detail') {
+      setTimeout(() => scanInputRef.current?.focus(), 50);
+    }
+  }, [scannerMode, view]);
+
+  const handleScanKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      const barcode = scanBuffer.trim();
+      setScanBuffer('');
+      if (!barcode) return;
+
+      const prod = allProductos.find(p =>
+        p.codigoBarras === barcode || p.codigo === barcode
+      );
+      if (prod) {
+        const row = detalles.find(d => d.productoId === prod.id);
+        if (row) {
+          setScannedRow(row);
+          setScanQty('');
+          setScanFeedback({ nombre: prod.nombre, found: true });
+          setTimeout(() => scanQtyRef.current?.focus(), 80);
+        }
+      } else {
+        setScanFeedback({ nombre: barcode, found: false });
+        setTimeout(() => setScanFeedback(null), 3000);
+      }
+    }
+  };
+
+  const handleScanQtyKey = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && scannedRow && scanQty !== '') {
+      await guardarDetalle(scannedRow.productoId, scanQty);
+      setScannedRow(null);
+      setScanQty('');
+      setScanFeedback(null);
+      setTimeout(() => scanInputRef.current?.focus(), 80);
+    }
+    if (e.key === 'Escape') {
+      setScannedRow(null);
+      setScanQty('');
+      setScanFeedback(null);
+      setTimeout(() => scanInputRef.current?.focus(), 80);
     }
   };
 
@@ -118,17 +178,21 @@ export default function Inventarios() {
   const guardar = async () => {
     setError('');
     if (!form.depositoId) { setError('Seleccione un depósito'); return; }
+    if (!user) { setError('Sesión inválida, reiniciá la app'); return; }
     try {
       await api.createInventario({
         fecha: form.fecha,
-        usuarioId: user!.id,
+        usuarioId: user.id,
         depositoId: Number(form.depositoId),
         observacion: form.observacion || null,
       });
       setModalOpen(false);
       cargarLista();
+      addToast('Inventario creado correctamente', 'success');
     } catch (e: any) {
-      setError(e.message);
+      const msg = e.message || 'Error al crear inventario';
+      setError(msg);
+      addToast(msg, 'error');
     }
   };
 
@@ -250,6 +314,87 @@ export default function Inventarios() {
             )}
           </div>
         </div>
+
+        {/* Scanner mode toggle + capture input */}
+        {isOpen && (
+          <div className="mb-4 space-y-2">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => { setScannerMode(v => !v); setScannedRow(null); setScanFeedback(null); }}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition-all border ${
+                  scannerMode
+                    ? 'bg-primary/15 text-primary border-primary/30'
+                    : 'bg-surface-high text-on-surface-variant border-border hover:text-foreground'
+                }`}
+              >
+                <ScanBarcode size={15} />
+                {scannerMode ? 'Scanner ON — apuntá y escaneá' : 'Activar scanner de barras'}
+              </button>
+            </div>
+
+            {scannerMode && (
+              <div className="glass rounded-xl border border-primary/20 p-4 space-y-3">
+                {/* Hidden barcode capture */}
+                <div className="relative">
+                  <ScanBarcode size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-primary pointer-events-none" />
+                  <input
+                    ref={scanInputRef}
+                    type="text"
+                    value={scanBuffer}
+                    onChange={e => setScanBuffer(e.target.value)}
+                    onKeyDown={handleScanKey}
+                    onBlur={() => { if (!scannedRow) setTimeout(() => scanInputRef.current?.focus(), 100); }}
+                    placeholder="Apuntá el lector acá..."
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-primary/5 border border-primary/30 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 placeholder:text-on-surface-variant/40"
+                  />
+                </div>
+
+                {/* Feedback + qty input after scan */}
+                {scanFeedback && !scannedRow && (
+                  <div className={`px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-2 ${
+                    scanFeedback.found ? 'bg-success/10 border border-success/30 text-success' : 'bg-destructive/10 border border-destructive/30 text-destructive'
+                  }`}>
+                    {scanFeedback.found ? '✓' : '✗'} {scanFeedback.found ? `Encontrado: ${scanFeedback.nombre}` : `No encontrado: ${scanFeedback.nombre}`}
+                  </div>
+                )}
+
+                {scannedRow && (
+                  <div className="bg-surface rounded-xl border border-border p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-on-surface-variant">Producto escaneado</p>
+                        <p className="text-sm font-bold text-foreground">{scannedRow.nombre}</p>
+                        <p className="text-[10px] text-on-surface-variant font-mono">Stock teórico: {scannedRow.stockTeorico ?? '-'}</p>
+                      </div>
+                      <button onClick={() => { setScannedRow(null); setScanQty(''); setTimeout(() => scanInputRef.current?.focus(), 50); }} className="text-on-surface-variant hover:text-foreground">
+                        <X size={14} />
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        ref={scanQtyRef}
+                        type="number"
+                        step="0.01"
+                        value={scanQty}
+                        onChange={e => setScanQty(e.target.value)}
+                        onKeyDown={handleScanQtyKey}
+                        placeholder="Cantidad física..."
+                        className="flex-1 px-3 py-2 rounded-xl bg-surface-high border-0 text-foreground text-sm font-bold focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      />
+                      <button
+                        onClick={() => handleScanQtyKey({ key: 'Enter' } as any)}
+                        className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 transition-colors"
+                      >
+                        Guardar
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-on-surface-variant">Presioná Enter para guardar y escanear el siguiente</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Counting table */}
         <div className="bg-surface rounded-xl border border-border overflow-hidden">

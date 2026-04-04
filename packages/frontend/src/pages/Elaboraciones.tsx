@@ -213,7 +213,7 @@ export default function Elaboraciones() {
         <div>
           <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Producción</p>
           <h1 className="text-xl font-extrabold text-foreground mt-1">Elaboraciones</h1>
-          <p className="text-xs text-on-surface-variant mt-1">Transformación de ingredientes en productos elaborados</p>
+          <p className="text-xs text-on-surface-variant mt-1">Transformación de ingredientes en productos elaborados — ej: Nalga 5kg → Milanesa 3kg</p>
         </div>
         <Button onClick={abrirModal}>
           <Plus size={16} /> Registrar elaboración
@@ -356,10 +356,11 @@ export default function Elaboraciones() {
 
           {/* Output section */}
           <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
-            <div className="flex items-center gap-2 mb-3">
+            <div className="flex items-center gap-2 mb-0.5">
               <ArrowRight size={14} className="text-emerald-400" />
-              <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Producto elaborado (output)</p>
+              <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Lo que sale / se produce (output)</p>
             </div>
+            <p className="text-[10px] text-on-surface-variant mb-3">Ej: NALGA entra → sale MILANESA o NALGA LIMPIA</p>
             <div className="space-y-2">
               <div>
                 <p className="text-[10px] font-semibold text-on-surface-variant mb-1">Producto resultado</p>
@@ -402,12 +403,13 @@ export default function Elaboraciones() {
 
           {/* Input section */}
           <div className="rounded-xl border border-orange-500/20 bg-orange-500/5 p-3">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-0.5">
               <div className="flex items-center gap-2">
                 <ArrowLeft size={14} className="text-orange-400" />
-                <p className="text-[10px] font-bold text-orange-400 uppercase tracking-widest">Ingredientes consumidos (input)</p>
+                <p className="text-[10px] font-bold text-orange-400 uppercase tracking-widest">Lo que entra / se consume (input)</p>
               </div>
             </div>
+            <p className="text-[10px] text-on-surface-variant mb-3">Ej: NALGA 5 kg que se transforma — esta cantidad baja del stock</p>
             <div className="space-y-2">
               {form.ingredientes.map((ing, idx) => (
                 <div key={idx} className="bg-surface-high/50 rounded-lg p-2">

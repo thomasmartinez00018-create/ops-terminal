@@ -6,7 +6,8 @@ import Select from '../components/ui/Select';
 import PageTour from '../components/PageTour';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
-import { Plus, Pencil, Trash2, ShieldCheck } from 'lucide-react';
+import { Plus, Pencil, Trash2, ShieldCheck, QrCode } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 const ROLES = [
   { value: 'admin', label: 'Administrador' },
@@ -44,6 +45,7 @@ const PERMISOS_POR_ROL: Record<string, string[]> = {
 const emptyForm = { codigo: '', nombre: '', rol: 'cocina', pin: '', depositoDefectoId: '' };
 
 export default function Usuarios() {
+  const navigate = useNavigate();
   const [usuarios, setUsuarios] = useState<any[]>([]);
   const [depositos, setDepositos] = useState<any[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
@@ -148,9 +150,18 @@ export default function Usuarios() {
           <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Gestión</p>
           <h1 className="text-xl font-extrabold text-foreground mt-1">Usuarios</h1>
         </div>
-        <Button onClick={() => abrir()}>
-          <Plus size={16} /> Nuevo usuario
-        </Button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => navigate('/acceso-red')}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary/10 border border-primary/30 text-sm font-bold text-primary hover:bg-primary/20 transition-colors"
+            title="Ver QR para que el equipo acceda desde el celular"
+          >
+            <QrCode size={15} /> QR de acceso
+          </button>
+          <Button onClick={() => abrir()}>
+            <Plus size={16} /> Nuevo usuario
+          </Button>
+        </div>
       </div>
 
       <div className="bg-surface rounded-xl border border-border overflow-hidden">
