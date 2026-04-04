@@ -5,8 +5,7 @@ import { useToast } from '../context/ToastContext';
 import { useNavigate } from 'react-router-dom';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
-import Badge from '../components/ui/Badge';
-import { FileText, Plus, ScanLine, DollarSign, Eye, Ban, Download, Search, Filter } from 'lucide-react';
+import { ScanLine, DollarSign, Eye, Ban, Download, Search } from 'lucide-react';
 
 const ESTADOS_COLOR: Record<string, string> = {
   pendiente: 'bg-warning/15 text-warning border-warning/30',

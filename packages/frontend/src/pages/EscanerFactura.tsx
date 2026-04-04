@@ -169,8 +169,11 @@ export default function EscanerFactura() {
       });
       setResultadoFinal(data);
       setStep('done');
+      addToast(data?.mensaje || 'Factura registrada correctamente');
     } catch (err: any) {
-      setError(err.message || 'Error al registrar');
+      const msg = err?.message || 'Error al registrar';
+      setError(msg);
+      addToast(msg, 'error');
     } finally {
       setConfirmando(false);
     }

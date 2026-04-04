@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { useNavigate } from 'react-router-dom';
-import Badge from '../components/ui/Badge';
-import { DollarSign, AlertTriangle, FileText, Download, TrendingUp } from 'lucide-react';
+import { DollarSign, AlertTriangle, FileText, Download } from 'lucide-react';
 
 export default function CuentasPorPagar() {
   const navigate = useNavigate();
