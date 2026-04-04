@@ -112,6 +112,12 @@ export default function Inventarios() {
     }
   }, [scannerMode, view]);
 
+  const matchBarcode = (stored: string | null | undefined, scanned: string) => {
+    if (!stored) return false;
+    const norm = (s: string) => s.replace(/^0+/, '');
+    return stored === scanned || norm(stored) === norm(scanned);
+  };
+
   const handleScanKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       const barcode = scanBuffer.trim();
@@ -119,7 +125,7 @@ export default function Inventarios() {
       if (!barcode) return;
 
       const prod = allProductos.find(p =>
-        p.codigoBarras === barcode || p.codigo === barcode
+        matchBarcode(p.codigoBarras, barcode) || p.codigo === barcode
       );
       if (prod) {
         const row = detalles.find(d => d.productoId === prod.id);

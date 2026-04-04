@@ -76,6 +76,13 @@ export default function QuickMovimiento({ open, onClose, tipoInicial = 'consumo_
     if (prod) setUnidad(prod.unidadUso || '');
   };
 
+  // Normalize barcodes: strip leading zeros to handle EAN-13 vs UPC-A
+  const matchBarcode = (stored: string | null | undefined, scanned: string) => {
+    if (!stored) return false;
+    const norm = (s: string) => s.replace(/^0+/, '');
+    return stored === scanned || norm(stored) === norm(scanned);
+  };
+
   // Handle barcode scan: barcode readers send chars rapidly then Enter
   const handleScanKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
@@ -84,7 +91,7 @@ export default function QuickMovimiento({ open, onClose, tipoInicial = 'consumo_
       if (!barcode) return;
 
       const prod = productos.find(p =>
-        p.codigoBarras === barcode || p.codigo === barcode
+        matchBarcode(p.codigoBarras, barcode) || p.codigo === barcode
       );
       if (prod) {
         setProductoId(prod.id.toString());

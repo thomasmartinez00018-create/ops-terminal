@@ -8,12 +8,16 @@ const router = Router();
 router.get('/producto/:barcode', async (req: Request, res: Response) => {
   try {
     const barcode = req.params.barcode as string;
+    // Normalize: strip leading zeros to handle EAN-13 vs UPC-A differences
+    const barcodeNorm = barcode.replace(/^0+/, '');
 
     const producto = await prisma.producto.findFirst({
       where: {
         OR: [
           { codigoBarras: barcode },
-          { codigo: barcode }
+          { codigoBarras: barcodeNorm },
+          { codigo: barcode },
+          { codigo: barcodeNorm },
         ],
         activo: true
       },

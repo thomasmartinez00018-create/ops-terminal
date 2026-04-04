@@ -293,13 +293,20 @@ export default function Productos() {
               onChange={e => setForm({ ...form, unidadUso: e.target.value })}
               options={UNIDADES}
             />
-            <Input
-              label="Factor conv."
-              id="factorConversion"
-              type="number"
-              value={form.factorConversion}
-              onChange={e => setForm({ ...form, factorConversion: Number(e.target.value) })}
-            />
+            <div>
+              <Input
+                label={`1 ${form.unidadCompra} = ? ${form.unidadUso}`}
+                id="factorConversion"
+                type="number"
+                value={form.factorConversion}
+                onChange={e => setForm({ ...form, factorConversion: Number(e.target.value) })}
+              />
+              {form.unidadCompra !== form.unidadUso && form.factorConversion > 1 && (
+                <p className="text-[10px] text-primary font-semibold mt-1">
+                  1 {form.unidadCompra} = {form.factorConversion} {form.unidadUso}
+                </p>
+              )}
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Input
