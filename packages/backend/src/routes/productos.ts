@@ -6,11 +6,12 @@ const router = Router();
 // GET /api/productos - Listar productos
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { activo, rubro, tipo, buscar } = req.query;
+    const { activo, rubro, subrubro, tipo, buscar } = req.query;
     const where: any = {};
 
     if (activo !== undefined) where.activo = activo === 'true';
     if (rubro) where.rubro = rubro;
+    if (subrubro) where.subrubro = subrubro;
     if (tipo) where.tipo = tipo;
     if (buscar) {
       where.OR = [
@@ -102,6 +103,25 @@ router.get('/rubros/lista', async (_req: Request, res: Response) => {
     res.json(rubros.map(r => r.rubro));
   } catch (error) {
     res.status(500).json({ error: 'Error al obtener rubros' });
+  }
+});
+
+// GET /api/productos/subrubros/lista?rubro=Vinos - Sub-rubros únicos por rubro
+router.get('/subrubros/lista', async (req: Request, res: Response) => {
+  try {
+    const { rubro } = req.query;
+    const where: any = { subrubro: { not: null } };
+    if (rubro) where.rubro = rubro;
+
+    const subrubros = await (prisma.producto as any).findMany({
+      where,
+      select: { subrubro: true },
+      distinct: ['subrubro'],
+      orderBy: { subrubro: 'asc' }
+    });
+    res.json(subrubros.map((s: any) => s.subrubro).filter(Boolean));
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener sub-rubros' });
   }
 });
 

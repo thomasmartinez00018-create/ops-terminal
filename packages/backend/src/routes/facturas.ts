@@ -81,7 +81,7 @@ router.post('/escanear', async (req, res) => {
 
     // Llamar a Gemini
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite-preview' });
 
     const result = await model.generateContent([
       EXTRACTION_PROMPT,

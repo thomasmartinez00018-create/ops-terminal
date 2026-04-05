@@ -33,7 +33,7 @@ const UNIDADES = [
 ];
 
 const emptyForm = {
-  codigo: '', nombre: '', rubro: '', tipo: 'crudo',
+  codigo: '', nombre: '', rubro: '', subrubro: '', tipo: 'crudo',
   unidadCompra: 'kg', unidadUso: 'kg', factorConversion: 1,
   codigoBarras: '', stockMinimo: 0, stockIdeal: 0, depositoDefectoId: null as number | null,
 };
@@ -43,6 +43,10 @@ export default function Productos() {
   const [depositos, setDepositos] = useState<any[]>([]);
   const [buscar, setBuscar] = useState('');
   const [filtroRubro, setFiltroRubro] = useState('');
+  const [filtroSubrubro, setFiltroSubrubro] = useState('');
+  const [subrubrosDisponibles, setSubrubrosDisponibles] = useState<string[]>([]);
+  // Subrubros para autocompletado en el form (según rubro seleccionado)
+  const [subrubrosForm, setSubrubrosForm] = useState<string[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -52,21 +56,35 @@ export default function Productos() {
     const params: Record<string, string> = { activo: 'true' };
     if (buscar) params.buscar = buscar;
     if (filtroRubro) params.rubro = filtroRubro;
+    if (filtroSubrubro) params.subrubro = filtroSubrubro;
     api.getProductos(params).then(setProductos).catch(console.error);
   };
 
-  useEffect(() => { cargar(); }, [buscar, filtroRubro]);
+  // Cuando cambia el filtro de rubro, recargar los subrubros disponibles
+  useEffect(() => {
+    if (filtroRubro) {
+      api.getSubrubros(filtroRubro).then(setSubrubrosDisponibles).catch(() => setSubrubrosDisponibles([]));
+    } else {
+      api.getSubrubros().then(setSubrubrosDisponibles).catch(() => setSubrubrosDisponibles([]));
+    }
+    setFiltroSubrubro('');
+  }, [filtroRubro]);
+
+  useEffect(() => { cargar(); }, [buscar, filtroRubro, filtroSubrubro]);
   useEffect(() => {
     api.getDepositos({ activo: 'true' }).then(setDepositos).catch(console.error);
+    api.getSubrubros().then(setSubrubrosDisponibles).catch(() => {});
   }, []);
 
   const abrir = (producto?: any) => {
     if (producto) {
       setEditId(producto.id);
+      const rubroActual = producto.rubro;
       setForm({
         codigo: producto.codigo,
         nombre: producto.nombre,
-        rubro: producto.rubro,
+        rubro: rubroActual,
+        subrubro: producto.subrubro || '',
         tipo: producto.tipo,
         unidadCompra: producto.unidadCompra,
         unidadUso: producto.unidadUso,
@@ -76,9 +94,13 @@ export default function Productos() {
         stockIdeal: producto.stockIdeal,
         depositoDefectoId: producto.depositoDefectoId,
       });
+      if (rubroActual) {
+        api.getSubrubros(rubroActual).then(setSubrubrosForm).catch(() => setSubrubrosForm([]));
+      }
     } else {
       setEditId(null);
       setForm(emptyForm);
+      setSubrubrosForm([]);
     }
     setError('');
     setModalOpen(true);
@@ -89,6 +111,7 @@ export default function Productos() {
     try {
       const data = {
         ...form,
+        subrubro: form.subrubro.trim() || null,
         factorConversion: Number(form.factorConversion),
         stockMinimo: Number(form.stockMinimo),
         stockIdeal: Number(form.stockIdeal),
@@ -114,11 +137,12 @@ export default function Productos() {
   };
 
   const exportarCSV = () => {
-    const headers = ['Código', 'Nombre', 'Rubro', 'Tipo', 'Unidad Compra', 'Unidad Uso', 'Stock Mínimo', 'Stock Ideal', 'Código Barras'];
+    const headers = ['Código', 'Nombre', 'Rubro', 'Sub-rubro', 'Tipo', 'Unidad Compra', 'Unidad Uso', 'Stock Mínimo', 'Stock Ideal', 'Código Barras'];
     const rows = productos.map(p => [
       p.codigo,
       p.nombre,
       p.rubro,
+      p.subrubro || '',
       p.tipo,
       p.unidadCompra,
       p.unidadUso,
@@ -179,6 +203,16 @@ export default function Productos() {
           <option value="">Todos los rubros</option>
           {RUBROS.map(r => <option key={r} value={r}>{r}</option>)}
         </select>
+        {subrubrosDisponibles.length > 0 && (
+          <select
+            value={filtroSubrubro}
+            onChange={e => setFiltroSubrubro(e.target.value)}
+            className="px-3 py-2.5 rounded-lg bg-surface-high border-0 text-foreground text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary/50"
+          >
+            <option value="">Todos los sub-rubros</option>
+            {subrubrosDisponibles.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        )}
       </div>
 
       {/* Tabla */}
@@ -202,7 +236,10 @@ export default function Productos() {
                   <td className="p-3 font-mono text-xs text-primary">{p.codigo}</td>
                   <td className="p-3 font-semibold text-foreground">{p.nombre}</td>
                   <td className="p-3 hidden sm:table-cell">
-                    <Badge>{p.rubro}</Badge>
+                    <div className="flex flex-wrap gap-1">
+                      <Badge>{p.rubro}</Badge>
+                      {p.subrubro && <Badge variant="secondary">{p.subrubro}</Badge>}
+                    </div>
                   </td>
                   <td className="p-3 hidden md:table-cell capitalize text-on-surface-variant">{p.tipo}</td>
                   <td className="p-3 hidden lg:table-cell text-on-surface-variant">{p.unidadUso}</td>
@@ -266,7 +303,15 @@ export default function Productos() {
               label="Rubro"
               id="rubro"
               value={form.rubro}
-              onChange={e => setForm({ ...form, rubro: e.target.value })}
+              onChange={e => {
+                const nuevoRubro = e.target.value;
+                setForm({ ...form, rubro: nuevoRubro, subrubro: '' });
+                if (nuevoRubro) {
+                  api.getSubrubros(nuevoRubro).then(setSubrubrosForm).catch(() => setSubrubrosForm([]));
+                } else {
+                  setSubrubrosForm([]);
+                }
+              }}
               options={RUBROS.map(r => ({ value: r, label: r }))}
               placeholder="Seleccionar..."
             />
@@ -277,6 +322,23 @@ export default function Productos() {
               onChange={e => setForm({ ...form, tipo: e.target.value })}
               options={TIPOS}
             />
+          </div>
+          <div className="relative">
+            <label className="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">
+              Sub-rubro <span className="text-on-surface-variant/50 normal-case font-normal">(opcional)</span>
+            </label>
+            <input
+              type="text"
+              list="subrubros-list"
+              value={form.subrubro}
+              onChange={e => setForm({ ...form, subrubro: e.target.value })}
+              placeholder={form.rubro ? `Ej: Chardonnay, Malbec...` : 'Primero seleccioná un rubro'}
+              disabled={!form.rubro}
+              className="w-full px-3 py-2.5 rounded-lg bg-surface-high border-0 text-foreground text-sm font-semibold placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-40 disabled:cursor-not-allowed"
+            />
+            <datalist id="subrubros-list">
+              {subrubrosForm.map(s => <option key={s} value={s} />)}
+            </datalist>
           </div>
           <div className="grid grid-cols-3 gap-3">
             <Select

@@ -16,6 +16,7 @@ model Producto {
   codigo            String   @unique
   nombre            String
   rubro             String   // Verduras, Carnes, Lacteos, Bebidas, etc.
+  subrubro          String?  // Sub-categoría opcional: Chardonnay, Malbec, etc.
   tipo              String   // crudo, elaborado, semielaborado, insumo
   unidadCompra      String   @map("unidad_compra")  // kg, lt, unidad, caja
   unidadUso         String   @map("unidad_uso")     // kg, lt, unidad, porcion

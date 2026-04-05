@@ -4,10 +4,19 @@ import Badge from '../components/ui/Badge';
 import { AlertTriangle, Search, RefreshCw } from 'lucide-react';
 import PageTour from '../components/PageTour';
 
+const RUBROS_STOCK = [
+  'Verduras', 'Frutas', 'Carnes', 'Pescados', 'Lácteos', 'Fiambres',
+  'Panadería', 'Aceites', 'Condimentos', 'Bebidas', 'Vinos', 'Limpieza',
+  'Descartables', 'Elaborados', 'Otros'
+];
+
 export default function Stock() {
   const [stock, setStock] = useState<any[]>([]);
   const [depositos, setDepositos] = useState<any[]>([]);
   const [filtroDeposito, setFiltroDeposito] = useState('');
+  const [filtroRubro, setFiltroRubro] = useState('');
+  const [filtroSubrubro, setFiltroSubrubro] = useState('');
+  const [subrubrosDisponibles, setSubrubrosDisponibles] = useState<string[]>([]);
   const [filtroBajoMinimo, setFiltroBajoMinimo] = useState(false);
   const [busqueda, setBusqueda] = useState('');
   const [loading, setLoading] = useState(true);
@@ -21,6 +30,14 @@ export default function Stock() {
   };
 
   useEffect(() => { cargar(); }, [filtroDeposito, filtroBajoMinimo]);
+  useEffect(() => {
+    if (filtroRubro) {
+      api.getSubrubros(filtroRubro).then(setSubrubrosDisponibles).catch(() => setSubrubrosDisponibles([]));
+    } else {
+      setSubrubrosDisponibles([]);
+    }
+    setFiltroSubrubro('');
+  }, [filtroRubro]);
   useEffect(() => {
     api.getDepositos({ activo: 'true' }).then(setDepositos).catch(console.error);
   }, []);
@@ -52,6 +69,24 @@ export default function Stock() {
           <option value="">Todos los depósitos</option>
           {depositos.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
         </select>
+        <select
+          value={filtroRubro}
+          onChange={e => setFiltroRubro(e.target.value)}
+          className="px-3 py-2.5 rounded-lg bg-surface-high border-0 text-foreground text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary/50"
+        >
+          <option value="">Todos los rubros</option>
+          {RUBROS_STOCK.map(r => <option key={r} value={r}>{r}</option>)}
+        </select>
+        {subrubrosDisponibles.length > 0 && (
+          <select
+            value={filtroSubrubro}
+            onChange={e => setFiltroSubrubro(e.target.value)}
+            className="px-3 py-2.5 rounded-lg bg-surface-high border-0 text-foreground text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary/50"
+          >
+            <option value="">Todos los sub-rubros</option>
+            {subrubrosDisponibles.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        )}
         <label className="flex items-center gap-2 text-sm font-semibold text-on-surface-variant cursor-pointer">
           <input
             type="checkbox"
@@ -94,7 +129,12 @@ export default function Stock() {
                   </td>
                 </tr>
               )}
-              {!loading && stock.filter(s => !busqueda || s.nombre.toLowerCase().includes(busqueda.toLowerCase()) || s.codigo.toLowerCase().includes(busqueda.toLowerCase())).map(s => (
+              {!loading && stock.filter(s => {
+                if (busqueda && !s.nombre.toLowerCase().includes(busqueda.toLowerCase()) && !s.codigo.toLowerCase().includes(busqueda.toLowerCase())) return false;
+                if (filtroRubro && s.rubro !== filtroRubro) return false;
+                if (filtroSubrubro && s.subrubro !== filtroSubrubro) return false;
+                return true;
+              }).map(s => (
                 <tr key={s.productoId} className={`hover:bg-surface-high/50 transition-colors ${s.bajoMinimo ? 'bg-destructive/5' : ''}`}>
                   <td className="p-3 font-mono text-xs text-primary">{s.codigo}</td>
                   <td className="p-3 font-semibold text-foreground">
@@ -104,7 +144,10 @@ export default function Stock() {
                     </div>
                   </td>
                   <td className="p-3 hidden sm:table-cell">
-                    <Badge>{s.rubro}</Badge>
+                    <div className="flex flex-wrap gap-1">
+                      <Badge>{s.rubro}</Badge>
+                      {s.subrubro && <Badge variant="secondary">{s.subrubro}</Badge>}
+                    </div>
                   </td>
                   <td className={`p-3 text-right font-extrabold ${s.bajoMinimo ? 'text-destructive' : 'text-foreground'}`}>
                     {s.stockTotal} <span className="font-normal text-on-surface-variant">{s.unidad}</span>
@@ -123,7 +166,12 @@ export default function Stock() {
                   </td>
                 </tr>
               ))}
-              {!loading && stock.filter(s => !busqueda || s.nombre.toLowerCase().includes(busqueda.toLowerCase()) || s.codigo.toLowerCase().includes(busqueda.toLowerCase())).length === 0 && (
+              {!loading && stock.filter(s => {
+                if (busqueda && !s.nombre.toLowerCase().includes(busqueda.toLowerCase()) && !s.codigo.toLowerCase().includes(busqueda.toLowerCase())) return false;
+                if (filtroRubro && s.rubro !== filtroRubro) return false;
+                if (filtroSubrubro && s.subrubro !== filtroSubrubro) return false;
+                return true;
+              }).length === 0 && (
                 <tr>
                   <td colSpan={6} className="p-8 text-center text-on-surface-variant font-medium">
                     {busqueda

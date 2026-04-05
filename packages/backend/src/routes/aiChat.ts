@@ -10,7 +10,7 @@ Nunca inventés funcionalidades que no existen. Si no sabés algo específico de
 Usá bullet points cuando sea útil para listar pasos.`;
 
 // Gemini model name — centralizado para evitar duplicación
-const GEMINI_MODEL = 'gemini-2.0-flash-lite';
+const GEMINI_MODEL = 'gemini-3.1-flash-lite-preview';
 
 // POST /api/ai/chat
 router.post('/chat', async (req: Request, res: Response) => {

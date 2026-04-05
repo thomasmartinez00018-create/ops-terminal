@@ -31,6 +31,8 @@ export const api = {
     request<any>(`/productos/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteProducto: (id: number) =>
     request<any>(`/productos/${id}`, { method: 'DELETE' }),
+  getSubrubros: (rubro?: string) =>
+    request<string[]>(`/productos/subrubros/lista${rubro ? `?rubro=${encodeURIComponent(rubro)}` : ''}`),
 
   // Depósitos
   getDepositos: (params?: Record<string, string>) => request<any[]>(`/depositos${qs(params)}`),

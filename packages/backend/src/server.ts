@@ -100,6 +100,7 @@ function getLocalIPs(): string[] {
 async function autoMigrate() {
   try {
     const migrations = [
+      `ALTER TABLE productos ADD COLUMN subrubro TEXT`,
       `ALTER TABLE movimientos ADD COLUMN elaboracion_lote_id INTEGER REFERENCES elaboracion_lotes(id)`,
       `ALTER TABLE recepcion_items ADD COLUMN cantidad_pedida REAL`,
       `ALTER TABLE recepcion_items ADD COLUMN atribucion TEXT`,

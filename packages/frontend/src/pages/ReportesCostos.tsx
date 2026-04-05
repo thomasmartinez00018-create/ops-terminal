@@ -208,7 +208,9 @@ export default function ReportesCostos() {
               size={5}
             >
               {productosFiltrados.slice(0, 50).map(p => (
-                <option key={p.id} value={p.id}>{p.codigo} — {p.nombre}</option>
+                <option key={p.id} value={p.id}>
+                  {p.codigo} — {p.nombre}{p.subrubro ? ` (${p.subrubro})` : ''}
+                </option>
               ))}
             </select>
           </div>
