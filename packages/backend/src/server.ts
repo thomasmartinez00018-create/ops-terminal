@@ -173,6 +173,7 @@ async function autoMigrate() {
     )`);
 
     migrations.push(`ALTER TABLE movimientos ADD COLUMN factura_id INTEGER REFERENCES facturas(id)`);
+    migrations.push(`ALTER TABLE usuarios ADD COLUMN configuracion TEXT`);
 
     // Agregar columnas faltantes (SQLite ignora si ya existen con este pattern)
     for (const sql of migrations) {

@@ -6,8 +6,9 @@ import Select from '../components/ui/Select';
 import PageTour from '../components/PageTour';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
-import { Plus, Pencil, Trash2, ShieldCheck, QrCode } from 'lucide-react';
+import { Plus, Pencil, Trash2, ShieldCheck, QrCode, LayoutDashboard } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import type { DashboardConfig } from '../context/AuthContext';
 
 const ROLES = [
   { value: 'admin', label: 'Administrador' },
@@ -43,7 +44,40 @@ const PERMISOS_POR_ROL: Record<string, string[]> = {
   compras: ['ordenes-compra', 'control-scanner', 'movimientos', 'stock', 'productos', 'proveedores', 'reportes', 'contabilidad'],
 };
 
+const DASHBOARD_TIPOS = [
+  { value: 'auto', label: 'Automático (según rol)' },
+  { value: 'admin', label: 'Panel completo (admin)' },
+  { value: 'simple', label: 'Panel simple (cocina/barra)' },
+  { value: 'deposito', label: 'Panel de depósito' },
+];
+
+const DASHBOARD_WIDGETS_ADMIN = [
+  { key: 'wifi', label: 'Acceso WiFi' },
+  { key: 'tareas', label: 'Tareas pendientes' },
+  { key: 'alertas', label: 'Alertas (OC + Discrepancias)' },
+  { key: 'kpis', label: 'KPIs (tarjetas de métricas)' },
+  { key: 'equipo-hoy', label: 'Actividad del equipo hoy' },
+  { key: 'ultimos-movimientos', label: 'Últimos movimientos' },
+];
+
+const DASHBOARD_ACCIONES_SIMPLE = [
+  { key: 'uso', label: 'Registrar uso' },
+  { key: 'merma', label: 'Registrar merma' },
+  { key: 'stock', label: 'Ver stock' },
+  { key: 'ingreso', label: 'Registrar ingreso' },
+  { key: 'factura', label: 'Escanear factura' },
+  { key: 'mis-movimientos', label: 'Mis movimientos recientes' },
+];
+
+const DASHBOARD_ACCIONES_DEPOSITO = [
+  { key: 'ordenes', label: 'Recibir mercadería (OC)' },
+  { key: 'scanner', label: 'Control scanner' },
+  { key: 'movimiento-rapido', label: 'Movimiento rápido' },
+  { key: 'stock', label: 'Ver stock' },
+];
+
 const emptyForm = { codigo: '', nombre: '', rol: 'cocina', pin: '', depositoDefectoId: '' };
+const emptyDashConfig: DashboardConfig = { tipo: 'auto' };
 
 export default function Usuarios() {
   const navigate = useNavigate();
@@ -53,6 +87,7 @@ export default function Usuarios() {
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [permisos, setPermisos] = useState<string[]>([]);
+  const [dashConfig, setDashConfig] = useState<DashboardConfig>(emptyDashConfig);
   const [error, setError] = useState('');
 
   const cargar = () => {
@@ -73,10 +108,12 @@ export default function Usuarios() {
       } catch {
         setPermisos(PERMISOS_POR_ROL[u.rol] || []);
       }
+      setDashConfig(u.configuracion || emptyDashConfig);
     } else {
       setEditId(null);
       setForm(emptyForm);
       setPermisos(PERMISOS_POR_ROL['cocina']);
+      setDashConfig(emptyDashConfig);
     }
     setError('');
     setModalOpen(true);
@@ -107,7 +144,8 @@ export default function Usuarios() {
   const guardar = async () => {
     setError('');
     try {
-      const data: any = { ...form, permisos: JSON.stringify(permisos) };
+      const confToSave: DashboardConfig | null = dashConfig.tipo === 'auto' ? null : dashConfig;
+      const data: any = { ...form, permisos: JSON.stringify(permisos), configuracion: confToSave };
       if (!data.pin) delete data.pin;
       data.depositoDefectoId = data.depositoDefectoId ? parseInt(data.depositoDefectoId) : null;
       if (editId) {
@@ -120,6 +158,20 @@ export default function Usuarios() {
     } catch (e: any) {
       setError(e.message);
     }
+  };
+
+  const toggleDashItem = (key: string, field: 'widgets' | 'acciones', allItems: {key: string}[]) => {
+    setDashConfig(prev => {
+      const current = prev[field] ?? allItems.map(i => i.key);
+      const next = current.includes(key) ? current.filter(k => k !== key) : [...current, key];
+      return { ...prev, [field]: next };
+    });
+  };
+
+  const isDashItemOn = (key: string, field: 'widgets' | 'acciones', allItems: {key: string}[]) => {
+    const list = dashConfig[field];
+    if (!list) return true; // undefined = todos activos
+    return list.includes(key);
   };
 
   const eliminar = async (id: number, nombre: string) => {
@@ -293,6 +345,113 @@ export default function Usuarios() {
               <p className="text-xs font-bold text-primary">Admin: acceso total a todas las secciones</p>
             </div>
           )}
+
+          {/* ── Dashboard personalizado ─────────────────────────────────── */}
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <LayoutDashboard size={13} className="text-primary" />
+              <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">
+                Vista de inicio
+              </p>
+            </div>
+            <div className="bg-surface-high rounded-lg p-3 space-y-3">
+              {/* Tipo de dashboard */}
+              <div className="grid grid-cols-2 gap-1.5">
+                {DASHBOARD_TIPOS.map(t => (
+                  <button
+                    key={t.value}
+                    type="button"
+                    onClick={() => setDashConfig(prev => ({ ...prev, tipo: t.value as DashboardConfig['tipo'] }))}
+                    className={`px-3 py-2 rounded-lg text-xs font-bold text-left transition-colors ${
+                      (dashConfig.tipo || 'auto') === t.value
+                        ? 'bg-primary/20 text-primary border border-primary/40'
+                        : 'bg-surface text-on-surface-variant hover:bg-surface/80'
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Widgets del panel admin */}
+              {(dashConfig.tipo === 'admin' || (dashConfig.tipo === 'auto' && (form.rol === 'admin' || form.rol === 'compras'))) && (
+                <div>
+                  <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mb-1.5">
+                    Secciones visibles en el panel
+                  </p>
+                  <div className="grid grid-cols-2 gap-1">
+                    {DASHBOARD_WIDGETS_ADMIN.map(w => (
+                      <label key={w.key} className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors ${
+                        isDashItemOn(w.key, 'widgets', DASHBOARD_WIDGETS_ADMIN)
+                          ? 'bg-primary/10 text-foreground'
+                          : 'text-on-surface-variant hover:bg-surface'
+                      }`}>
+                        <input
+                          type="checkbox"
+                          checked={isDashItemOn(w.key, 'widgets', DASHBOARD_WIDGETS_ADMIN)}
+                          onChange={() => toggleDashItem(w.key, 'widgets', DASHBOARD_WIDGETS_ADMIN)}
+                          className="accent-[#D4AF37] w-3.5 h-3.5"
+                        />
+                        <span className="text-xs font-semibold">{w.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Acciones del panel simple */}
+              {(dashConfig.tipo === 'simple' || (dashConfig.tipo === 'auto' && (form.rol === 'cocina' || form.rol === 'barra'))) && (
+                <div>
+                  <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mb-1.5">
+                    Botones de acción visibles
+                  </p>
+                  <div className="grid grid-cols-2 gap-1">
+                    {DASHBOARD_ACCIONES_SIMPLE.map(a => (
+                      <label key={a.key} className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors ${
+                        isDashItemOn(a.key, 'acciones', DASHBOARD_ACCIONES_SIMPLE)
+                          ? 'bg-primary/10 text-foreground'
+                          : 'text-on-surface-variant hover:bg-surface'
+                      }`}>
+                        <input
+                          type="checkbox"
+                          checked={isDashItemOn(a.key, 'acciones', DASHBOARD_ACCIONES_SIMPLE)}
+                          onChange={() => toggleDashItem(a.key, 'acciones', DASHBOARD_ACCIONES_SIMPLE)}
+                          className="accent-[#D4AF37] w-3.5 h-3.5"
+                        />
+                        <span className="text-xs font-semibold">{a.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Acciones del panel depósito */}
+              {(dashConfig.tipo === 'deposito' || (dashConfig.tipo === 'auto' && form.rol === 'deposito')) && (
+                <div>
+                  <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mb-1.5">
+                    Botones de acción visibles
+                  </p>
+                  <div className="grid grid-cols-2 gap-1">
+                    {DASHBOARD_ACCIONES_DEPOSITO.map(a => (
+                      <label key={a.key} className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors ${
+                        isDashItemOn(a.key, 'acciones', DASHBOARD_ACCIONES_DEPOSITO)
+                          ? 'bg-primary/10 text-foreground'
+                          : 'text-on-surface-variant hover:bg-surface'
+                      }`}>
+                        <input
+                          type="checkbox"
+                          checked={isDashItemOn(a.key, 'acciones', DASHBOARD_ACCIONES_DEPOSITO)}
+                          onChange={() => toggleDashItem(a.key, 'acciones', DASHBOARD_ACCIONES_DEPOSITO)}
+                          className="accent-[#D4AF37] w-3.5 h-3.5"
+                        />
+                        <span className="text-xs font-semibold">{a.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
 
           {error && <p className="text-sm text-destructive font-semibold">{error}</p>}
           <div className="flex gap-2 pt-2">

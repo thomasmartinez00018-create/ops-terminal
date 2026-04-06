@@ -14,7 +14,7 @@ interface FacturaItem {
   alicuotaIva: number;
   productoId: number | null;
   productoNombre: string | null;
-  confidence: 'exact' | 'fuzzy' | 'none';
+  confidence: 'alta' | 'media' | 'ninguna';
 }
 
 interface FacturaResult {
@@ -133,7 +133,7 @@ export default function EscanerFactura() {
   const asignarProducto = (idx: number, productoId: number) => {
     const prod = productos.find(p => p.id === productoId);
     setItems(prev => prev.map((item, i) =>
-      i === idx ? { ...item, productoId, productoNombre: prod?.nombre || null, confidence: 'exact' as const } : item
+      i === idx ? { ...item, productoId, productoNombre: prod?.nombre || null, confidence: 'alta' as const } : item
     ));
   };
 
@@ -197,8 +197,8 @@ export default function EscanerFactura() {
 
   // ── Confidence badge ──
   const ConfBadge = ({ c }: { c: string }) => {
-    if (c === 'exact') return <span className="text-[10px] bg-success/20 text-success px-1.5 py-0.5 rounded font-bold">Exacto</span>;
-    if (c === 'fuzzy') return <span className="text-[10px] bg-warning/20 text-warning px-1.5 py-0.5 rounded font-bold">Similar</span>;
+    if (c === 'alta') return <span className="text-[10px] bg-success/20 text-success px-1.5 py-0.5 rounded font-bold">Match IA ✓</span>;
+    if (c === 'media') return <span className="text-[10px] bg-warning/20 text-warning px-1.5 py-0.5 rounded font-bold">Probable</span>;
     return <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded font-bold">Sin match</span>;
   };
 
@@ -278,7 +278,8 @@ export default function EscanerFactura() {
             <ul className="list-disc pl-4 space-y-1">
               <li>Asegurate de que el texto sea legible</li>
               <li>Funciona con facturas A, B, C, remitos y tickets</li>
-              <li>La IA detecta automáticamente el tipo de comprobante e IVA</li>
+              <li>La IA detecta el tipo de comprobante, IVA y vincula productos automáticamente</li>
+              <li>Reconoce productos sin importar el proveedor ni cómo aparezcan escritos</li>
               <li>Siempre vas a poder revisar y corregir antes de confirmar</li>
             </ul>
           </div>
@@ -290,7 +291,7 @@ export default function EscanerFactura() {
         <div className="text-center py-16">
           <Loader2 size={48} className="mx-auto mb-4 text-primary animate-spin" />
           <p className="text-lg font-bold text-foreground">Analizando factura con IA...</p>
-          <p className="text-sm text-on-surface-variant mt-1">Esto puede tardar unos segundos</p>
+          <p className="text-sm text-on-surface-variant mt-1">Extrayendo datos y vinculando productos automáticamente</p>
           {imagePreview && (
             <img src={imagePreview} alt="Preview" className="mt-6 mx-auto max-h-48 rounded-xl opacity-50" />
           )}
@@ -422,8 +423,8 @@ export default function EscanerFactura() {
               <div
                 key={idx}
                 className={`bg-surface border rounded-xl p-3 ${
-                  item.confidence === 'exact' ? 'border-success/30' :
-                  item.confidence === 'fuzzy' ? 'border-warning/30' :
+                  item.confidence === 'alta' ? 'border-success/30' :
+                  item.confidence === 'media' ? 'border-warning/30' :
                   'border-destructive/30'
                 }`}
               >

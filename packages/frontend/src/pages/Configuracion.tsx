@@ -75,15 +75,29 @@ export default function Configuracion() {
     setLoadingTot(false);
   };
 
-  const StatCard = ({ label, value, icon: Icon, color = 'text-foreground' }: any) => (
-    <div className="flex items-center justify-between py-2">
-      <div className="flex items-center gap-2 text-sm font-medium text-on-surface-variant">
-        <Icon size={14} />
-        {label}
-      </div>
-      <span className={`text-sm font-bold tabular-nums ${color}`}>{value}</span>
-    </div>
-  );
+  const StatCard = ({ label, value, icon: Icon, color = 'text-foreground', to }: any) => {
+    const inner = (
+      <>
+        <div className="flex items-center gap-2 text-sm font-medium text-on-surface-variant">
+          <Icon size={14} />
+          {label}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className={`text-sm font-bold tabular-nums ${color}`}>{value}</span>
+          {to && <span className="text-[10px] text-primary opacity-0 group-hover:opacity-100 transition-opacity font-bold">→</span>}
+        </div>
+      </>
+    );
+    if (to) return (
+      <button
+        onClick={() => navigate(to)}
+        className="group flex items-center justify-between py-2 w-full hover:bg-surface-high/60 -mx-2 px-2 rounded-lg transition-colors"
+      >
+        {inner}
+      </button>
+    );
+    return <div className="flex items-center justify-between py-2">{inner}</div>;
+  };
 
   const totalOperativos = stats
     ? Object.values(stats.operativos).reduce((s, v) => s + v, 0)
@@ -115,23 +129,23 @@ export default function Configuracion() {
             <div>
               <p className="text-[10px] font-bold text-primary uppercase tracking-wider mb-2">Maestros</p>
               <div className="divide-y divide-border/50">
-                <StatCard label="Productos" value={stats.maestros.productos} icon={Package} color={stats.maestros.productos > 0 ? 'text-primary' : 'text-on-surface-variant'} />
-                <StatCard label="Depósitos" value={stats.maestros.depositos} icon={Warehouse} />
-                <StatCard label="Usuarios" value={stats.maestros.usuarios} icon={Users} />
-                <StatCard label="Proveedores" value={stats.maestros.proveedores} icon={Truck} />
-                <StatCard label="Recetas" value={stats.maestros.recetas} icon={ChefHat} />
+                <StatCard label="Productos" value={stats.maestros.productos} icon={Package} color={stats.maestros.productos > 0 ? 'text-primary' : 'text-on-surface-variant'} to="/productos" />
+                <StatCard label="Depósitos" value={stats.maestros.depositos} icon={Warehouse} to="/depositos" />
+                <StatCard label="Usuarios" value={stats.maestros.usuarios} icon={Users} to="/usuarios" />
+                <StatCard label="Proveedores" value={stats.maestros.proveedores} icon={Truck} to="/proveedores" />
+                <StatCard label="Recetas" value={stats.maestros.recetas} icon={ChefHat} to="/recetas" />
               </div>
             </div>
             <div>
               <p className="text-[10px] font-bold text-warning uppercase tracking-wider mb-2">Datos operativos</p>
               <div className="divide-y divide-border/50">
-                <StatCard label="Movimientos" value={stats.operativos.movimientos} icon={ArrowRightLeft} color={stats.operativos.movimientos > 0 ? 'text-warning' : 'text-on-surface-variant'} />
-                <StatCard label="Inventarios" value={stats.operativos.inventarios} icon={ClipboardCheck} />
-                <StatCard label="Órdenes de compra" value={stats.operativos.ordenesCompra} icon={ShoppingCart} />
-                <StatCard label="Facturas" value={stats.operativos.facturas} icon={FileText} />
-                <StatCard label="Pagos" value={stats.operativos.pagos} icon={DollarSign} />
-                <StatCard label="Tareas" value={stats.operativos.tareas} icon={ListTodo} />
-                <StatCard label="Elaboraciones" value={stats.operativos.elaboraciones} icon={FlaskConical} />
+                <StatCard label="Movimientos" value={stats.operativos.movimientos} icon={ArrowRightLeft} color={stats.operativos.movimientos > 0 ? 'text-warning' : 'text-on-surface-variant'} to="/movimientos" />
+                <StatCard label="Inventarios" value={stats.operativos.inventarios} icon={ClipboardCheck} to="/inventarios" />
+                <StatCard label="Órdenes de compra" value={stats.operativos.ordenesCompra} icon={ShoppingCart} to="/ordenes-compra" />
+                <StatCard label="Facturas" value={stats.operativos.facturas} icon={FileText} to="/facturas" />
+                <StatCard label="Pagos" value={stats.operativos.pagos} icon={DollarSign} to="/cuentas-por-pagar" />
+                <StatCard label="Tareas" value={stats.operativos.tareas} icon={ListTodo} to="/tareas" />
+                <StatCard label="Elaboraciones" value={stats.operativos.elaboraciones} icon={FlaskConical} to="/elaboraciones" />
               </div>
             </div>
           </div>

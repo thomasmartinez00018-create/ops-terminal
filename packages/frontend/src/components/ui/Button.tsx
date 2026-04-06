@@ -17,7 +17,7 @@ export default function Button({
       className={cn(
         'inline-flex items-center justify-center gap-2 rounded-lg font-bold transition-all disabled:opacity-50 disabled:pointer-events-none active:scale-[0.98]',
         {
-          'bg-primary text-primary-foreground hover:brightness-110 shadow-[0_10px_20px_-10px_rgba(212,175,55,0.3)]': variant === 'primary',
+          'bg-primary text-primary-foreground hover:brightness-110 hover:shadow-[0_10px_24px_-8px_rgba(212,175,55,0.4)] shadow-[0_10px_20px_-10px_rgba(212,175,55,0.3)]': variant === 'primary',
           'bg-surface-high text-foreground hover:bg-[#333] border border-border': variant === 'secondary',
           'bg-destructive/10 text-destructive hover:bg-destructive hover:text-primary-foreground border border-destructive/20': variant === 'destructive',
           'hover:bg-surface-high text-on-surface-variant': variant === 'ghost',

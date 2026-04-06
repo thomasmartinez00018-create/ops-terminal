@@ -2,10 +2,13 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
-import { ScanLine, DollarSign, Eye, Ban, Download, Search } from 'lucide-react';
+import ExportMenu from '../components/ui/ExportMenu';
+import type { ExportConfig } from '../lib/exportUtils';
+import { todayStr, formatCurrency } from '../lib/exportUtils';
+import { ScanLine, DollarSign, Eye, Ban, Search } from 'lucide-react';
 
 const ESTADOS_COLOR: Record<string, string> = {
   pendiente: 'bg-warning/15 text-warning border-warning/30',
@@ -34,14 +37,15 @@ export default function Facturas() {
   const { user } = useAuth();
   const { addToast } = useToast();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [facturas, setFacturas] = useState<any[]>([]);
   const [proveedores, setProveedores] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Filtros
-  const [filtroProveedor, setFiltroProveedor] = useState('');
-  const [filtroEstado, setFiltroEstado] = useState('');
+  // Filtros — inicializados desde URL params si vienen de otra página
+  const [filtroProveedor, setFiltroProveedor] = useState(searchParams.get('proveedorId') || '');
+  const [filtroEstado, setFiltroEstado] = useState(searchParams.get('estado') || '');
   const [filtroTipo, setFiltroTipo] = useState('');
   const [buscar, setBuscar] = useState('');
 
@@ -140,21 +144,25 @@ export default function Facturas() {
 
   const formatMoney = (n: number) => `$${n.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
 
-  const exportarCSV = () => {
-    const headers = ['Código', 'Tipo', 'Número', 'Fecha', 'Proveedor', 'Total', 'Pagado', 'Saldo', 'Estado'];
-    const rows = facturasFiltradas.map(f => [
+  const totalFacturado = facturasFiltradas.reduce((s, f) => s + (f.total || 0), 0);
+  const totalPagado = facturasFiltradas.reduce((s, f) => s + (f.totalPagado || 0), 0);
+
+  const getExportConfig = (): ExportConfig => ({
+    title: 'Facturas',
+    filename: `facturas-${todayStr()}`,
+    headers: ['Codigo', 'Tipo', 'Numero', 'Fecha', 'Proveedor', 'Total', 'Pagado', 'Saldo', 'Estado'],
+    rows: facturasFiltradas.map(f => [
       f.codigo, f.tipoComprobante, f.numero, f.fecha,
       f.proveedor?.nombre || '', f.total, f.totalPagado, f.saldoPendiente, f.estado,
-    ]);
-    const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `facturas-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+    ]),
+    summary: [
+      { label: 'Facturas', value: facturasFiltradas.length },
+      { label: 'Facturado', value: formatCurrency(totalFacturado) },
+      { label: 'Pagado', value: formatCurrency(totalPagado) },
+      { label: 'Saldo', value: formatCurrency(totalFacturado - totalPagado) },
+    ],
+    currencyColumns: [5, 6, 7],
+  });
 
   return (
     <div>
@@ -164,13 +172,7 @@ export default function Facturas() {
           <h1 className="text-xl font-extrabold text-foreground mt-1">Facturas</h1>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <button
-            onClick={exportarCSV}
-            disabled={facturasFiltradas.length === 0}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-surface-high border border-border text-sm font-semibold text-on-surface-variant hover:text-foreground hover:border-primary/30 transition-colors disabled:opacity-40"
-          >
-            <Download size={14} /> CSV
-          </button>
+          <ExportMenu getConfig={getExportConfig} disabled={facturasFiltradas.length === 0} size="sm" />
           <Button onClick={() => navigate('/escanear-factura')}>
             <ScanLine size={16} /> Escanear
           </Button>

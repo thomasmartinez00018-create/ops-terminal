@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import Badge from '../components/ui/Badge';
-import { AlertTriangle, Search, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Search, RefreshCw, Package } from 'lucide-react';
 import PageTour from '../components/PageTour';
+import ExportMenu from '../components/ui/ExportMenu';
+import type { ExportConfig } from '../lib/exportUtils';
+import { todayStr } from '../lib/exportUtils';
 
 const RUBROS_STOCK = [
   'Verduras', 'Frutas', 'Carnes', 'Pescados', 'Lácteos', 'Fiambres',
@@ -45,10 +48,67 @@ export default function Stock() {
   return (
     <div>
       <PageTour pageKey="stock" />
-      <div className="mb-6">
-        <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Control</p>
-        <h1 className="text-xl font-extrabold text-foreground mt-1">Stock Actual</h1>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Control</p>
+          <h1 className="text-xl font-extrabold text-foreground mt-1">Stock Actual</h1>
+        </div>
+        <ExportMenu size="sm" disabled={stock.length === 0} getConfig={() => {
+          const filtered = stock.filter(s => {
+            if (busqueda && !s.nombre.toLowerCase().includes(busqueda.toLowerCase()) && !s.codigo.toLowerCase().includes(busqueda.toLowerCase())) return false;
+            if (filtroRubro && s.rubro !== filtroRubro) return false;
+            if (filtroSubrubro && s.subrubro !== filtroSubrubro) return false;
+            return true;
+          });
+          return {
+            title: 'Stock Actual',
+            filename: `stock-${todayStr()}`,
+            subtitle: filtroRubro ? `Rubro: ${filtroRubro}` : undefined,
+            headers: ['Codigo', 'Producto', 'Rubro', 'Stock', 'Unidad', 'Minimo', 'Bajo minimo'],
+            rows: filtered.map(s => [s.codigo, s.nombre, s.rubro, s.stockTotal, s.unidad, s.stockMinimo, s.bajoMinimo ? 'SI' : '']),
+            summary: [
+              { label: 'Productos', value: filtered.length },
+              { label: 'Bajo minimo', value: filtered.filter(s => s.bajoMinimo).length },
+            ],
+            numberColumns: [3, 5],
+          } as ExportConfig;
+        }} />
       </div>
+
+      {/* Mini-cards resumen */}
+      {!loading && stock.length > 0 && (() => {
+        const filtrado = stock.filter(s => {
+          if (busqueda && !s.nombre.toLowerCase().includes(busqueda.toLowerCase()) && !s.codigo.toLowerCase().includes(busqueda.toLowerCase())) return false;
+          if (filtroRubro && s.rubro !== filtroRubro) return false;
+          if (filtroSubrubro && s.subrubro !== filtroSubrubro) return false;
+          return true;
+        });
+        const bajosCount = filtrado.filter(s => s.bajoMinimo).length;
+        return (
+          <div className="flex gap-3 mb-4">
+            <button
+              onClick={() => { setFiltroBajoMinimo(false); setBusqueda(''); setFiltroRubro(''); setFiltroSubrubro(''); setFiltroDeposito(''); }}
+              className="group flex items-center gap-2 px-3 py-2 rounded-lg bg-surface border border-border hover:border-primary/50 hover:bg-primary/5 transition-all"
+            >
+              <Package size={14} className="text-primary" />
+              <span className="text-sm font-bold text-foreground">{filtrado.length}</span>
+              <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">productos</span>
+              <span className="text-[10px] text-primary opacity-0 group-hover:opacity-100 transition-opacity font-bold">↺</span>
+            </button>
+            {bajosCount > 0 && (
+              <button
+                onClick={() => setFiltroBajoMinimo(true)}
+                className="group flex items-center gap-2 px-3 py-2 rounded-lg bg-destructive/5 border border-destructive/30 hover:bg-destructive/10 transition-all"
+              >
+                <AlertTriangle size={14} className="text-destructive" />
+                <span className="text-sm font-bold text-destructive">{bajosCount}</span>
+                <span className="text-[10px] font-bold text-destructive/80 uppercase tracking-wider">bajo mínimo</span>
+                <span className="text-[10px] text-destructive opacity-0 group-hover:opacity-100 transition-opacity font-bold">→</span>
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       <div className="flex flex-col sm:flex-row gap-3 mb-4 items-center">
         <div className="relative flex-1 max-w-xs">

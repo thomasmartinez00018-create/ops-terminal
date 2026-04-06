@@ -5,7 +5,10 @@ import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import PageTour from '../components/PageTour';
 import Badge from '../components/ui/Badge';
-import { BarChart3, TrendingDown, DollarSign, Package, Filter, Download, RefreshCw } from 'lucide-react';
+import ExportMenu from '../components/ui/ExportMenu';
+import type { ExportConfig } from '../lib/exportUtils';
+import { formatCurrency } from '../lib/exportUtils';
+import { BarChart3, TrendingDown, DollarSign, Package, Filter, RefreshCw } from 'lucide-react';
 
 type Tab = 'movimientos' | 'mermas' | 'valorizado' | 'historial';
 
@@ -14,21 +17,7 @@ const tipoBadge: Record<string, 'success' | 'info' | 'danger' | 'warning' | 'def
   transferencia: 'warning', ajuste: 'default', consumo_interno: 'default', devolucion: 'warning',
 };
 
-function downloadCSV(filename: string, headers: string[], rows: string[][]) {
-  const csvContent = [
-    headers.join(','),
-    ...rows.map(row => row.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(',')),
-  ].join('\n');
-  const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
-function formatCurrency(n: number | null | undefined): string {
+function fmtMoney(n: number | null | undefined): string {
   if (n == null) return '$ 0.00';
   return `$ ${Number(n).toFixed(2)}`;
 }
@@ -204,19 +193,14 @@ export default function Reportes() {
               <Button onClick={fetchMovPorTipo} size="sm">
                 <Filter size={14} /> Filtrar
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  downloadCSV(
-                    'movimientos-por-tipo.csv',
-                    ['Tipo', 'Cantidad', 'Total Unidades'],
-                    movPorTipo.map(m => [m.tipo, String(m.cantidad), String(m.totalUnidades)])
-                  )
-                }
-              >
-                <Download size={14} /> Exportar
-              </Button>
+              <ExportMenu size="sm" getConfig={() => ({
+                title: 'Movimientos por Tipo',
+                filename: `movimientos-tipo-${fechaDesde}-${fechaHasta}`,
+                subtitle: `${fechaDesde} al ${fechaHasta}`,
+                headers: ['Tipo', 'Cantidad', 'Total Unidades'],
+                rows: movPorTipo.map(m => [m.tipo, m.cantidad, m.totalUnidades]),
+                numberColumns: [1, 2],
+              } as ExportConfig)} />
             </div>
           </div>
 
@@ -302,24 +286,22 @@ export default function Reportes() {
               <Button onClick={fetchMermas} size="sm">
                 <Filter size={14} /> Filtrar
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  if (!mermas?.detalle) return;
-                  downloadCSV(
-                    'mermas.csv',
-                    ['Fecha', 'Producto', 'Cantidad', 'Unidad', 'Motivo', 'Depósito', 'Usuario'],
-                    mermas.detalle.map((d: any) => [
-                      d.fecha, d.producto?.nombre || d.productoNombre || '', String(d.cantidad),
-                      d.unidad, d.motivo, d.deposito?.nombre || d.depositoNombre || '',
-                      d.usuario?.nombre || d.usuarioNombre || '',
-                    ])
-                  );
-                }}
-              >
-                <Download size={14} /> Exportar
-              </Button>
+              <ExportMenu size="sm" disabled={!mermas?.detalle?.length} getConfig={() => ({
+                title: 'Reporte de Mermas',
+                filename: `mermas-${fechaDesde}-${fechaHasta}`,
+                subtitle: `${fechaDesde} al ${fechaHasta}`,
+                headers: ['Fecha', 'Producto', 'Cantidad', 'Unidad', 'Motivo', 'Deposito', 'Usuario'],
+                rows: (mermas?.detalle || []).map((d: any) => [
+                  d.fecha, d.producto?.nombre || d.productoNombre || '', d.cantidad,
+                  d.unidad, d.motivo, d.deposito?.nombre || d.depositoNombre || '',
+                  d.usuario?.nombre || d.usuarioNombre || '',
+                ]),
+                summary: [
+                  { label: 'Total items', value: mermas?.totalItems || 0 },
+                  { label: 'Total unidades', value: mermas?.totalUnidades?.toFixed(1) || '0' },
+                ],
+                numberColumns: [2],
+              } as ExportConfig)} />
             </div>
           </div>
 
@@ -395,24 +377,23 @@ export default function Reportes() {
       {tab === 'valorizado' && (
         <div className="space-y-4">
           <div className="glass rounded-xl p-5 flex justify-end">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                downloadCSV(
-                  'stock-valorizado.csv',
-                  ['Producto', 'Stock Actual', 'Costo Unitario', 'Valor Total'],
-                  stockVal.map(s => [
-                    s.producto?.nombre || s.nombre || s.productoNombre || '',
-                    String(s.stockTotal ?? s.stockActual ?? 0),
-                    String(s.costoUnitario),
-                    String(s.valorTotal),
-                  ])
-                )
-              }
-            >
-              <Download size={14} /> Exportar
-            </Button>
+            <ExportMenu size="sm" disabled={stockVal.length === 0} getConfig={() => ({
+              title: 'Stock Valorizado',
+              filename: `stock-valorizado-${new Date().toISOString().split('T')[0]}`,
+              headers: ['Producto', 'Stock Actual', 'Costo Unitario', 'Valor Total'],
+              rows: stockVal.map(s => [
+                s.producto?.nombre || s.nombre || s.productoNombre || '',
+                s.stockTotal ?? s.stockActual ?? 0,
+                s.costoUnitario,
+                s.valorTotal,
+              ]),
+              summary: [
+                { label: 'Valor total stock', value: formatCurrency(stockVal.reduce((s, v) => s + (v.valorTotal || 0), 0)) },
+                { label: 'Productos', value: stockVal.length },
+              ],
+              currencyColumns: [2, 3],
+              numberColumns: [1],
+            } as ExportConfig)} />
           </div>
 
           <div className="bg-surface rounded-xl border border-border overflow-hidden">
@@ -431,14 +412,14 @@ export default function Reportes() {
                     <tr key={i} className="hover:bg-surface-high/50 transition-colors">
                       <td className="p-3 font-semibold text-foreground">{s.producto?.nombre || s.nombre || s.productoNombre}</td>
                       <td className="p-3 text-right font-semibold text-foreground">{s.stockTotal ?? s.stockActual ?? 0}</td>
-                      <td className="p-3 text-right text-on-surface-variant">{formatCurrency(s.costoUnitario)}</td>
-                      <td className="p-3 text-right font-semibold text-foreground">{formatCurrency(s.valorTotal)}</td>
+                      <td className="p-3 text-right text-on-surface-variant">{fmtMoney(s.costoUnitario)}</td>
+                      <td className="p-3 text-right font-semibold text-foreground">{fmtMoney(s.valorTotal)}</td>
                     </tr>
                   ))}
                   {stockVal.length > 0 && (
                     <tr className="bg-surface-high/50">
                       <td className="p-3 font-extrabold text-foreground" colSpan={3}>Total</td>
-                      <td className="p-3 text-right font-extrabold text-primary text-base">{formatCurrency(stockGrandTotal)}</td>
+                      <td className="p-3 text-right font-extrabold text-primary text-base">{fmtMoney(stockGrandTotal)}</td>
                     </tr>
                   )}
                   {stockVal.length === 0 && !loadingStock && (
@@ -492,27 +473,18 @@ export default function Reportes() {
               <Button onClick={fetchHistorial} size="sm" disabled={!productoId}>
                 <Filter size={14} /> Filtrar
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  downloadCSV(
-                    'historial-producto.csv',
-                    ['Fecha', 'Tipo', 'Cantidad', 'Depósito Origen', 'Depósito Destino', 'Usuario', 'Observación'],
-                    historial.map(h => [
-                      h.fecha,
-                      h.tipo,
-                      String(h.cantidad),
-                      h.depositoOrigen?.nombre || '',
-                      h.depositoDestino?.nombre || '',
-                      h.usuario?.nombre || h.usuarioNombre || '',
-                      h.observacion || '',
-                    ])
-                  )
-                }
-              >
-                <Download size={14} /> Exportar
-              </Button>
+              <ExportMenu size="sm" disabled={historial.length === 0} getConfig={() => ({
+                title: 'Historial de Producto',
+                filename: `historial-producto-${productoId}`,
+                subtitle: productos.find(p => String(p.id) === productoId)?.nombre || '',
+                headers: ['Fecha', 'Tipo', 'Cantidad', 'Deposito Origen', 'Deposito Destino', 'Usuario', 'Observacion'],
+                rows: historial.map(h => [
+                  h.fecha, h.tipo, h.cantidad,
+                  h.depositoOrigen?.nombre || '', h.depositoDestino?.nombre || '',
+                  h.usuario?.nombre || h.usuarioNombre || '', h.observacion || '',
+                ]),
+                numberColumns: [2],
+              } as ExportConfig)} />
             </div>
           </div>
 

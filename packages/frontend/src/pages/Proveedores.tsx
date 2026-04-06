@@ -5,7 +5,11 @@ import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import PageTour from '../components/PageTour';
 import Modal from '../components/ui/Modal';
-import { Plus, Pencil, Trash2, Truck, Package, Phone, Mail } from 'lucide-react';
+import { Plus, Pencil, Trash2, Truck, Package, Phone, Mail, FileText } from 'lucide-react';
+import ExportMenu from '../components/ui/ExportMenu';
+import type { ExportConfig } from '../lib/exportUtils';
+import { todayStr } from '../lib/exportUtils';
+import { useNavigate } from 'react-router-dom';
 
 const emptyProveedorForm = {
   codigo: '',
@@ -25,6 +29,7 @@ const emptyMapForm = {
 };
 
 export default function Proveedores() {
+  const navigate = useNavigate();
   const [proveedores, setProveedores] = useState<any[]>([]);
   const [productos, setProductos] = useState<any[]>([]);
   const [selectedProveedor, setSelectedProveedor] = useState<any | null>(null);
@@ -164,18 +169,27 @@ export default function Proveedores() {
           <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Compras</p>
           <h1 className="text-xl font-extrabold text-foreground mt-1">Proveedores</h1>
         </div>
-        <Button onClick={() => abrirProv()}>
-          <Plus size={16} /> Nuevo proveedor
-        </Button>
+        <div className="flex gap-2">
+          <ExportMenu size="sm" disabled={proveedores.length === 0} getConfig={() => ({
+            title: 'Proveedores',
+            filename: `proveedores-${todayStr()}`,
+            headers: ['Codigo', 'Nombre', 'Contacto', 'Telefono', 'Email'],
+            rows: proveedores.map((p: any) => [p.codigo, p.nombre, p.contacto || '', p.telefono || '', p.email || '']),
+            summary: [{ label: 'Total proveedores', value: proveedores.length }],
+          } as ExportConfig)} />
+          <Button onClick={() => abrirProv()}>
+            <Plus size={16} /> Nuevo proveedor
+          </Button>
+        </div>
       </div>
 
       {/* Proveedores grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 stagger-children">
         {proveedores.map(prov => (
           <div
             key={prov.id}
             onClick={() => cargarProductosProveedor(prov)}
-            className={`glass rounded-xl p-4 cursor-pointer transition-all ${
+            className={`glass card-glow rounded-xl p-4 cursor-pointer transition-all ${
               selectedProveedor?.id === prov.id
                 ? 'ring-2 ring-primary/60'
                 : 'hover:ring-1 hover:ring-border'
@@ -223,6 +237,13 @@ export default function Proveedores() {
                 </div>
               )}
             </div>
+            <button
+              onClick={e => { e.stopPropagation(); navigate(`/facturas?proveedorId=${prov.id}`); }}
+              className="mt-3 flex items-center gap-1.5 text-[10px] font-bold text-primary/70 hover:text-primary transition-colors uppercase tracking-wider"
+            >
+              <FileText size={11} />
+              Ver facturas
+            </button>
           </div>
         ))}
         {proveedores.length === 0 && (

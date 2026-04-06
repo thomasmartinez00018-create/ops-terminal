@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
-import { BarChart3, TrendingUp, Search, Download } from 'lucide-react';
+import ExportMenu from '../components/ui/ExportMenu';
+import type { ExportConfig } from '../lib/exportUtils';
+import { formatCurrency } from '../lib/exportUtils';
+import { BarChart3, TrendingUp, Search } from 'lucide-react';
 
 export default function ReportesCostos() {
   const [tab, setTab] = useState<'cogs' | 'precios'>('cogs');
@@ -58,19 +61,18 @@ export default function ReportesCostos() {
     return p.nombre.toLowerCase().includes(q) || p.codigo.toLowerCase().includes(q);
   });
 
-  const exportarCogsCSV = () => {
-    if (!cogsData?.rubros?.length) return;
-    const headers = ['Rubro', 'Costo Total', '% del Total', 'Items'];
-    const rows = cogsData.rubros.map((r: any) => [r.rubro, r.costoTotal.toFixed(2), r.porcentaje.toFixed(1) + '%', r.cantItems]);
-    const csv = [headers, ...rows].map((r: any[]) => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `cogs-${cogsDesde}-${cogsHasta}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  const getCogsExportConfig = (): ExportConfig => ({
+    title: 'COGS por Periodo',
+    filename: `cogs-${cogsDesde}-${cogsHasta}`,
+    subtitle: `${cogsDesde} al ${cogsHasta}`,
+    headers: ['Rubro', 'Costo Total', '% del Total', 'Items'],
+    rows: (cogsData?.rubros || []).map((r: any) => [r.rubro, r.costoTotal, r.porcentaje.toFixed(1) + '%', r.cantItems]),
+    summary: [
+      { label: 'Costo total', value: formatCurrency(cogsData?.totalGeneral || 0) },
+      { label: 'Rubros', value: cogsData?.rubros?.length || 0 },
+    ],
+    currencyColumns: [1],
+  });
 
   return (
     <div>
@@ -123,13 +125,7 @@ export default function ReportesCostos() {
                 className="px-3 py-2.5 rounded-lg bg-surface-high border-0 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
             </div>
-            <button
-              onClick={exportarCogsCSV}
-              disabled={!cogsData?.rubros?.length}
-              className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-surface-high border border-border text-sm font-semibold text-on-surface-variant hover:text-foreground transition-colors disabled:opacity-40"
-            >
-              <Download size={14} /> CSV
-            </button>
+            <ExportMenu getConfig={getCogsExportConfig} disabled={!cogsData?.rubros?.length} size="sm" />
           </div>
 
           {cogsLoading ? (

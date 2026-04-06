@@ -1,11 +1,18 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 
-interface User {
+export interface DashboardConfig {
+  tipo?: 'auto' | 'admin' | 'simple' | 'deposito';
+  widgets?: string[];   // para tipo='admin': qué secciones mostrar
+  acciones?: string[];  // para tipo='simple'|'deposito': qué botones mostrar
+}
+
+export interface User {
   id: number;
   codigo: string;
   nombre: string;
   rol: string;
   permisos: string[]; // ['*'] para admin, lista de claves para otros
+  configuracion?: DashboardConfig | null;
   depositoDefectoId?: number | null;
   depositoDefectoNombre?: string | null;
 }

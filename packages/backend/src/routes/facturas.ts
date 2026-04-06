@@ -40,30 +40,82 @@ Reglas:
 - Incluí TODOS los items/líneas de la factura
 - Respondé SOLO con el JSON, sin texto adicional`;
 
-// ── Fuzzy match de productos ────────────────────────────────────────────────
-function matchProducto(descripcion: string, productos: any[]) {
-  const desc = descripcion.toLowerCase().trim();
+// ── Prompt para matching semántico de productos con IA ─────────────────────
+function buildMatchingPrompt(itemsDescripciones: string[], catalogo: { id: number; codigo: string; nombre: string; rubro: string }[]) {
+  const catalogoStr = catalogo.map(p => `${p.id}|${p.codigo}|${p.nombre}|${p.rubro}`).join('\n');
+  const itemsStr = itemsDescripciones.map((d, i) => `${i}|${d}`).join('\n');
 
-  // 1. Exact match por nombre
-  const exact = productos.find(p => p.nombre.toLowerCase() === desc);
-  if (exact) return { productoId: exact.id, productoNombre: exact.nombre, confidence: 'exact' as const };
+  return `Sos un asistente de un sistema de stock gastronómico argentino.
+Tu tarea: para cada item de factura, buscá el producto MÁS PROBABLE del catálogo.
 
-  // 2. Fuzzy: descripción contiene nombre o viceversa
-  const fuzzy = productos.find(p => {
-    const nombre = p.nombre.toLowerCase();
-    return desc.includes(nombre) || nombre.includes(desc);
-  });
-  if (fuzzy) return { productoId: fuzzy.id, productoNombre: fuzzy.nombre, confidence: 'fuzzy' as const };
+CATÁLOGO DE PRODUCTOS (id|codigo|nombre|rubro):
+${catalogoStr}
 
-  // 3. Fuzzy: alguna palabra clave coincide (>= 4 chars)
-  const descWords = desc.split(/\s+/).filter(w => w.length >= 4);
-  const partial = productos.find(p => {
-    const nombre = p.nombre.toLowerCase();
-    return descWords.some(w => nombre.includes(w));
-  });
-  if (partial) return { productoId: partial.id, productoNombre: partial.nombre, confidence: 'fuzzy' as const };
+ITEMS DE LA FACTURA (index|descripcion):
+${itemsStr}
 
-  return { productoId: null, productoNombre: null, confidence: 'none' as const };
+REGLAS:
+- Cada item puede matchear con UN solo producto del catálogo, o con ninguno.
+- Considerá sinónimos, abreviaciones, marcas, presentaciones. Ej: "Queso Crema Ilolay x500g" → "Queso Cremoso", "Tom. cherry" → "Tomate Cherry", "Muz." → "Muzzarella".
+- Ignorá marcas, pesos y presentaciones al comparar — enfocate en QUÉ producto es.
+- Si hay un match claro, confianza "alta". Si es probable pero ambiguo, "media". Si no hay match razonable, "ninguna".
+- NO inventes IDs. Usá SOLO IDs que existan en el catálogo.
+- Si dos items de la factura parecen el mismo producto, asigná el mismo ID a ambos.
+
+Respondé SOLO con JSON puro (sin markdown, sin backticks):
+[
+  { "index": 0, "productoId": 45, "confianza": "alta" },
+  { "index": 1, "productoId": 12, "confianza": "media" },
+  { "index": 2, "productoId": null, "confianza": "ninguna" }
+]`;
+}
+
+// ── Matching con IA — Gemini como matcher semántico ────────────────────────
+async function matchProductosConIA(
+  items: { descripcion: string }[],
+  productos: { id: number; codigo: string; nombre: string; rubro: string }[],
+  apiKey: string
+): Promise<{ productoId: number | null; productoNombre: string | null; confidence: 'alta' | 'media' | 'ninguna' }[]> {
+  if (!items.length || !productos.length) {
+    return items.map(() => ({ productoId: null, productoNombre: null, confidence: 'ninguna' as const }));
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite-preview' });
+
+    const catalogo = productos.map(p => ({
+      id: p.id,
+      codigo: p.codigo,
+      nombre: p.nombre,
+      rubro: p.rubro,
+    }));
+
+    const prompt = buildMatchingPrompt(
+      items.map(i => i.descripcion),
+      catalogo
+    );
+
+    const result = await model.generateContent(prompt);
+    const responseText = result.response.text();
+    const jsonStr = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const matches: { index: number; productoId: number | null; confianza: string }[] = JSON.parse(jsonStr);
+
+    // Mapear resultados indexados a array ordenado
+    const prodMap = new Map(productos.map(p => [p.id, p]));
+    return items.map((_, idx) => {
+      const m = matches.find(x => x.index === idx);
+      if (!m || !m.productoId) return { productoId: null, productoNombre: null, confidence: 'ninguna' as const };
+      const prod = prodMap.get(m.productoId);
+      if (!prod) return { productoId: null, productoNombre: null, confidence: 'ninguna' as const };
+      const conf = m.confianza === 'alta' ? 'alta' : m.confianza === 'media' ? 'media' : 'ninguna';
+      return { productoId: prod.id, productoNombre: prod.nombre, confidence: conf as 'alta' | 'media' | 'ninguna' };
+    });
+  } catch (err) {
+    console.error('[matchProductosConIA] Error en matching:', err);
+    // Fallback: sin match
+    return items.map(() => ({ productoId: null, productoNombre: null, confidence: 'ninguna' as const }));
+  }
 }
 
 // ── POST /api/facturas/escanear ─────────────────────────────────────────────
@@ -107,17 +159,29 @@ router.post('/escanear', async (req, res) => {
       });
     }
 
-    // Match items con productos existentes
-    const productos = await prisma.producto.findMany({ where: { activo: true } });
+    // Match items con productos existentes usando IA semántica
+    const productos = await prisma.producto.findMany({
+      where: { activo: true },
+      select: { id: true, codigo: true, nombre: true, rubro: true },
+    });
 
-    const items = (parsed.items || []).map((item: any, idx: number) => ({
+    const rawItems = (parsed.items || []).map((item: any, idx: number) => ({
       index: idx,
-      descripcion: item.descripcion,
+      descripcion: item.descripcion || '',
       cantidad: item.cantidad,
       unidad: item.unidad,
       precioUnitario: item.precio_unitario,
       alicuotaIva: item.alicuota_iva ?? 0,
-      ...matchProducto(item.descripcion || '', productos),
+    }));
+
+    // Matching semántico con Gemini
+    const matches = await matchProductosConIA(rawItems, productos, apiKey);
+
+    const items = rawItems.map((item: any, idx: number) => ({
+      ...item,
+      productoId: matches[idx]?.productoId ?? null,
+      productoNombre: matches[idx]?.productoNombre ?? null,
+      confidence: matches[idx]?.confidence ?? 'ninguna',
     }));
 
     // Match proveedor

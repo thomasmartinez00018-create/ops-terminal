@@ -74,7 +74,8 @@ model Usuario {
   rol      String  // admin, cocina, deposito, barra, compras
   pin      String?
   activo   Boolean @default(true)
-  permisos String  @default("[]") // JSON array de claves de secciones habilitadas
+  permisos       String  @default("[]") // JSON array de claves de secciones habilitadas
+  configuracion  String? // JSON: { tipo, widgets, acciones } — config de dashboard por usuario
 
   depositoDefectoId        Int?     @map("deposito_defecto_id")
   depositoDefecto          Deposito? @relation("usuarioDepositoDefecto", fields: [depositoDefectoId], references: [id])

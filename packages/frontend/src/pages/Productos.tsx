@@ -6,7 +6,11 @@ import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
-import { Plus, Pencil, Trash2, Search, Download } from 'lucide-react';
+import ExportMenu from '../components/ui/ExportMenu';
+import type { ExportConfig } from '../lib/exportUtils';
+import { todayStr } from '../lib/exportUtils';
+import { Plus, Pencil, Trash2, Search, BarChart2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 const RUBROS = [
   'Verduras', 'Frutas', 'Carnes', 'Pescados', 'Lácteos', 'Fiambres',
@@ -39,6 +43,7 @@ const emptyForm = {
 };
 
 export default function Productos() {
+  const navigate = useNavigate();
   const [productos, setProductos] = useState<any[]>([]);
   const [depositos, setDepositos] = useState<any[]>([]);
   const [buscar, setBuscar] = useState('');
@@ -136,29 +141,22 @@ export default function Productos() {
     cargar();
   };
 
-  const exportarCSV = () => {
-    const headers = ['Código', 'Nombre', 'Rubro', 'Sub-rubro', 'Tipo', 'Unidad Compra', 'Unidad Uso', 'Stock Mínimo', 'Stock Ideal', 'Código Barras'];
-    const rows = productos.map(p => [
-      p.codigo,
-      p.nombre,
-      p.rubro,
-      p.subrubro || '',
-      p.tipo,
-      p.unidadCompra,
-      p.unidadUso,
-      p.stockMinimo,
-      p.stockIdeal,
-      p.codigoBarras || '',
-    ]);
-    const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `productos-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  const getExportConfig = (): ExportConfig => ({
+    title: 'Productos',
+    filename: `productos-${todayStr()}`,
+    subtitle: filtroRubro ? `Rubro: ${filtroRubro}${filtroSubrubro ? ` > ${filtroSubrubro}` : ''}` : undefined,
+    headers: ['Codigo', 'Nombre', 'Rubro', 'Sub-rubro', 'Tipo', 'Ud. Compra', 'Ud. Uso', 'Stock Min', 'Stock Ideal', 'Cod. Barras'],
+    rows: productos.map(p => [
+      p.codigo, p.nombre, p.rubro, p.subrubro || '', p.tipo,
+      p.unidadCompra, p.unidadUso, p.stockMinimo, p.stockIdeal, p.codigoBarras || '',
+    ]),
+    summary: [
+      { label: 'Total productos', value: productos.length },
+      { label: 'Rubros', value: new Set(productos.map(p => p.rubro)).size },
+      { label: 'Activos', value: productos.filter(p => p.activo !== false).length },
+    ],
+    numberColumns: [7, 8],
+  });
 
   return (
     <div>
@@ -169,19 +167,43 @@ export default function Productos() {
           <h1 className="text-xl font-extrabold text-foreground mt-1">Productos</h1>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={exportarCSV}
-            disabled={productos.length === 0}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-surface-high border border-border text-sm font-semibold text-on-surface-variant hover:text-foreground hover:border-primary/30 transition-colors disabled:opacity-40"
-            title="Exportar lista a CSV (Excel)"
-          >
-            <Download size={14} /> Exportar CSV
-          </button>
+          <ExportMenu getConfig={getExportConfig} disabled={productos.length === 0} size="sm" />
           <Button onClick={() => abrir()}>
             <Plus size={16} /> Nuevo producto
           </Button>
         </div>
       </div>
+
+      {/* Mini-stats */}
+      {productos.length > 0 && (
+        <div className="flex gap-3 mb-4 flex-wrap">
+          <button
+            onClick={() => { setBuscar(''); setFiltroRubro(''); setFiltroSubrubro(''); }}
+            className="group flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface border border-border hover:border-primary/50 hover:bg-primary/5 transition-all"
+          >
+            <span className="text-sm font-extrabold text-foreground">{productos.length}</span>
+            <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">productos</span>
+            <span className="text-[10px] text-primary opacity-0 group-hover:opacity-100 transition-opacity font-bold">↺</span>
+          </button>
+          {(() => {
+            const rubros = new Set(productos.map(p => p.rubro)).size;
+            return rubros > 0 ? (
+              <span className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface border border-border">
+                <span className="text-sm font-extrabold text-foreground">{rubros}</span>
+                <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">rubros</span>
+              </span>
+            ) : null;
+          })()}
+          <button
+            onClick={() => navigate('/stock')}
+            className="group flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface border border-border hover:border-primary/50 hover:bg-primary/5 transition-all"
+          >
+            <BarChart2 size={13} className="text-primary" />
+            <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider group-hover:text-primary transition-colors">Ver stock</span>
+            <span className="text-[10px] text-primary opacity-0 group-hover:opacity-100 transition-opacity font-bold">→</span>
+          </button>
+        </div>
+      )}
 
       {/* Filtros */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">

@@ -30,12 +30,23 @@ router.post('/login', async (req: Request, res: Response) => {
       try { permisos = JSON.parse(usuario.permisos || '[]'); } catch { permisos = []; }
     }
 
+    // Leer configuracion de dashboard (columna agregada via migration, no en client Prisma)
+    let configuracion: any = null;
+    try {
+      const raw = await prisma.$queryRawUnsafe<{configuracion: string | null}[]>(
+        `SELECT configuracion FROM usuarios WHERE id = ?`, usuario.id
+      );
+      const confStr = raw[0]?.configuracion;
+      if (confStr) configuracion = JSON.parse(confStr);
+    } catch {}
+
     res.json({
       id: usuario.id,
       codigo: usuario.codigo,
       nombre: usuario.nombre,
       rol: usuario.rol,
       permisos,
+      configuracion,
       depositoDefectoId: usuario.depositoDefectoId ?? null,
       depositoDefectoNombre: usuario.depositoDefecto?.nombre ?? null,
     });

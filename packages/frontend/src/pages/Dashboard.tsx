@@ -102,6 +102,8 @@ function DashboardSimple({ rol }: { rol: string }) {
   };
 
   const esBar = rol === 'barra';
+  const acciones = user?.configuracion?.acciones;
+  const showAccion = (key: string) => !acciones || acciones.includes(key);
 
   return (
     <div>
@@ -116,66 +118,76 @@ function DashboardSimple({ rol }: { rol: string }) {
 
       {/* Acciones principales — botones grandes */}
       <div className="grid grid-cols-2 gap-3 mb-6">
-        <button
-          onClick={() => abrirQuick('consumo_interno')}
-          className="glass rounded-2xl p-5 text-left hover:scale-[1.02] active:scale-[0.98] transition-all border border-blue-500/20"
-        >
-          <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center mb-3">
-            {esBar ? <Wine size={20} className="text-blue-400" /> : <Utensils size={20} className="text-blue-400" />}
-          </div>
-          <p className="text-sm font-extrabold text-foreground">Registrar uso</p>
-          <p className="text-xs text-on-surface-variant mt-0.5">
-            {esBar ? 'Bebidas consumidas' : 'Ingredientes usados'}
-          </p>
-        </button>
+        {showAccion('uso') && (
+          <button
+            onClick={() => abrirQuick('consumo_interno')}
+            className="glass rounded-2xl p-5 text-left hover:scale-[1.02] active:scale-[0.98] transition-all border border-blue-500/20"
+          >
+            <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center mb-3">
+              {esBar ? <Wine size={20} className="text-blue-400" /> : <Utensils size={20} className="text-blue-400" />}
+            </div>
+            <p className="text-sm font-extrabold text-foreground">Registrar uso</p>
+            <p className="text-xs text-on-surface-variant mt-0.5">
+              {esBar ? 'Bebidas consumidas' : 'Ingredientes usados'}
+            </p>
+          </button>
+        )}
 
-        <button
-          onClick={() => abrirQuick('merma')}
-          className="glass rounded-2xl p-5 text-left hover:scale-[1.02] active:scale-[0.98] transition-all border border-destructive/20"
-        >
-          <div className="w-10 h-10 rounded-xl bg-destructive/10 flex items-center justify-center mb-3">
-            <TrendingDown size={20} className="text-destructive" />
-          </div>
-          <p className="text-sm font-extrabold text-foreground">Registrar merma</p>
-          <p className="text-xs text-on-surface-variant mt-0.5">Vencidos o rotos</p>
-        </button>
+        {showAccion('merma') && (
+          <button
+            onClick={() => abrirQuick('merma')}
+            className="glass rounded-2xl p-5 text-left hover:scale-[1.02] active:scale-[0.98] transition-all border border-destructive/20"
+          >
+            <div className="w-10 h-10 rounded-xl bg-destructive/10 flex items-center justify-center mb-3">
+              <TrendingDown size={20} className="text-destructive" />
+            </div>
+            <p className="text-sm font-extrabold text-foreground">Registrar merma</p>
+            <p className="text-xs text-on-surface-variant mt-0.5">Vencidos o rotos</p>
+          </button>
+        )}
 
-        <button
-          onClick={() => navigate('/stock')}
-          className="glass rounded-2xl p-5 text-left hover:scale-[1.02] active:scale-[0.98] transition-all"
-        >
-          <div className="w-10 h-10 rounded-xl bg-success/10 flex items-center justify-center mb-3">
-            <ClipboardList size={20} className="text-success" />
-          </div>
-          <p className="text-sm font-extrabold text-foreground">Ver stock</p>
-          <p className="text-xs text-on-surface-variant mt-0.5">Qué hay disponible</p>
-        </button>
+        {showAccion('stock') && (
+          <button
+            onClick={() => navigate('/stock')}
+            className="glass rounded-2xl p-5 text-left hover:scale-[1.02] active:scale-[0.98] transition-all"
+          >
+            <div className="w-10 h-10 rounded-xl bg-success/10 flex items-center justify-center mb-3">
+              <ClipboardList size={20} className="text-success" />
+            </div>
+            <p className="text-sm font-extrabold text-foreground">Ver stock</p>
+            <p className="text-xs text-on-surface-variant mt-0.5">Qué hay disponible</p>
+          </button>
+        )}
 
-        <button
-          onClick={() => abrirQuick('ingreso')}
-          className="glass rounded-2xl p-5 text-left hover:scale-[1.02] active:scale-[0.98] transition-all border border-success/20"
-        >
-          <div className="w-10 h-10 rounded-xl bg-success/10 flex items-center justify-center mb-3">
-            <Plus size={20} className="text-success" />
-          </div>
-          <p className="text-sm font-extrabold text-foreground">Registrar ingreso</p>
-          <p className="text-xs text-on-surface-variant mt-0.5">Llegó mercadería</p>
-        </button>
+        {showAccion('ingreso') && (
+          <button
+            onClick={() => abrirQuick('ingreso')}
+            className="glass rounded-2xl p-5 text-left hover:scale-[1.02] active:scale-[0.98] transition-all border border-success/20"
+          >
+            <div className="w-10 h-10 rounded-xl bg-success/10 flex items-center justify-center mb-3">
+              <Plus size={20} className="text-success" />
+            </div>
+            <p className="text-sm font-extrabold text-foreground">Registrar ingreso</p>
+            <p className="text-xs text-on-surface-variant mt-0.5">Llegó mercadería</p>
+          </button>
+        )}
 
-        <button
-          onClick={() => navigate('/escanear-factura')}
-          className="glass rounded-2xl p-5 text-left hover:scale-[1.02] active:scale-[0.98] transition-all border border-amber-500/20"
-        >
-          <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center mb-3">
-            <ScanLine size={20} className="text-amber-500" />
-          </div>
-          <p className="text-sm font-extrabold text-foreground">Escanear factura</p>
-          <p className="text-xs text-on-surface-variant mt-0.5">IA extrae productos</p>
-        </button>
+        {showAccion('factura') && (
+          <button
+            onClick={() => navigate('/escanear-factura')}
+            className="glass rounded-2xl p-5 text-left hover:scale-[1.02] active:scale-[0.98] transition-all border border-amber-500/20"
+          >
+            <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center mb-3">
+              <ScanLine size={20} className="text-amber-500" />
+            </div>
+            <p className="text-sm font-extrabold text-foreground">Escanear factura</p>
+            <p className="text-xs text-on-surface-variant mt-0.5">IA extrae productos</p>
+          </button>
+        )}
       </div>
 
       {/* Mis últimos movimientos */}
-      {misMov.length > 0 && (
+      {showAccion('mis-movimientos') && misMov.length > 0 && (
         <div className="bg-surface rounded-xl border border-border">
           <div className="p-4 border-b border-border flex items-center justify-between">
             <h2 className="text-xs font-extrabold text-foreground uppercase tracking-widest">Mis registros de hoy</h2>
@@ -208,6 +220,9 @@ function DashboardDeposito() {
   const navigate = useNavigate();
   const [quickOpen, setQuickOpen] = useState(false);
 
+  const acciones = user?.configuracion?.acciones;
+  const showAccion = (key: string) => !acciones || acciones.includes(key);
+
   return (
     <div>
       <div className="mb-6">
@@ -219,6 +234,7 @@ function DashboardDeposito() {
 
       {/* Acciones principales */}
       <div className="grid grid-cols-2 gap-3 mb-6">
+        {showAccion('ordenes') && (
         <button
           onClick={() => navigate('/ordenes-compra')}
           className="glass rounded-2xl p-5 text-left hover:scale-[1.02] active:scale-[0.98] transition-all border border-warning/20"
@@ -229,7 +245,9 @@ function DashboardDeposito() {
           <p className="text-sm font-extrabold text-foreground">Recibir mercadería</p>
           <p className="text-xs text-on-surface-variant mt-0.5">Confirmar entregas</p>
         </button>
+        )}
 
+        {showAccion('scanner') && (
         <button
           onClick={() => navigate('/control-scanner')}
           className="glass rounded-2xl p-5 text-left hover:scale-[1.02] active:scale-[0.98] transition-all border border-primary/20"
@@ -240,7 +258,9 @@ function DashboardDeposito() {
           <p className="text-sm font-extrabold text-foreground">Control scanner</p>
           <p className="text-xs text-on-surface-variant mt-0.5">Contar con lector</p>
         </button>
+        )}
 
+        {showAccion('movimiento-rapido') && (
         <button
           onClick={() => setQuickOpen(true)}
           className="glass rounded-2xl p-5 text-left hover:scale-[1.02] active:scale-[0.98] transition-all border border-blue-500/20"
@@ -251,7 +271,9 @@ function DashboardDeposito() {
           <p className="text-sm font-extrabold text-foreground">Movimiento rápido</p>
           <p className="text-xs text-on-surface-variant mt-0.5">Ingreso o salida</p>
         </button>
+        )}
 
+        {showAccion('stock') && (
         <button
           onClick={() => navigate('/stock')}
           className="glass rounded-2xl p-5 text-left hover:scale-[1.02] active:scale-[0.98] transition-all"
@@ -262,6 +284,7 @@ function DashboardDeposito() {
           <p className="text-sm font-extrabold text-foreground">Ver stock</p>
           <p className="text-xs text-on-surface-variant mt-0.5">Todos los depósitos</p>
         </button>
+        )}
       </div>
 
       <QuickMovimiento open={quickOpen} onClose={() => setQuickOpen(false)} />
@@ -419,6 +442,8 @@ function DashboardAdmin() {
   }
 
   const discGraves = discrepancias.filter(d => d.color === 'rojo').length;
+  const widgets = user?.configuracion?.widgets;
+  const showWidget = (key: string) => !widgets || widgets.includes(key);
 
   const kpis: {
     label: string; value: number; prev: number; icon: typeof Package;
@@ -450,7 +475,7 @@ function DashboardAdmin() {
       </div>
 
       {/* ── Acceso WiFi — botón compacto ──────────────────────────────────── */}
-      {networkUrl && (
+      {showWidget('wifi') && networkUrl && (
         <button
           onClick={() => navigate('/acceso-red')}
           className="w-full mb-6 flex items-center gap-3 px-4 py-3 rounded-xl border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors text-left"
@@ -465,10 +490,10 @@ function DashboardAdmin() {
       )}
 
       {/* ── Tareas + responsabilidades pendientes (unificado) ─────────── */}
-      <MisTareasPendientes />
+      {showWidget('tareas') && <MisTareasPendientes />}
 
       {/* ── Alertas admin ─────────────────────────────────────────────── */}
-      {((user?.rol === 'admin' && ocPendientes.length > 0) || discGraves > 0) && (
+      {showWidget('alertas') && ((user?.rol === 'admin' && ocPendientes.length > 0) || discGraves > 0) && (
         <div className="space-y-2 mb-6">
           {user?.rol === 'admin' && ocPendientes.length > 0 && (
             <button onClick={() => navigate('/ordenes-compra')}
@@ -494,12 +519,13 @@ function DashboardAdmin() {
       )}
 
       {/* ── KPIs clickables con tendencia ─────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+      {showWidget('kpis') && (
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6 stagger-children">
         {kpis.map(card => (
           <button
             key={card.label}
             onClick={() => card.to && navigate(card.to)}
-            className="glass rounded-xl p-4 text-left hover:bg-surface-high/50 active:scale-[0.98] transition-all"
+            className="glass card-glow rounded-xl p-4 text-left hover:bg-surface-high/50 active:scale-[0.98] transition-all"
           >
             <div className="flex items-center justify-between mb-2">
               <div className={`p-2 rounded-lg ${card.bg}`}><card.icon size={16} className={card.accent} /></div>
@@ -514,8 +540,10 @@ function DashboardAdmin() {
           </button>
         ))}
       </div>
+      )}
 
       {/* ── Actividad del equipo hoy ──────────────────────────────────────── */}
+      {showWidget('equipo-hoy') && (
       <div className="bg-surface rounded-xl border border-border mb-6">
         <div className="p-4 border-b border-border flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -534,9 +562,10 @@ function DashboardAdmin() {
           <EquipoHoyList equipo={stats.actividadEquipo} movimientos={stats.ultimosMovimientos || []} />
         )}
       </div>
+      )}
 
       {/* ── Últimos movimientos ─────────────────────────────────────────── */}
-      <div className="bg-surface rounded-xl border border-border">
+      {showWidget('ultimos-movimientos') && <div className="bg-surface rounded-xl border border-border">
         <div className="p-4 border-b border-border">
           <h2 className="text-xs font-extrabold text-foreground uppercase tracking-widest">Últimos movimientos</h2>
         </div>
@@ -563,7 +592,7 @@ function DashboardAdmin() {
             ))}
           </div>
         )}
-      </div>
+      </div>}
 
       <QuickMovimiento open={quickOpen} onClose={() => setQuickOpen(false)} />
     </div>
@@ -575,6 +604,15 @@ export default function Dashboard() {
   const { user } = useAuth();
   if (!user) return null;
 
+  // Si el admin configuró un tipo de vista específico, usarlo
+  const tipoOverride = user.configuracion?.tipo;
+  if (tipoOverride && tipoOverride !== 'auto') {
+    if (tipoOverride === 'simple') return <DashboardSimple rol={user.rol} />;
+    if (tipoOverride === 'deposito') return <DashboardDeposito />;
+    return <DashboardAdmin />;
+  }
+
+  // Comportamiento por defecto según rol
   if (user.rol === 'cocina' || user.rol === 'barra') return <DashboardSimple rol={user.rol} />;
   if (user.rol === 'deposito') return <DashboardDeposito />;
   return <DashboardAdmin />;

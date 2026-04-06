@@ -12,6 +12,9 @@ import { useToast } from '../context/ToastContext';
 import { useRecentProducts } from '../hooks/useRecentProducts';
 import { Plus, ScanLine } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import ExportMenu from '../components/ui/ExportMenu';
+import type { ExportConfig } from '../lib/exportUtils';
+import { todayStr } from '../lib/exportUtils';
 
 const TIPOS_MOV = [
   { value: 'ingreso', label: 'Ingreso / Compra' },
@@ -149,7 +152,22 @@ export default function Movimientos() {
           <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Operaciones</p>
           <h1 className="text-xl font-extrabold text-foreground mt-1">Movimientos</h1>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <ExportMenu size="sm" disabled={movimientos.length === 0} getConfig={() => ({
+            title: 'Movimientos',
+            filename: `movimientos-${todayStr()}`,
+            subtitle: filtroTipo ? `Tipo: ${filtroTipo}` : undefined,
+            headers: ['Fecha', 'Hora', 'Tipo', 'Producto', 'Cantidad', 'Unidad', 'Deposito', 'Usuario'],
+            rows: movimientos.map((m: any) => [
+              m.fecha, m.hora || '', m.tipo, m.producto?.nombre || '',
+              m.cantidad, m.unidad, m.depositoOrigen?.nombre || m.depositoDestino?.nombre || '',
+              m.usuario?.nombre || '',
+            ]),
+            summary: [
+              { label: 'Total movimientos', value: movimientos.length },
+            ],
+            numberColumns: [4],
+          } as ExportConfig)} />
           <button
             onClick={() => navigate('/escanear-factura')}
             className="flex items-center gap-2 px-4 py-2.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-500 font-semibold rounded-lg text-sm transition border border-amber-600/30"
