@@ -214,47 +214,56 @@ async function createWindow () {
 }
 
 // ── Windows Firewall: abrir puerto automáticamente ───────────────────────────
-function ensureFirewallRule () {
-  if (process.platform !== 'win32') return
+function firewallRuleExists () {
   const ruleName = 'OPS Terminal Server'
   try {
-    // Verificar si la regla ya existe
-    const check = execSync(
+    const out = execSync(
       `netsh advfirewall firewall show rule name="${ruleName}"`,
       { encoding: 'utf-8', windowsHide: true }
     )
-    if (check.includes(ruleName)) {
-      log('Firewall rule ya existe ✓')
-      return
-    }
+    return out.includes(ruleName)
   } catch (_) {
-    // No existe, crearla
+    return false
   }
+}
+
+function ensureFirewallRule () {
+  if (process.platform !== 'win32') return
+  if (firewallRuleExists()) { log('Firewall rule ya existe ✓'); return }
+
+  const ruleName  = 'OPS Terminal Server'
+  const netshCmd  = `netsh advfirewall firewall add rule name="${ruleName}" dir=in action=allow protocol=TCP localport=${PORT} profile=any`
+
+  // Intento 1: directo (funciona si la app ya corre como admin)
+  try {
+    execSync(netshCmd, { encoding: 'utf-8', windowsHide: true })
+    log('Firewall rule creada ✓')
+    return
+  } catch (_) {}
+
+  // Intento 2: elevar via PowerShell (UAC popup — solo aparece una vez)
+  // Start-Process lanza cmd elevado; -Wait espera a que termine antes de seguir.
+  log('Sin permisos admin — solicitando elevación UAC para regla de firewall...')
   try {
     execSync(
-      `netsh advfirewall firewall add rule name="${ruleName}" dir=in action=allow protocol=TCP localport=${PORT} profile=any`,
-      { encoding: 'utf-8', windowsHide: true }
+      `powershell -NoProfile -Command "Start-Process cmd -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList '/c ${netshCmd}'"`,
+      { encoding: 'utf-8', windowsHide: true, timeout: 30000 }
     )
-    log('Firewall rule creada ✓ puerto', PORT)
-  } catch (e) {
-    log('WARN: no se pudo crear regla de firewall (sin permisos admin?):', e.message)
-    // Intentar con perfil privado solamente (no requiere admin en algunos casos)
-    try {
-      execSync(
-        `netsh advfirewall firewall add rule name="${ruleName}" dir=in action=allow protocol=TCP localport=${PORT} profile=private`,
-        { encoding: 'utf-8', windowsHide: true }
-      )
-      log('Firewall rule creada (solo private) ✓')
-    } catch (_) {
-      log('WARN: firewall rule no creada — el usuario deberá permitir manualmente')
+    if (firewallRuleExists()) {
+      log('Firewall rule creada vía UAC ✓')
+    } else {
+      log('WARN: UAC cancelado o falló — acceso desde celular puede no funcionar')
     }
+  } catch (e) {
+    log('WARN: elevación UAC falló:', e.message)
   }
 }
 
 // ── Ciclo de vida ─────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   log('=== OPS Terminal iniciando ===')
-  ensureFirewallRule()
+  // Firewall en background — no bloquea el arranque si el usuario demora en el UAC
+  setImmediate(() => ensureFirewallRule())
   startServer()
   await createWindow()
 })
