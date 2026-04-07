@@ -98,24 +98,34 @@ export default function AccesoRed() {
               O copiá el link manualmente
             </p>
 
-            {allUrls.map((url, i) => (
-              <div key={url} className="flex items-center gap-2">
-                <div className="flex-1 bg-surface rounded-xl px-3 py-2.5 border border-border font-mono text-sm text-foreground truncate">
-                  {url}
-                  {i === 0 && (
-                    <span className="ml-2 text-[10px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">
-                      principal
+            {allUrls.length > 1 && (
+              <p className="text-[10px] text-on-surface-variant/60 mb-1">
+                Se detectaron múltiples interfaces — probá con la marcada como "recomendado" primero.
+              </p>
+            )}
+            {allUrls.map((url, i) => {
+              const ip = url.replace(/^https?:\/\//, '').split(':')[0];
+              const isWifi = ip.startsWith('192.168.');
+              const label = i === 0 ? (isWifi ? 'recomendado' : 'recomendado') : (isWifi ? 'WiFi' : 'cable');
+              return (
+                <div key={url} className="flex items-center gap-2">
+                  <div className="flex-1 bg-surface rounded-xl px-3 py-2.5 border border-border font-mono text-sm text-foreground truncate">
+                    {url}
+                    <span className={`ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                      i === 0 ? 'text-primary bg-primary/10' : 'text-on-surface-variant bg-surface-high'
+                    }`}>
+                      {label}
                     </span>
-                  )}
+                  </div>
+                  <button
+                    onClick={() => copy(url)}
+                    className="shrink-0 p-2.5 rounded-xl bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 transition-colors"
+                  >
+                    {copiedUrl === url ? <Check size={16} className="text-success" /> : <Copy size={16} />}
+                  </button>
                 </div>
-                <button
-                  onClick={() => copy(url)}
-                  className="shrink-0 p-2.5 rounded-xl bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 transition-colors"
-                >
-                  {copiedUrl === url ? <Check size={16} className="text-success" /> : <Copy size={16} />}
-                </button>
-              </div>
-            ))}
+              );
+            })}
 
             {copiedUrl && (
               <p className="text-xs text-success font-semibold text-center">✓ Link copiado al portapapeles</p>
@@ -127,7 +137,7 @@ export default function AccesoRed() {
             <p className="text-xs font-bold text-on-surface-variant uppercase tracking-widest">Cómo conectarse</p>
             <div className="space-y-2">
               {[
-                { icon: Wifi, text: 'Conectá el celu a la misma WiFi que esta PC' },
+                { icon: Wifi, text: 'Conectá el celu a la misma red que esta PC (WiFi del router)' },
                 { icon: Smartphone, text: 'Escaneá el QR o abrí el link en el navegador' },
                 { icon: Monitor, text: 'Ingresá con tu usuario y contraseña de OPS Terminal' },
               ].map(({ icon: Icon, text }, i) => (

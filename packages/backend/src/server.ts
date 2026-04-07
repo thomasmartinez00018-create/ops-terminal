@@ -81,19 +81,28 @@ if (IS_PROD) {
   });
 }
 
-// Obtener las IPs locales para mostrarlas al iniciar
+// Obtener las IPs locales para mostrarlas al iniciar.
+// Prioridad: 192.168.x.x (router WiFi) > 10.x.x.x > 172.16-31.x.x > resto.
+// Así cuando la PC tiene cable directo al modem Y WiFi, se muestra la IP del router
+// que comparte subred con los celulares.
 function getLocalIPs(): string[] {
   const interfaces = os.networkInterfaces();
-  const ips: string[] = [];
+  const all: string[] = [];
   for (const iface of Object.values(interfaces)) {
     if (!iface) continue;
     for (const addr of iface) {
       if (addr.family === 'IPv4' && !addr.internal) {
-        ips.push(addr.address);
+        all.push(addr.address);
       }
     }
   }
-  return ips;
+  const priority = (ip: string): number => {
+    if (ip.startsWith('192.168.')) return 0;   // router WiFi doméstico/oficina
+    if (ip.startsWith('10.'))      return 1;   // red corporativa o modem directo
+    if (/^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return 2; // rango privado B
+    return 3;                                   // otros (169.254, etc.)
+  };
+  return all.sort((a, b) => priority(a) - priority(b));
 }
 
 // ── Auto-migrate: agregar columnas/tablas faltantes en DBs existentes ────────
