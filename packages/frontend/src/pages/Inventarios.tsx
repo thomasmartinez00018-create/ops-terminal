@@ -41,6 +41,7 @@ export default function Inventarios() {
   const [allProductos, setAllProductos] = useState<any[]>([]);
   const [resumen, setResumen] = useState<any>(null);
   const [confirmCerrar, setConfirmCerrar] = useState(false);
+  const [cerrando, setCerrando] = useState(false);
   const [saving, setSaving] = useState<number | null>(null);
 
   // ─── Scanner state ───
@@ -246,12 +247,17 @@ export default function Inventarios() {
   // ─── Close inventario ───
   const cerrar = async () => {
     if (!selectedInventarioId) return;
+    setCerrando(true);
     try {
       await api.cerrarInventario(selectedInventarioId);
       setConfirmCerrar(false);
+      addToast('Inventario cerrado correctamente', 'success');
       await cargarDetalle(selectedInventarioId);
     } catch (e: any) {
-      alert(e.message);
+      addToast(e.message || 'Error al cerrar inventario', 'error');
+    } finally {
+      setCerrando(false);
+      setConfirmCerrar(false);
     }
   };
 
@@ -469,10 +475,10 @@ export default function Inventarios() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Button onClick={cerrar} className="flex-1">
-                <Lock size={16} /> Confirmar cierre
+              <Button onClick={cerrar} className="flex-1" disabled={cerrando}>
+                <Lock size={16} /> {cerrando ? 'Cerrando...' : 'Confirmar cierre'}
               </Button>
-              <Button variant="secondary" onClick={() => setConfirmCerrar(false)}>Cancelar</Button>
+              <Button variant="secondary" onClick={() => setConfirmCerrar(false)} disabled={cerrando}>Cancelar</Button>
             </div>
           </div>
         </Modal>
