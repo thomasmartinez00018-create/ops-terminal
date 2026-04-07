@@ -168,7 +168,7 @@ export default function Usuarios() {
     });
   };
 
-  const isDashItemOn = (key: string, field: 'widgets' | 'acciones', allItems: {key: string}[]) => {
+  const isDashItemOn = (key: string, field: 'widgets' | 'acciones') => {
     const list = dashConfig[field];
     if (!list) return true; // undefined = todos activos
     return list.includes(key);
@@ -382,13 +382,13 @@ export default function Usuarios() {
                   <div className="grid grid-cols-2 gap-1">
                     {DASHBOARD_WIDGETS_ADMIN.map(w => (
                       <label key={w.key} className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors ${
-                        isDashItemOn(w.key, 'widgets', DASHBOARD_WIDGETS_ADMIN)
+                        isDashItemOn(w.key, 'widgets')
                           ? 'bg-primary/10 text-foreground'
                           : 'text-on-surface-variant hover:bg-surface'
                       }`}>
                         <input
                           type="checkbox"
-                          checked={isDashItemOn(w.key, 'widgets', DASHBOARD_WIDGETS_ADMIN)}
+                          checked={isDashItemOn(w.key, 'widgets')}
                           onChange={() => toggleDashItem(w.key, 'widgets', DASHBOARD_WIDGETS_ADMIN)}
                           className="accent-[#D4AF37] w-3.5 h-3.5"
                         />
@@ -408,13 +408,13 @@ export default function Usuarios() {
                   <div className="grid grid-cols-2 gap-1">
                     {DASHBOARD_ACCIONES_SIMPLE.map(a => (
                       <label key={a.key} className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors ${
-                        isDashItemOn(a.key, 'acciones', DASHBOARD_ACCIONES_SIMPLE)
+                        isDashItemOn(a.key, 'acciones')
                           ? 'bg-primary/10 text-foreground'
                           : 'text-on-surface-variant hover:bg-surface'
                       }`}>
                         <input
                           type="checkbox"
-                          checked={isDashItemOn(a.key, 'acciones', DASHBOARD_ACCIONES_SIMPLE)}
+                          checked={isDashItemOn(a.key, 'acciones')}
                           onChange={() => toggleDashItem(a.key, 'acciones', DASHBOARD_ACCIONES_SIMPLE)}
                           className="accent-[#D4AF37] w-3.5 h-3.5"
                         />
@@ -434,13 +434,13 @@ export default function Usuarios() {
                   <div className="grid grid-cols-2 gap-1">
                     {DASHBOARD_ACCIONES_DEPOSITO.map(a => (
                       <label key={a.key} className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors ${
-                        isDashItemOn(a.key, 'acciones', DASHBOARD_ACCIONES_DEPOSITO)
+                        isDashItemOn(a.key, 'acciones')
                           ? 'bg-primary/10 text-foreground'
                           : 'text-on-surface-variant hover:bg-surface'
                       }`}>
                         <input
                           type="checkbox"
-                          checked={isDashItemOn(a.key, 'acciones', DASHBOARD_ACCIONES_DEPOSITO)}
+                          checked={isDashItemOn(a.key, 'acciones')}
                           onChange={() => toggleDashItem(a.key, 'acciones', DASHBOARD_ACCIONES_DEPOSITO)}
                           className="accent-[#D4AF37] w-3.5 h-3.5"
                         />
