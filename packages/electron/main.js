@@ -1,7 +1,8 @@
 const { app, BrowserWindow, utilityProcess, Menu, shell } = require('electron')
-const path = require('path')
-const fs   = require('fs')
-const http = require('http')
+const path  = require('path')
+const fs    = require('fs')
+const http  = require('http')
+const { execSync } = require('child_process')
 
 const isDev = !app.isPackaged
 const PORT  = 3001
@@ -212,9 +213,48 @@ async function createWindow () {
   mainWindow.on('closed', () => { mainWindow = null })
 }
 
+// ── Windows Firewall: abrir puerto automáticamente ───────────────────────────
+function ensureFirewallRule () {
+  if (process.platform !== 'win32') return
+  const ruleName = 'OPS Terminal Server'
+  try {
+    // Verificar si la regla ya existe
+    const check = execSync(
+      `netsh advfirewall firewall show rule name="${ruleName}"`,
+      { encoding: 'utf-8', windowsHide: true }
+    )
+    if (check.includes(ruleName)) {
+      log('Firewall rule ya existe ✓')
+      return
+    }
+  } catch (_) {
+    // No existe, crearla
+  }
+  try {
+    execSync(
+      `netsh advfirewall firewall add rule name="${ruleName}" dir=in action=allow protocol=TCP localport=${PORT} profile=any`,
+      { encoding: 'utf-8', windowsHide: true }
+    )
+    log('Firewall rule creada ✓ puerto', PORT)
+  } catch (e) {
+    log('WARN: no se pudo crear regla de firewall (sin permisos admin?):', e.message)
+    // Intentar con perfil privado solamente (no requiere admin en algunos casos)
+    try {
+      execSync(
+        `netsh advfirewall firewall add rule name="${ruleName}" dir=in action=allow protocol=TCP localport=${PORT} profile=private`,
+        { encoding: 'utf-8', windowsHide: true }
+      )
+      log('Firewall rule creada (solo private) ✓')
+    } catch (_) {
+      log('WARN: firewall rule no creada — el usuario deberá permitir manualmente')
+    }
+  }
+}
+
 // ── Ciclo de vida ─────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   log('=== OPS Terminal iniciando ===')
+  ensureFirewallRule()
   startServer()
   await createWindow()
 })

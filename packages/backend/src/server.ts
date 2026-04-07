@@ -60,14 +60,25 @@ app.get('/api/health', (_req, res) => {
 
 // Link de red local para compartir con el equipo
 app.get('/api/network-url', (_req, res) => {
-  const ips = getLocalIPs();
-  const ip = ips[0] ?? null;
+  const details = getLocalIPDetails();
+  const ip = details[0]?.address ?? null;
   res.json({
     ip,
     port: PORT,
     url: ip ? `http://${ip}:${PORT}` : null,
-    allUrls: ips.map(i => `http://${i}:${PORT}`),
+    allUrls: details.map(d => `http://${d.address}:${PORT}`),
+    interfaces: details.map(d => ({
+      ip: d.address,
+      name: d.iface,
+      netmask: d.netmask,
+      subnet: d.address.split('.').slice(0, 3).join('.'),
+    })),
   });
+});
+
+// Ping endpoint — para que el celular pueda verificar conectividad
+app.get('/api/ping', (_req, res) => {
+  res.json({ ok: true, ts: Date.now() });
 });
 
 // En producción: servir el frontend compilado
@@ -81,28 +92,36 @@ if (IS_PROD) {
   });
 }
 
-// Obtener las IPs locales para mostrarlas al iniciar.
+// Detalles de cada interfaz de red (IP, nombre, máscara).
+interface IPDetail {
+  address: string;
+  iface: string;
+  netmask: string;
+}
+
 // Prioridad: 192.168.x.x (router WiFi) > 10.x.x.x > 172.16-31.x.x > resto.
-// Así cuando la PC tiene cable directo al modem Y WiFi, se muestra la IP del router
-// que comparte subred con los celulares.
-function getLocalIPs(): string[] {
+function getLocalIPDetails(): IPDetail[] {
   const interfaces = os.networkInterfaces();
-  const all: string[] = [];
-  for (const iface of Object.values(interfaces)) {
+  const all: IPDetail[] = [];
+  for (const [name, iface] of Object.entries(interfaces)) {
     if (!iface) continue;
     for (const addr of iface) {
       if (addr.family === 'IPv4' && !addr.internal) {
-        all.push(addr.address);
+        all.push({ address: addr.address, iface: name, netmask: addr.netmask });
       }
     }
   }
   const priority = (ip: string): number => {
-    if (ip.startsWith('192.168.')) return 0;   // router WiFi doméstico/oficina
-    if (ip.startsWith('10.'))      return 1;   // red corporativa o modem directo
-    if (/^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return 2; // rango privado B
-    return 3;                                   // otros (169.254, etc.)
+    if (ip.startsWith('192.168.')) return 0;
+    if (ip.startsWith('10.'))      return 1;
+    if (/^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return 2;
+    return 3;
   };
-  return all.sort((a, b) => priority(a) - priority(b));
+  return all.sort((a, b) => priority(a.address) - priority(b.address));
+}
+
+function getLocalIPs(): string[] {
+  return getLocalIPDetails().map(d => d.address);
 }
 
 // ── Auto-migrate: agregar columnas/tablas faltantes en DBs existentes ────────

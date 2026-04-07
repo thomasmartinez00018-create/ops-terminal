@@ -84,7 +84,8 @@
       "createStartMenuShortcut": true,
       "shortcutName": "OPS Terminal",
       "license": "license.txt",
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "include": "installer.nsh"
     }
   },
   "devDependencies": {
