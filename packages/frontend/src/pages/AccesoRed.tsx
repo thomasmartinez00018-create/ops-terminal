@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Wifi, Copy, Check, Smartphone, Monitor, RefreshCw, AlertTriangle, Shield } from 'lucide-react';
+import { Wifi, Copy, Check, Smartphone, Monitor, RefreshCw, AlertTriangle, Shield, Wrench } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 
 interface NetworkIface {
@@ -15,6 +15,8 @@ export default function AccesoRed() {
   const [interfaces, setInterfaces] = useState<NetworkIface[]>([]);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [fixingFirewall, setFixingFirewall] = useState(false);
+  const [firewallMsg, setFirewallMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const fetchUrl = () => {
     setLoading(true);
@@ -30,6 +32,20 @@ export default function AccesoRed() {
   };
 
   useEffect(() => { fetchUrl(); }, []);
+
+  const fixFirewall = async () => {
+    setFixingFirewall(true);
+    setFirewallMsg(null);
+    try {
+      const r = await fetch('/api/fix-firewall', { method: 'POST' });
+      const d = await r.json();
+      setFirewallMsg({ ok: d.ok, text: d.message });
+    } catch {
+      setFirewallMsg({ ok: false, text: 'Error al contactar el servidor' });
+    } finally {
+      setFixingFirewall(false);
+    }
+  };
 
   const copy = (url: string) => {
     navigator.clipboard.writeText(url).then(() => {
@@ -122,14 +138,28 @@ export default function AccesoRed() {
             </div>
           )}
 
-          {/* Nota firewall */}
-          <div className="rounded-2xl border border-border bg-surface-high/50 p-3 flex gap-2.5 items-start">
-            <Shield size={14} className="text-on-surface-variant shrink-0 mt-0.5" />
-            <p className="text-[11px] text-on-surface-variant">
-              Si el celular no carga, puede ser el <strong>Firewall de Windows</strong> bloqueando la conexión.
-              Al instalar OPS Terminal se agrega la regla automáticamente, pero si no funciona:
-              Panel de Control → Firewall → Permitir app → OPS Terminal.
-            </p>
+          {/* Botón fix firewall */}
+          <div className="rounded-2xl border border-border bg-surface-high/50 p-4 space-y-3">
+            <div className="flex gap-2.5 items-start">
+              <Shield size={14} className="text-on-surface-variant shrink-0 mt-0.5" />
+              <p className="text-[11px] text-on-surface-variant">
+                Si el celular no carga, el <strong>Firewall de Windows</strong> puede estar bloqueando la conexión.
+                Tocá el botón para abrirlo automáticamente.
+              </p>
+            </div>
+            <button
+              onClick={fixFirewall}
+              disabled={fixingFirewall}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 disabled:opacity-60 transition-colors"
+            >
+              <Wrench size={15} />
+              {fixingFirewall ? 'Configurando...' : 'Arreglar acceso desde celular'}
+            </button>
+            {firewallMsg && (
+              <p className={`text-xs font-semibold text-center ${firewallMsg.ok ? 'text-success' : 'text-destructive'}`}>
+                {firewallMsg.ok ? '✓' : '✗'} {firewallMsg.text}
+              </p>
+            )}
           </div>
 
           {/* QR grande centrado */}

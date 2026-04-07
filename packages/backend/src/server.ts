@@ -81,6 +81,44 @@ app.get('/api/ping', (_req, res) => {
   res.json({ ok: true, ts: Date.now() });
 });
 
+// Abrir puerto en Windows Firewall via UAC (solo Windows)
+app.post('/api/fix-firewall', (_req, res) => {
+  if (process.platform !== 'win32') {
+    res.json({ ok: true, message: 'No aplica en este sistema operativo' });
+    return;
+  }
+  const { execSync } = require('child_process') as typeof import('child_process');
+  const ruleName = 'OPS Terminal Server';
+  const netshCmd = `netsh advfirewall firewall add rule name="${ruleName}" dir=in action=allow protocol=TCP localport=${PORT} profile=any`;
+
+  // Verificar si ya existe
+  try {
+    const check = execSync(`netsh advfirewall firewall show rule name="${ruleName}"`, { encoding: 'utf-8', windowsHide: true });
+    if (check.includes(ruleName)) {
+      res.json({ ok: true, message: 'La regla de firewall ya estaba configurada' });
+      return;
+    }
+  } catch (_) {}
+
+  // Intento directo (si corre como admin)
+  try {
+    execSync(netshCmd, { encoding: 'utf-8', windowsHide: true });
+    res.json({ ok: true, message: 'Firewall configurado correctamente' });
+    return;
+  } catch (_) {}
+
+  // Elevar via PowerShell UAC — responde inmediato, la ventana UAC aparece sola
+  try {
+    execSync(
+      `powershell -NoProfile -Command "Start-Process cmd -Verb RunAs -WindowStyle Hidden -ArgumentList '/c ${netshCmd}'"`,
+      { encoding: 'utf-8', windowsHide: true, timeout: 5000 }
+    );
+    res.json({ ok: true, message: 'Se abrió la ventana de permisos de Windows. Aceptá y listo.' });
+  } catch (_) {
+    res.json({ ok: false, message: 'No se pudo abrir la ventana de permisos' });
+  }
+});
+
 // En producción: servir el frontend compilado
 if (IS_PROD) {
   const frontendDist = path.join(__dirname, '../../frontend/dist');
