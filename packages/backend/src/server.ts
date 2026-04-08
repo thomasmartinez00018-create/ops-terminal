@@ -107,15 +107,16 @@ app.post('/api/fix-firewall', (_req, res) => {
     return;
   } catch (_) {}
 
-  // Elevar via PowerShell UAC — responde inmediato, la ventana UAC aparece sola
+  // Elevar via PowerShell UAC — sin -Wait, responde inmediato
+  // La ventana UAC aparece sola; la regla se aplica al aceptar
   try {
     execSync(
       `powershell -NoProfile -Command "Start-Process cmd -Verb RunAs -WindowStyle Hidden -ArgumentList '/c ${netshCmd}'"`,
-      { encoding: 'utf-8', windowsHide: true, timeout: 5000 }
+      { encoding: 'utf-8', windowsHide: true, timeout: 8000 }
     );
-    res.json({ ok: true, message: 'Se abrió la ventana de permisos de Windows. Aceptá y listo.' });
+    res.json({ ok: true, message: 'Aceptá el permiso de Windows que apareció en pantalla. Luego probá el celular.' });
   } catch (_) {
-    res.json({ ok: false, message: 'No se pudo abrir la ventana de permisos' });
+    res.json({ ok: false, message: 'No se pudo abrir la ventana de permisos de Windows' });
   }
 });
 

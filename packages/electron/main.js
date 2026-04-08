@@ -231,31 +231,16 @@ function ensureFirewallRule () {
   if (process.platform !== 'win32') return
   if (firewallRuleExists()) { log('Firewall rule ya existe ✓'); return }
 
-  const ruleName  = 'OPS Terminal Server'
-  const netshCmd  = `netsh advfirewall firewall add rule name="${ruleName}" dir=in action=allow protocol=TCP localport=${PORT} profile=any`
+  const ruleName = 'OPS Terminal Server'
+  const netshCmd = `netsh advfirewall firewall add rule name="${ruleName}" dir=in action=allow protocol=TCP localport=${PORT} profile=any`
 
-  // Intento 1: directo (funciona si la app ya corre como admin)
+  // Solo intento directo (no bloquea si ya corre como admin)
+  // Si falla por permisos, el usuario usa el botón en la app → UAC on-demand
   try {
-    execSync(netshCmd, { encoding: 'utf-8', windowsHide: true })
+    execSync(netshCmd, { encoding: 'utf-8', windowsHide: true, timeout: 3000 })
     log('Firewall rule creada ✓')
-    return
-  } catch (_) {}
-
-  // Intento 2: elevar via PowerShell (UAC popup — solo aparece una vez)
-  // Start-Process lanza cmd elevado; -Wait espera a que termine antes de seguir.
-  log('Sin permisos admin — solicitando elevación UAC para regla de firewall...')
-  try {
-    execSync(
-      `powershell -NoProfile -Command "Start-Process cmd -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList '/c ${netshCmd}'"`,
-      { encoding: 'utf-8', windowsHide: true, timeout: 30000 }
-    )
-    if (firewallRuleExists()) {
-      log('Firewall rule creada vía UAC ✓')
-    } else {
-      log('WARN: UAC cancelado o falló — acceso desde celular puede no funcionar')
-    }
-  } catch (e) {
-    log('WARN: elevación UAC falló:', e.message)
+  } catch (_) {
+    log('INFO: firewall rule no creada en startup (sin admin) — disponible vía botón en la app')
   }
 }
 
