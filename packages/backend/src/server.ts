@@ -82,7 +82,16 @@ app.get('/api/ping', (_req, res) => {
 });
 
 // Abrir puerto en Windows Firewall via UAC (solo Windows)
-app.post('/api/fix-firewall', (_req, res) => {
+// Fix: restringir a conexiones locales — este endpoint ejecuta comandos con
+// elevación; no debería ser accesible desde la red
+app.post('/api/fix-firewall', (req, res) => {
+  const remote = req.socket.remoteAddress ?? '';
+  const isLocal = remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1';
+  if (!isLocal) {
+    res.status(403).json({ ok: false, message: 'Solo disponible desde la PC servidor' });
+    return;
+  }
+
   if (process.platform !== 'win32') {
     res.json({ ok: true, message: 'No aplica en este sistema operativo' });
     return;
@@ -91,12 +100,20 @@ app.post('/api/fix-firewall', (_req, res) => {
   const ruleName = 'OPS Terminal Server';
   const netshCmd = `netsh advfirewall firewall add rule name="${ruleName}" dir=in action=allow protocol=TCP localport=${PORT} profile=any`;
 
-  // Verificar si ya existe
+  // Fix: si ya existe pero con otro puerto, borrarla antes de crear la nueva
   try {
     const check = execSync(`netsh advfirewall firewall show rule name="${ruleName}"`, { encoding: 'utf-8', windowsHide: true });
     if (check.includes(ruleName)) {
-      res.json({ ok: true, message: 'La regla de firewall ya estaba configurada' });
-      return;
+      const portMatch = check.match(/(?:LocalPort|Puerto local)\s*:\s*(\d+)/i);
+      const existingPort = portMatch ? Number(portMatch[1]) : null;
+      if (existingPort === Number(PORT)) {
+        res.json({ ok: true, message: 'La regla de firewall ya estaba configurada correctamente' });
+        return;
+      }
+      // Port mismatch — intentar borrar
+      try {
+        execSync(`netsh advfirewall firewall delete rule name="${ruleName}"`, { encoding: 'utf-8', windowsHide: true });
+      } catch (_) {}
     }
   } catch (_) {}
 
@@ -117,6 +134,34 @@ app.post('/api/fix-firewall', (_req, res) => {
     res.json({ ok: true, message: 'Aceptá el permiso de Windows que apareció en pantalla. Luego probá el celular.' });
   } catch (_) {
     res.json({ ok: false, message: 'No se pudo abrir la ventana de permisos de Windows' });
+  }
+});
+
+// Verificar estado actual del firewall (para el botón de AccesoRed)
+app.get('/api/firewall-status', (req, res) => {
+  const remote = req.socket.remoteAddress ?? '';
+  const isLocal = remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1';
+  if (!isLocal) {
+    res.status(403).json({ ok: false });
+    return;
+  }
+  if (process.platform !== 'win32') {
+    res.json({ configured: true, platform: process.platform });
+    return;
+  }
+  const { execSync } = require('child_process') as typeof import('child_process');
+  try {
+    const check = execSync(`netsh advfirewall firewall show rule name="OPS Terminal Server"`, { encoding: 'utf-8', windowsHide: true, timeout: 2000 });
+    const hasRule = check.includes('OPS Terminal Server');
+    const portMatch = check.match(/(?:LocalPort|Puerto local)\s*:\s*(\d+)/i);
+    const rulePort = portMatch ? Number(portMatch[1]) : null;
+    res.json({
+      configured: hasRule && rulePort === Number(PORT),
+      rulePort,
+      currentPort: Number(PORT),
+    });
+  } catch (_) {
+    res.json({ configured: false });
   }
 });
 
@@ -286,7 +331,7 @@ autoMigrate().then(() => {
   console.log('DB schema verificado');
 });
 
-app.listen(Number(PORT), '0.0.0.0', () => {
+const server = app.listen(Number(PORT), '0.0.0.0', () => {
   const ips = getLocalIPs();
   console.log('');
   console.log('╔══════════════════════════════════════════════════╗');
@@ -304,4 +349,14 @@ app.listen(Number(PORT), '0.0.0.0', () => {
   console.log('║  Abrí la URL en cualquier dispositivo de la red  ║');
   console.log('╚══════════════════════════════════════════════════╝');
   console.log('');
+});
+
+// Fix: detectar EADDRINUSE y otros errores del listener — sin esto, el proceso
+// quedaba colgado y el frontend mostraba "backend no respondió" genérico.
+server.on('error', (err: any) => {
+  console.error('SERVER LISTEN ERROR:', err.code || err.message);
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Puerto ${PORT} ya está en uso. Electron debería elegir otro puerto libre.`);
+  }
+  process.exit(1);
 });

@@ -40,6 +40,24 @@ export default function AccesoRed() {
       const r = await fetch('/api/fix-firewall', { method: 'POST' });
       const d = await r.json();
       setFirewallMsg({ ok: d.ok, text: d.message });
+
+      // Fix: verificar después de 3s que la regla quedó aplicada
+      // (el usuario puede haber cancelado el UAC)
+      if (d.ok) {
+        setTimeout(async () => {
+          try {
+            const status = await fetch('/api/firewall-status').then(r => r.json());
+            if (status.configured) {
+              setFirewallMsg({ ok: true, text: '✓ Firewall configurado. Probá el celular ahora.' });
+            } else {
+              setFirewallMsg({
+                ok: false,
+                text: 'La regla de firewall no quedó aplicada. Si cancelaste el permiso de Windows, volvé a intentar.',
+              });
+            }
+          } catch {}
+        }, 3000);
+      }
     } catch {
       setFirewallMsg({ ok: false, text: 'Error al contactar el servidor' });
     } finally {

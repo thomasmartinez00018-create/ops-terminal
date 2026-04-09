@@ -129,20 +129,34 @@ function startServer () {
 
   serverProcess = utilityProcess.fork(script, [], { env, stdio: 'pipe' })
 
+  // Fix: cap serverLogs para evitar memory leak (restaurante abierto 12+ horas)
+  const MAX_LOG_LINES = 500
+  function pushLog (line) {
+    serverLogs.push(line)
+    if (serverLogs.length > MAX_LOG_LINES) {
+      serverLogs.splice(0, serverLogs.length - MAX_LOG_LINES)
+    }
+  }
+
   if (serverProcess.stdout) {
     serverProcess.stdout.on('data', d => {
       const msg = d.toString()
       log('[server]', msg.trim())
-      serverLogs.push(msg)
+      pushLog(msg)
     })
   }
   if (serverProcess.stderr) {
     serverProcess.stderr.on('data', d => {
       const msg = d.toString()
       log('[server:err]', msg.trim())
-      serverLogs.push('[ERR] ' + msg)
+      pushLog('[ERR] ' + msg)
     })
   }
+  // Fix: capturar errores del fork (spawn failures, etc.) que antes pasaban silenciosos
+  serverProcess.on('error', err => {
+    log('[server] ERROR en fork:', err.message)
+    pushLog('[FORK ERR] ' + err.message)
+  })
   serverProcess.on('exit', code => {
     serverExitCode = code
     log('[server] salió con código', code)
@@ -150,7 +164,9 @@ function startServer () {
 }
 
 // ── Esperar que el servidor responda ──────────────────────────────────────────
-function waitForServer (maxMs = 30000) {
+// Fix: reducido de 30s a 20s — si en 20s no respondió, algo anda mal y conviene
+// mostrar error.html rápido en vez de dejar al usuario mirando loading.html
+function waitForServer (maxMs = 20000) {
   const start = Date.now()
   return new Promise(resolve => {
     function check () {
@@ -215,7 +231,14 @@ async function createWindow () {
 
   if (ready) {
     log('backend listo ✓')
-    mainWindow.loadURL(`http://localhost:${PORT}`)
+    // Fix: 127.0.0.1 explícito — en Windows 'localhost' puede resolver a ::1 (IPv6)
+    // pero Express escucha solo en IPv4 (0.0.0.0)
+    mainWindow.loadURL(`http://127.0.0.1:${PORT}`).catch(err => {
+      log('ERROR: loadURL falló:', err.message)
+      mainWindow.loadFile(path.join(__dirname, 'error.html'), {
+        query: { data: new URLSearchParams({ logPath, detail: 'loadURL falló: ' + err.message }).toString() },
+      })
+    })
   } else {
     log('ERROR: timeout — backend no respondió')
     // Pasar el log al error.html via query param
@@ -238,31 +261,54 @@ async function createWindow () {
 }
 
 // ── Windows Firewall: abrir puerto automáticamente ───────────────────────────
-function firewallRuleExists () {
-  const ruleName = 'OPS Terminal Server'
+const FIREWALL_RULE_NAME = 'OPS Terminal Server'
+
+// Retorna el puerto configurado en la regla existente, o null si no existe.
+function firewallRulePort () {
   try {
     const out = execSync(
-      `netsh advfirewall firewall show rule name="${ruleName}"`,
-      { encoding: 'utf-8', windowsHide: true }
+      `netsh advfirewall firewall show rule name="${FIREWALL_RULE_NAME}"`,
+      { encoding: 'utf-8', windowsHide: true, timeout: 3000 }
     )
-    return out.includes(ruleName)
+    if (!out.includes(FIREWALL_RULE_NAME)) return null
+    // Buscar línea "LocalPort: 3001" (puede variar por idioma de Windows)
+    const match = out.match(/(?:LocalPort|Puerto local)\s*:\s*(\d+)/i)
+    return match ? Number(match[1]) : null
   } catch (_) {
-    return false
+    return null
   }
 }
 
 function ensureFirewallRule () {
   if (process.platform !== 'win32') return
-  if (firewallRuleExists()) { log('Firewall rule ya existe ✓'); return }
 
-  const ruleName = 'OPS Terminal Server'
-  const netshCmd = `netsh advfirewall firewall add rule name="${ruleName}" dir=in action=allow protocol=TCP localport=${PORT} profile=any`
+  const existingPort = firewallRulePort()
+  if (existingPort === PORT) {
+    log('Firewall rule ya existe para puerto', PORT, '✓')
+    return
+  }
+
+  // Fix: si la regla existe pero apunta a otro puerto (ej. usuario cambió de 3001
+  // a 3002 porque 3001 estaba ocupado), borrarla antes de crear la nueva.
+  if (existingPort !== null) {
+    log('Firewall rule apunta a puerto', existingPort, '≠', PORT, '— recreando')
+    try {
+      execSync(
+        `netsh advfirewall firewall delete rule name="${FIREWALL_RULE_NAME}"`,
+        { encoding: 'utf-8', windowsHide: true, timeout: 3000 }
+      )
+    } catch (_) {
+      log('INFO: no se pudo borrar regla anterior (sin admin)')
+    }
+  }
+
+  const netshCmd = `netsh advfirewall firewall add rule name="${FIREWALL_RULE_NAME}" dir=in action=allow protocol=TCP localport=${PORT} profile=any`
 
   // Solo intento directo (no bloquea si ya corre como admin)
   // Si falla por permisos, el usuario usa el botón en la app → UAC on-demand
   try {
     execSync(netshCmd, { encoding: 'utf-8', windowsHide: true, timeout: 3000 })
-    log('Firewall rule creada ✓')
+    log('Firewall rule creada para puerto', PORT, '✓')
   } catch (_) {
     log('INFO: firewall rule no creada en startup (sin admin) — disponible vía botón en la app')
   }
