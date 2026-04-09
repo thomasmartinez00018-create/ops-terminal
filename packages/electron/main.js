@@ -5,7 +5,9 @@ const http  = require('http')
 const { execSync } = require('child_process')
 
 const isDev = !app.isPackaged
-const PORT  = 3001
+// Puerto activo — se determina al arrancar (fallback si 3001 está ocupado)
+let PORT = 3001
+const PORT_CANDIDATES = [3001, 3002, 3003, 3004, 8080, 8081]
 
 // ── Log file (para debug en producción) ───────────────────────────────────────
 const logPath = path.join(app.getPath('userData'), 'ops-terminal.log')
@@ -44,6 +46,24 @@ if (!fs.existsSync(dbPath)) {
     log('WARN: template.db no encontrado, creando DB vacía')
     fs.writeFileSync(dbPath, '')
   }
+}
+
+// ── Encontrar puerto libre ─────────────────────────────────────────────────────
+function findFreePort () {
+  return new Promise((resolve, reject) => {
+    let i = 0
+    function tryNext () {
+      if (i >= PORT_CANDIDATES.length) return reject(new Error('No free port found'))
+      const p = PORT_CANDIDATES[i++]
+      const server = http.createServer()
+      server.once('error', tryNext)
+      server.once('listening', () => {
+        server.close(() => resolve(p))
+      })
+      server.listen(p, '127.0.0.1')
+    }
+    tryNext()
+  })
 }
 
 // ── Iniciar backend (utilityProcess) ──────────────────────────────────────────
@@ -134,10 +154,14 @@ function waitForServer (maxMs = 30000) {
   const start = Date.now()
   return new Promise(resolve => {
     function check () {
-      http.get(`http://localhost:${PORT}/api/health`, res => {
+      // Fix: usar 127.0.0.1 explícito — en Windows 'localhost' puede resolver
+      // a ::1 (IPv6) pero Express escucha solo en IPv4 (0.0.0.0)
+      const req = http.get(`http://127.0.0.1:${PORT}/api/health`, res => {
         if (res.statusCode === 200) return resolve(true)
         retry()
-      }).on('error', retry)
+      })
+      req.on('error', retry)
+      req.setTimeout(1500, () => { req.destroy(); retry() })
       function retry () {
         if (Date.now() - start > maxMs) return resolve(false)
         setTimeout(check, 500)
@@ -247,9 +271,28 @@ function ensureFirewallRule () {
 // ── Ciclo de vida ─────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   log('=== OPS Terminal iniciando ===')
-  // Firewall en background — no bloquea el arranque si el usuario demora en el UAC
+
+  // Detectar puerto libre antes de arrancar el backend
+  try {
+    PORT = await findFreePort()
+    log('Puerto seleccionado:', PORT)
+  } catch (e) {
+    log('WARN: no se encontró puerto libre, usando 3001 por defecto')
+    PORT = 3001
+  }
+
+  // Firewall en background — no bloquea el arranque
   setImmediate(() => ensureFirewallRule())
   startServer()
+
+  // Timeout de seguridad: si la ventana no es visible en 12s, mostrarla igual
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isVisible()) {
+      log('WARN: timeout de visibilidad — forzando show()')
+      mainWindow.show()
+    }
+  }, 12000)
+
   await createWindow()
 })
 

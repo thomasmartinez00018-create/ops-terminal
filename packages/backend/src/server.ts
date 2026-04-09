@@ -138,25 +138,48 @@ interface IPDetail {
   netmask: string;
 }
 
-// Prioridad: 192.168.x.x (router WiFi) > 10.x.x.x > 172.16-31.x.x > resto.
+// Scoring de interfaz: premia WiFi/Ethernet reales, penaliza virtuales.
+// Fix Node 18+: family puede ser número 4 en vez de string 'IPv4'.
+function ifaceScore(name: string, addr: string): number {
+  let score = 0;
+  const n = name.toLowerCase();
+
+  // Penalizar adaptadores virtuales / VM
+  const virtual = ['vethernet', 'vmware', 'virtualbox', 'vbox', 'docker', 'wsl',
+                   'loopback', 'bluetooth', 'teredo', 'isatap', '6to4'];
+  if (virtual.some(k => n.includes(k))) score -= 50;
+
+  // Penalizar subnets típicas de VMs
+  if (addr.startsWith('192.168.56.') || addr.startsWith('192.168.99.') ||
+      addr.startsWith('169.254.'))    score -= 40;
+
+  // Premiar interfaces reales
+  if (n.includes('wi-fi') || n.includes('wlan') || n.includes('wireless')) score += 20;
+  if (n.includes('ethernet') || n.includes('eth') || n.includes('local area')) score += 15;
+
+  // Premiar subnets privadas reales (RFC 1918)
+  if (addr.startsWith('192.168.')) score += 10;
+  if (addr.startsWith('10.'))      score += 8;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(addr)) score += 6; // válido, muchos ISPs argentinos
+
+  return score;
+}
+
 function getLocalIPDetails(): IPDetail[] {
   const interfaces = os.networkInterfaces();
   const all: IPDetail[] = [];
   for (const [name, iface] of Object.entries(interfaces)) {
     if (!iface) continue;
     for (const addr of iface) {
-      if (addr.family === 'IPv4' && !addr.internal) {
+      // Fix Node 18+: family puede ser 4 (número) o 'IPv4' (string)
+      const isIPv4 = (addr.family === 'IPv4' || (addr.family as unknown) === 4);
+      if (isIPv4 && !addr.internal) {
         all.push({ address: addr.address, iface: name, netmask: addr.netmask });
       }
     }
   }
-  const priority = (ip: string): number => {
-    if (ip.startsWith('192.168.')) return 0;
-    if (ip.startsWith('10.'))      return 1;
-    if (/^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return 2;
-    return 3;
-  };
-  return all.sort((a, b) => priority(a.address) - priority(b.address));
+  // Ordenar por score descendente (mayor score = más real)
+  return all.sort((a, b) => ifaceScore(b.iface, b.address) - ifaceScore(a.iface, a.address));
 }
 
 function getLocalIPs(): string[] {
