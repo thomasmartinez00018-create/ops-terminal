@@ -36,9 +36,10 @@ RUN apt-get update && \
     addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 ops
 
-# Copiar solo lo necesario para correr
+# Copiar solo lo necesario para correr.
+# npm workspaces hoistea TODO a /app/node_modules (no existe
+# /app/packages/backend/node_modules — por eso no lo copiamos).
 COPY --from=deps  /app/node_modules ./node_modules
-COPY --from=deps  /app/packages/backend/node_modules ./packages/backend/node_modules
 COPY --from=build /app/packages/backend/dist ./packages/backend/dist
 COPY packages/backend/package.json ./packages/backend/package.json
 COPY packages/backend/prisma ./packages/backend/prisma
