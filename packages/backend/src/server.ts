@@ -245,6 +245,25 @@ async function autoMigrate() {
       `ALTER TABLE recetas ADD COLUMN unidad_producida TEXT`,
     ];
 
+    // Crear tabla tareas si no existe (módulo de checklist operativo)
+    // Schema debe coincidir EXACTAMENTE con model Tarea de schema.prisma
+    await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS tareas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      titulo TEXT NOT NULL,
+      descripcion TEXT,
+      tipo TEXT NOT NULL DEFAULT 'general',
+      estado TEXT NOT NULL DEFAULT 'pendiente',
+      prioridad TEXT NOT NULL DEFAULT 'normal',
+      fecha TEXT NOT NULL,
+      hora_limite TEXT,
+      creado_por_id INTEGER NOT NULL REFERENCES usuarios(id),
+      asignado_a_id INTEGER NOT NULL REFERENCES usuarios(id),
+      completada_at DATETIME,
+      observacion TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
     // Crear tabla elaboracion_lotes si no existe
     await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS elaboracion_lotes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -327,36 +346,47 @@ async function autoMigrate() {
   }
 }
 
-autoMigrate().then(() => {
-  console.log('DB schema verificado');
-});
+// Fix root cause: autoMigrate DEBE completar antes de aceptar requests.
+// Antes era fire-and-forget → race condition: el server atendía queries
+// a columnas/tablas que Prisma esperaba pero que aún no habían sido
+// migradas → errores P2021/P2022 constantes en los clientes en producción.
+async function start() {
+  console.log('Verificando schema de DB...');
+  await autoMigrate();
+  console.log('DB schema verificado ✓');
 
-const server = app.listen(Number(PORT), '0.0.0.0', () => {
-  const ips = getLocalIPs();
-  console.log('');
-  console.log('╔══════════════════════════════════════════════════╗');
-  console.log('║          OPS TERMINAL — Stock Gastro             ║');
-  console.log('╠══════════════════════════════════════════════════╣');
-  console.log(`║  Local:    http://localhost:${PORT}                ║`);
-  if (ips.length > 0) {
-    ips.forEach(ip => {
-      const url = `http://${ip}:${PORT}`;
-      const padded = url.padEnd(42);
-      console.log(`║  Red:      ${padded}  ║`);
-    });
-  }
-  console.log('╠══════════════════════════════════════════════════╣');
-  console.log('║  Abrí la URL en cualquier dispositivo de la red  ║');
-  console.log('╚══════════════════════════════════════════════════╝');
-  console.log('');
-});
+  const server = app.listen(Number(PORT), '0.0.0.0', () => {
+    const ips = getLocalIPs();
+    console.log('');
+    console.log('╔══════════════════════════════════════════════════╗');
+    console.log('║          OPS TERMINAL — Stock Gastro             ║');
+    console.log('╠══════════════════════════════════════════════════╣');
+    console.log(`║  Local:    http://localhost:${PORT}                ║`);
+    if (ips.length > 0) {
+      ips.forEach(ip => {
+        const url = `http://${ip}:${PORT}`;
+        const padded = url.padEnd(42);
+        console.log(`║  Red:      ${padded}  ║`);
+      });
+    }
+    console.log('╠══════════════════════════════════════════════════╣');
+    console.log('║  Abrí la URL en cualquier dispositivo de la red  ║');
+    console.log('╚══════════════════════════════════════════════════╝');
+    console.log('');
+  });
 
-// Fix: detectar EADDRINUSE y otros errores del listener — sin esto, el proceso
-// quedaba colgado y el frontend mostraba "backend no respondió" genérico.
-server.on('error', (err: any) => {
-  console.error('SERVER LISTEN ERROR:', err.code || err.message);
-  if (err.code === 'EADDRINUSE') {
-    console.error(`Puerto ${PORT} ya está en uso. Electron debería elegir otro puerto libre.`);
-  }
+  // Fix: detectar EADDRINUSE y otros errores del listener
+  server.on('error', (err: any) => {
+    console.error('SERVER LISTEN ERROR:', err.code || err.message);
+    if (err.code === 'EADDRINUSE') {
+      console.error(`Puerto ${PORT} ya está en uso. Electron debería elegir otro puerto libre.`);
+    }
+    process.exit(1);
+  });
+}
+
+start().catch(err => {
+  console.error('FATAL: no se pudo iniciar el server:', err?.message || err);
+  console.error(err?.stack || '');
   process.exit(1);
 });

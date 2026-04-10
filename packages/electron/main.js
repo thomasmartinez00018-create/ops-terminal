@@ -164,12 +164,19 @@ function startServer () {
 }
 
 // ── Esperar que el servidor responda ──────────────────────────────────────────
-// Fix: reducido de 30s a 20s — si en 20s no respondió, algo anda mal y conviene
-// mostrar error.html rápido en vez de dejar al usuario mirando loading.html
-function waitForServer (maxMs = 20000) {
+// Fix: reducido de 30s a 25s — subido de 20s a 25s para dar margen a autoMigrate
+// en equipos lentos con muchas migraciones pendientes. Si el fork muere antes,
+// igual aborta inmediatamente (ver chequeo de serverExitCode).
+function waitForServer (maxMs = 25000) {
   const start = Date.now()
   return new Promise(resolve => {
     function check () {
+      // Fix: si el backend ya murió (exit code ≠ null), no tiene sentido seguir
+      // polleando — abortamos de inmediato para mostrar error.html rápido.
+      if (serverExitCode !== null) {
+        log('waitForServer: backend exited con código', serverExitCode, '— abortando espera')
+        return resolve(false)
+      }
       // Fix: usar 127.0.0.1 explícito — en Windows 'localhost' puede resolver
       // a ::1 (IPv6) pero Express escucha solo en IPv4 (0.0.0.0)
       const req = http.get(`http://127.0.0.1:${PORT}/api/health`, res => {
@@ -179,6 +186,7 @@ function waitForServer (maxMs = 20000) {
       req.on('error', retry)
       req.setTimeout(1500, () => { req.destroy(); retry() })
       function retry () {
+        if (serverExitCode !== null) return resolve(false)
         if (Date.now() - start > maxMs) return resolve(false)
         setTimeout(check, 500)
       }
