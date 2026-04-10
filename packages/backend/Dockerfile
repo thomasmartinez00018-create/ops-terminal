@@ -57,10 +57,8 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "require('http').get('http://127.0.0.1:3001/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
 
 # Entrypoint: correr migrate deploy ANTES de arrancar el server.
-# - `prisma migrate deploy` es idempotente y seguro en CI/CD
-# - Si la DB está vacía, aplica todas las migraciones en orden
-# - Si ya está al día, no hace nada
-# - Si hay migraciones pendientes, las aplica
-# - Si una migración falla, exit code ≠ 0 → Railway retry
-WORKDIR /app/packages/backend
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]
+# Usamos el binario de prisma directo (no npx) porque en monorepos con
+# workspaces npx a veces descarga una copia fresca en vez de usar la
+# hoisteada, lo que hace que tarde mucho o falle.
+WORKDIR /app
+CMD ["sh", "-c", "echo '[entrypoint] corriendo prisma migrate deploy...' && node /app/node_modules/prisma/build/index.js migrate deploy --schema=/app/packages/backend/prisma/schema.prisma && echo '[entrypoint] migraciones ok, arrancando server...' && node /app/packages/backend/dist/server.js"]

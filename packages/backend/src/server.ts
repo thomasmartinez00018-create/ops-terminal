@@ -130,10 +130,18 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 // corre en el Dockerfile ENTRYPOINT antes de que Node arranque, así que
 // cuando llegamos acá el schema ya está al día.
 async function start() {
-  const server = app.listen(Number(PORT), () => {
+  console.log('[server] boot — NODE_ENV=', process.env.NODE_ENV);
+  console.log('[server] PORT=', PORT);
+  console.log('[server] DATABASE_URL set?', !!process.env.DATABASE_URL);
+  console.log('[server] JWT_SECRET set?', !!process.env.JWT_SECRET);
+  console.log('[server] ALLOWED_ORIGINS=', allowedOrigins.length ? allowedOrigins.join(',') : '(permisivo)');
+
+  // Bindear explícitamente a 0.0.0.0 para Railway (el default de Express ya
+  // lo hace, pero ser explícito ayuda si alguna vez cambian el comportamiento).
+  const server = app.listen(Number(PORT), '0.0.0.0', () => {
     console.log('');
     console.log('┌─────────────────────────────────────────────────┐');
-    console.log(`│  OPS Terminal API — escuchando en puerto ${PORT}   `);
+    console.log(`│  OPS Terminal API — escuchando en 0.0.0.0:${PORT}   `);
     console.log(`│  NODE_ENV=${process.env.NODE_ENV || 'development'}`);
     console.log(`│  CORS origins: ${allowedOrigins.length ? allowedOrigins.join(', ') : '(permisivo dev)'}`);
     console.log('└─────────────────────────────────────────────────┘');
