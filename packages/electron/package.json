@@ -1,8 +1,13 @@
 {
   "name": "ops-terminal",
   "version": "1.0.0",
-  "description": "OPS Terminal - Sistema de Stock Gastronómico",
-  "author": "Más Orgánicos",
+  "description": "OPS Terminal — Sistema de gestión de stock para restaurantes y proveedores gastronómicos",
+  "author": {
+    "name": "Más Orgánicos",
+    "email": "contacto@masorganicos.com.ar"
+  },
+  "homepage": "https://github.com/thomasmartinez00018-create/ops-terminal",
+  "license": "UNLICENSED",
   "repository": {
     "type": "git",
     "url": "https://github.com/thomasmartinez00018-create/ops-terminal.git"
@@ -17,7 +22,7 @@
     "publish": null,
     "appId": "com.masorganicos.opsterminal",
     "productName": "OPS Terminal",
-    "copyright": "Más Orgánicos",
+    "copyright": "Copyright © 2026 Más Orgánicos. Todos los derechos reservados.",
     "directories": {
       "output": "../../dist-electron"
     },
@@ -75,17 +80,28 @@
     "win": {
       "target": [
         { "target": "nsis", "arch": ["x64"] }
-      ]
+      ],
+      "publisherName": "Más Orgánicos",
+      "verifyUpdateCodeSignature": false,
+      "requestedExecutionLevel": "asInvoker",
+      "signingHashAlgorithms": ["sha256"],
+      "artifactName": "OPS-Terminal-Setup-${version}.${ext}",
+      "legalTrademarks": "OPS Terminal™",
+      "fileAssociations": []
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "OPS Terminal",
+      "uninstallDisplayName": "OPS Terminal — Más Orgánicos",
       "license": "license.txt",
       "deleteAppDataOnUninstall": false,
-      "include": "installer.nsh"
+      "packElevateHelper": false,
+      "include": "installer.nsh",
+      "warningsAsErrors": false
     }
   },
   "devDependencies": {
