@@ -373,6 +373,18 @@ async function start() {
     console.log('║  Abrí la URL en cualquier dispositivo de la red  ║');
     console.log('╚══════════════════════════════════════════════════╝');
     console.log('');
+
+    // Fix de raíz: avisar al main process vía IPC que listen() está listo.
+    // Evita polling HTTP, firewall, resolución localhost, WASM blocking, etc.
+    // Electron utilityProcess.fork expone `process.parentPort.postMessage`.
+    try {
+      const parent = (process as any).parentPort;
+      if (parent && typeof parent.postMessage === 'function') {
+        parent.postMessage({ type: 'ready', port: Number(PORT) });
+      }
+    } catch (_) {
+      // fallback silencioso — main también tiene waitForServer como red de seguridad
+    }
   });
 
   // Fix: detectar EADDRINUSE y otros errores del listener

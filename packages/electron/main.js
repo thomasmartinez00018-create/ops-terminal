@@ -70,6 +70,31 @@ function findFreePort () {
 let serverProcess  = null
 let serverExitCode = null
 const serverLogs   = []
+// Fix de raíz: handshake IPC con el fork. El backend manda postMessage({type:'ready'})
+// desde el callback de app.listen(). Esto reemplaza el polling HTTP y elimina
+// toda la clase de bugs donde "el server está listening pero waitForServer no lo ve"
+// (firewall local, localhost → ::1, WASM blocking, etc.)
+let serverReady = false
+let serverReadyResolvers = []
+function waitForIpcReady (maxMs) {
+  if (serverReady) return Promise.resolve(true)
+  return new Promise(resolve => {
+    const timer = setTimeout(() => resolve(false), maxMs)
+    serverReadyResolvers.push(ok => { clearTimeout(timer); resolve(ok) })
+  })
+}
+function markServerReady () {
+  if (serverReady) return
+  serverReady = true
+  const list = serverReadyResolvers.slice()
+  serverReadyResolvers = []
+  for (const r of list) { try { r(true) } catch (_) {} }
+}
+function markServerDead () {
+  const list = serverReadyResolvers.slice()
+  serverReadyResolvers = []
+  for (const r of list) { try { r(false) } catch (_) {} }
+}
 
 function startServer () {
   const script = isDev
@@ -127,7 +152,17 @@ function startServer () {
     }
   }
 
+  serverReady = false
   serverProcess = utilityProcess.fork(script, [], { env, stdio: 'pipe' })
+
+  // Fix de raíz: escuchar mensajes IPC del backend. El fork manda
+  // { type: 'ready', port } desde el callback de app.listen().
+  serverProcess.on('message', msg => {
+    if (msg && msg.type === 'ready') {
+      log('[server] IPC ready recibido ← puerto', msg.port)
+      markServerReady()
+    }
+  })
 
   // Fix: cap serverLogs para evitar memory leak (restaurante abierto 12+ horas)
   const MAX_LOG_LINES = 500
@@ -160,6 +195,7 @@ function startServer () {
   serverProcess.on('exit', code => {
     serverExitCode = code
     log('[server] salió con código', code)
+    markServerDead()
   })
 }
 
@@ -235,7 +271,16 @@ async function createWindow () {
   mainWindow.once('ready-to-show', () => mainWindow.show())
 
   log('esperando backend en puerto', PORT)
-  const ready = await waitForServer()
+
+  // Fix de raíz: esperar PRIMERO el handshake IPC del fork. Si el backend
+  // manda postMessage('ready'), es señal confiable de que listen() disparó.
+  // Si IPC no llega en 25s (ej. binario viejo sin el handshake) caemos al
+  // polling HTTP de waitForServer como fallback.
+  let ready = await waitForIpcReady(25000)
+  if (!ready && serverExitCode === null) {
+    log('IPC ready no recibido en 25s — cayendo a polling HTTP (fallback)')
+    ready = await waitForServer(10000)
+  }
 
   if (ready) {
     log('backend listo ✓')
