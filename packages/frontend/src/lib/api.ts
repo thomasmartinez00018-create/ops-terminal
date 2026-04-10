@@ -1,10 +1,45 @@
-const API_BASE = '/api';
+// ── API base URL ────────────────────────────────────────────────────────────
+// - En prod cloud: VITE_API_URL=https://ops-terminal-backend.up.railway.app
+// - En dev local: VITE_API_URL=http://localhost:3001 (o sin setear → /api)
+// - En Electron cloud shell: VITE_API_URL baked al build time
+// Si VITE_API_URL no existe, usamos /api relativo (modo legacy single-server).
+const RAW_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+const API_BASE = RAW_BASE ? `${RAW_BASE}/api` : '/api';
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
+// ── Token storage ───────────────────────────────────────────────────────────
+const TOKEN_KEY = 'ops_token';
+
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setToken(token: string | null) {
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+  else localStorage.removeItem(TOKEN_KEY);
+}
+
+// ── Evento global para 401 → forzar logout/redirect ─────────────────────────
+// Listener se registra en AuthContext. Así cualquier 401 desde cualquier
+// ruta de la app cierra sesión y vuelve al login automáticamente.
+export const AUTH_ERROR_EVENT = 'ops:auth-error';
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = getToken();
+  const headers = new Headers(options.headers);
+  if (!headers.has('Content-Type') && options.body) {
+    headers.set('Content-Type', 'application/json');
+  }
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  if (res.status === 401) {
+    // Token inválido o expirado → disparar evento global
+    setToken(null);
+    window.dispatchEvent(new CustomEvent(AUTH_ERROR_EVENT));
+    const err = await res.json().catch(() => ({ error: 'Sesión expirada' }));
+    throw new Error(err.error || 'Sesión expirada');
+  }
   if (!res.ok) {
     const error = await res.json().catch(() => ({ error: 'Error de servidor' }));
     throw new Error(error.error || `Error ${res.status}`);
@@ -20,7 +55,11 @@ export const api = {
   // Auth
   getUsuariosLogin: () => request<any[]>('/auth/usuarios'),
   login: (codigo: string, pin: string) =>
-    request<any>('/auth/login', { method: 'POST', body: JSON.stringify({ codigo, pin }) }),
+    request<{ token: string; user: any }>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ codigo, pin }),
+    }),
+  me: () => request<any>('/auth/me'),
 
   // Productos
   getProductos: (params?: Record<string, string>) => request<any[]>(`/productos${qs(params)}`),

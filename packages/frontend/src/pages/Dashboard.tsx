@@ -9,7 +9,7 @@ import {
   TrendingDown, TrendingUp, ClipboardCheck, Activity,
   ShoppingCart, ScanBarcode, Bell, ChevronRight, Plus,
   Utensils, Wine, ClipboardList, Users, ArrowUpRight, ArrowDownRight, Minus,
-  Wifi, ScanLine
+  ScanLine
 } from 'lucide-react';
 
 const tipoBadge: Record<string, 'success' | 'info' | 'danger' | 'warning' | 'default'> = {
@@ -377,7 +377,6 @@ function DashboardAdmin() {
   const [ocPendientes, setOcPendientes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [quickOpen, setQuickOpen] = useState(false);
-  const [networkUrl, setNetworkUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -386,13 +385,6 @@ function DashboardAdmin() {
       api.getOrdenesCompra({ activas: 'true' }).then(setOcPendientes).catch(() => {});
     }
   }, [user?.id]);
-
-  useEffect(() => {
-    fetch('/api/network-url')
-      .then(r => r.json())
-      .then(d => setNetworkUrl(d.url))
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     api.getDashboardStats()
@@ -473,21 +465,6 @@ function DashboardAdmin() {
           <Plus size={16} /> Registrar
         </button>
       </div>
-
-      {/* ── Acceso WiFi — botón compacto ──────────────────────────────────── */}
-      {showWidget('wifi') && networkUrl && (
-        <button
-          onClick={() => navigate('/acceso-red')}
-          className="w-full mb-6 flex items-center gap-3 px-4 py-3 rounded-xl border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors text-left"
-        >
-          <Wifi size={16} className="text-primary shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-bold text-primary">Acceso desde celular / tablet</p>
-            <p className="text-xs text-on-surface-variant font-mono truncate">{networkUrl}</p>
-          </div>
-          <ChevronRight size={14} className="text-primary shrink-0" />
-        </button>
-      )}
 
       {/* ── Tareas + responsabilidades pendientes (unificado) ─────────── */}
       {showWidget('tareas') && <MisTareasPendientes />}

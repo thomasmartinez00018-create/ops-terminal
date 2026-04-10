@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+.env.*
+*.log
+.DS_Store
+prisma/data/*.db
+prisma/data/*.db-journal
+coverage
+.git

@@ -18,7 +18,6 @@ import Vincular from './pages/Vincular';
 import OrdenesCompra from './pages/OrdenesCompra';
 import ControlScanner from './pages/ControlScanner';
 import Discrepancias from './pages/Discrepancias';
-import AccesoRed from './pages/AccesoRed';
 import EscanerFactura from './pages/EscanerFactura';
 import Tareas from './pages/Tareas';
 import Elaboraciones from './pages/Elaboraciones';
@@ -60,7 +59,6 @@ function AppRoutes() {
         <Route path="/discrepancias" element={<Discrepancias />} />
         <Route path="/reportes" element={<Reportes />} />
         <Route path="/vincular" element={<Vincular />} />
-        <Route path="/acceso-red" element={<AccesoRed />} />
         <Route path="/escanear-factura" element={<EscanerFactura />} />
         <Route path="/facturas" element={<Facturas />} />
         <Route path="/cuentas-por-pagar" element={<CuentasPorPagar />} />

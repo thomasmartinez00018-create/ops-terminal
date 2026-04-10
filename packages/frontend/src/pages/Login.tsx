@@ -22,8 +22,8 @@ export default function Login() {
     if (!selected) return;
     setError('');
     try {
-      const user = await api.login(selected.codigo, pin);
-      login(user);
+      const res = await api.login(selected.codigo, pin);
+      login(res.token, res.user);
     } catch (e: any) {
       setError(e.message);
     }

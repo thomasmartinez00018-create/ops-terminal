@@ -1,6 +1,6 @@
 {
   "name": "ops-terminal",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "OPS Terminal — Sistema de gestión de stock para restaurantes y proveedores gastronómicos",
   "author": {
     "name": "Más Orgánicos",
@@ -31,51 +31,8 @@
       "loading.html",
       "error.html",
       "license.txt",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "../backend/dist",
-        "to": "backend/dist",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "../backend/node_modules",
-        "to": "backend/node_modules",
-        "filter": [
-          "**/*",
-          "!prisma/libquery_engine-darwin*",
-          "!prisma/libquery_engine-linux*",
-          "!@prisma/fetch-engine/**",
-          "!@prisma/debug/**",
-          "!@prisma/get-platform/**",
-          "!@prisma/config/**",
-          "!**/.cache/**",
-          "!**/test/**",
-          "!**/tests/**",
-          "!**/__tests__/**",
-          "!**/*.md",
-          "!**/.git/**"
-        ]
-      },
-      {
-        "from": "../frontend/dist",
-        "to": "frontend/dist",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "../backend/node_modules/.prisma",
-        "to": "backend/node_modules/.prisma",
-        "filter": ["**/*"]
-      },
-      {
-        "from": "../backend/prisma/data/stock-gastro.db",
-        "to": "template.db"
-      }
+      "package.json",
+      "assets/**/*"
     ],
     "win": {
       "target": [

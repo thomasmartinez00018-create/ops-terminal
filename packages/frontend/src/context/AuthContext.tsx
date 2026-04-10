@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { api, setToken, getToken, AUTH_ERROR_EVENT } from '../lib/api';
 
 export interface DashboardConfig {
   tipo?: 'auto' | 'admin' | 'simple' | 'deposito';
@@ -19,7 +20,8 @@ export interface User {
 
 interface AuthContextType {
   user: User | null;
-  login: (user: User) => void;
+  loading: boolean;
+  login: (token: string, user: User) => void;
   logout: () => void;
   tienePermiso: (clave: string) => boolean;
 }
@@ -31,17 +33,72 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const saved = localStorage.getItem('user');
     return saved ? JSON.parse(saved) : null;
   });
+  // Si hay token guardado, arranca "loading" para revalidarlo antes de
+  // mostrar la app (evita flash de contenido con un token vencido)
+  const [loading, setLoading] = useState<boolean>(() => !!getToken());
+
+  // ── Validar token al arrancar ──────────────────────────────────────────
+  // Si hay token guardado, pegamos a /api/auth/me para refrescar los datos
+  // del usuario y detectar tokens expirados antes de navegar.
+  useEffect(() => {
+    const token = getToken();
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+    api.me()
+      .then(u => {
+        const userData: User = {
+          id: u.id,
+          codigo: u.codigo,
+          nombre: u.nombre,
+          rol: u.rol,
+          permisos: u.permisos || [],
+          configuracion: u.configuracion ?? null,
+          depositoDefectoId: u.depositoDefectoId ?? null,
+          depositoDefectoNombre: u.depositoDefectoNombre ?? null,
+        };
+        setUser(userData);
+        localStorage.setItem('user', JSON.stringify(userData));
+      })
+      .catch(() => {
+        // Token inválido o servidor caído → cerrar sesión
+        setToken(null);
+        setUser(null);
+        localStorage.removeItem('user');
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  // ── Listener global de 401 ─────────────────────────────────────────────
+  // api.ts dispara este evento cuando cualquier request recibe 401.
+  // Acá cerramos sesión para forzar re-login.
+  useEffect(() => {
+    const handler = () => {
+      setUser(null);
+      localStorage.removeItem('user');
+    };
+    window.addEventListener(AUTH_ERROR_EVENT, handler);
+    return () => window.removeEventListener(AUTH_ERROR_EVENT, handler);
+  }, []);
 
   useEffect(() => {
     if (user) {
       localStorage.setItem('user', JSON.stringify(user));
-    } else {
-      localStorage.removeItem('user');
     }
   }, [user]);
 
-  const login = (userData: User) => setUser(userData);
-  const logout = () => setUser(null);
+  const login = (token: string, userData: User) => {
+    setToken(token);
+    setUser(userData);
+    localStorage.setItem('user', JSON.stringify(userData));
+  };
+
+  const logout = () => {
+    setToken(null);
+    setUser(null);
+    localStorage.removeItem('user');
+  };
 
   const tienePermiso = (clave: string): boolean => {
     if (!user) return false;
@@ -51,7 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, tienePermiso }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, tienePermiso }}>
       {children}
     </AuthContext.Provider>
   );
