@@ -81,12 +81,13 @@
       "target": [
         { "target": "nsis", "arch": ["x64"] }
       ],
+      "icon": "assets/icon.ico",
       "publisherName": "Más Orgánicos",
       "verifyUpdateCodeSignature": false,
       "requestedExecutionLevel": "asInvoker",
       "signingHashAlgorithms": ["sha256"],
       "artifactName": "OPS-Terminal-Setup-${version}.${ext}",
-      "legalTrademarks": "OPS Terminal™",
+      "legalTrademarks": "OPS Terminal",
       "fileAssociations": []
     },
     "nsis": {
@@ -96,12 +97,29 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "OPS Terminal",
-      "uninstallDisplayName": "OPS Terminal — Más Orgánicos",
+      "uninstallDisplayName": "OPS Terminal - Mas Organicos",
       "license": "license.txt",
       "deleteAppDataOnUninstall": false,
       "packElevateHelper": false,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico",
       "include": "installer.nsh",
       "warningsAsErrors": false
+    },
+    "asar": true,
+    "compression": "maximum",
+    "removePackageScripts": true,
+    "removePackageKeywords": true,
+    "buildDependenciesFromSource": false,
+    "nodeGypRebuild": false,
+    "npmRebuild": false,
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "onlyLoadAppFromAsar": true
     }
   },
   "devDependencies": {

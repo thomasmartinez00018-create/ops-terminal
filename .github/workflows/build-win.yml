@@ -93,17 +93,113 @@ jobs:
           ls packages/backend/dist/server.js || { echo "FATAL: server.js not found"; exit 1; }
           echo "=== frontend dist ==="
           ls packages/frontend/dist/index.html || { echo "FATAL: frontend not built"; exit 1; }
-          echo "All assets verified ✓"
+          echo "=== icon ==="
+          ls -la packages/electron/assets/icon.ico || { echo "FATAL: icon.ico missing"; exit 1; }
+          echo "All assets verified OK"
+
+      # ── Firma de código ──────────────────────────────────────────────────
+      # Prioridad:
+      # 1. Si existe WINDOWS_PFX_BASE64 + WINDOWS_PFX_PASSWORD → firma real
+      #    (el secret es un cert .pfx codificado en base64).
+      # 2. Si no, genera self-signed on-the-fly: no da reputación SmartScreen
+      #    pero sí da hash Authenticode válido + firma el binario, lo cual
+      #    SATISFACE a muchos heurísticos de AV que flaggean "unsigned exe".
+      # 3. Cuando contratés Azure Trusted Signing, se activa el bloque de
+      #    abajo automáticamente por el secret AZURE_TENANT_ID.
+      - name: Prepare signing certificate
+        id: cert
+        shell: pwsh
+        run: |
+          if ($env:WINDOWS_PFX_BASE64) {
+            Write-Host "Usando certificado provisto via secret WINDOWS_PFX_BASE64"
+            [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", [Convert]::FromBase64String($env:WINDOWS_PFX_BASE64))
+            echo "CSC_LINK=$env:RUNNER_TEMP\cert.pfx" >> $env:GITHUB_ENV
+            echo "CSC_KEY_PASSWORD=$env:WINDOWS_PFX_PASSWORD" >> $env:GITHUB_ENV
+            echo "mode=real" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Host "Generando certificado self-signed temporal (mejora heurísticas AV pero NO da SmartScreen reputation)"
+            $pwd = ConvertTo-SecureString -String "ops-temporary-cert" -Force -AsPlainText
+            $cert = New-SelfSignedCertificate `
+              -Subject "CN=Mas Organicos, O=Mas Organicos, C=AR" `
+              -Type CodeSigningCert `
+              -KeyAlgorithm RSA `
+              -KeyLength 2048 `
+              -HashAlgorithm SHA256 `
+              -NotAfter (Get-Date).AddYears(3) `
+              -CertStoreLocation "Cert:\CurrentUser\My"
+            $pfxPath = "$env:RUNNER_TEMP\selfsigned.pfx"
+            Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $pwd | Out-Null
+            echo "CSC_LINK=$pfxPath" >> $env:GITHUB_ENV
+            echo "CSC_KEY_PASSWORD=ops-temporary-cert" >> $env:GITHUB_ENV
+            echo "mode=selfsigned" >> $env:GITHUB_OUTPUT
+            Write-Host "Self-signed cert generado en $pfxPath"
+          }
+        env:
+          WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
+          WINDOWS_PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
 
       - name: Build Windows .exe
         run: npm run build:win
         working-directory: packages/electron
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ env.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ env.CSC_KEY_PASSWORD }}
+          # Si un self-signed falla el timestamping, no abortar el build
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      # ── Azure Trusted Signing (activación futura) ────────────────────────
+      # Cuando tengas una cuenta de Azure Trusted Signing contratada (~10 USD/mes):
+      # 1. Crear Azure AD App Registration con rol "Trusted Signing Certificate Profile Signer"
+      # 2. Agregar estos secrets al repo:
+      #    AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET,
+      #    AZURE_ENDPOINT, AZURE_CODE_SIGNING_NAME, AZURE_CERT_PROFILE_NAME
+      # 3. Descomentar el step de abajo — ejecuta post-build, re-firma con Azure
+      # - name: Sign with Azure Trusted Signing
+      #   if: env.AZURE_TENANT_ID != ''
+      #   uses: azure/trusted-signing-action@v0.5.1
+      #   with:
+      #     azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+      #     azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+      #     azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+      #     endpoint: ${{ secrets.AZURE_ENDPOINT }}
+      #     trusted-signing-account-name: ${{ secrets.AZURE_CODE_SIGNING_NAME }}
+      #     certificate-profile-name: ${{ secrets.AZURE_CERT_PROFILE_NAME }}
+      #     files-folder: dist-electron
+      #     files-folder-filter: exe
+      #     file-digest: SHA256
+      #     timestamp-rfc3161: http://timestamp.acs.microsoft.com
+      #     timestamp-digest: SHA256
 
       - name: List build output
         shell: bash
-        run: ls -la dist-electron/ 2>/dev/null || echo "Checking packages/electron output" && ls -la packages/electron/dist/ 2>/dev/null || echo "No output found"
+        run: |
+          ls -la dist-electron/ 2>/dev/null || echo "Checking packages/electron output"
+          ls -la packages/electron/dist/ 2>/dev/null || echo "No output found"
+
+      - name: Compute installer hash (SHA256)
+        shell: bash
+        run: |
+          cd dist-electron
+          for f in *.exe; do
+            echo "=== $f ==="
+            sha256sum "$f"
+            echo "Size: $(du -h "$f" | cut -f1)"
+          done
+
+      - name: Verify signature on installer
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $exe = Get-ChildItem -Path dist-electron -Filter *.exe | Select-Object -First 1
+          if ($exe) {
+            Write-Host "Verificando firma de $($exe.Name)"
+            $sig = Get-AuthenticodeSignature $exe.FullName
+            Write-Host "  Status: $($sig.Status)"
+            Write-Host "  Signer: $($sig.SignerCertificate.Subject)"
+            Write-Host "  Hash algorithm: $($sig.HashAlgorithm)"
+            Write-Host "  Timestamp: $($sig.TimeStamperCertificate.Subject)"
+          }
 
       - name: Upload .exe as artifact
         uses: actions/upload-artifact@v4
@@ -118,5 +214,21 @@ jobs:
         with:
           files: dist-electron/*.exe
           generate_release_notes: true
+          body: |
+            ## OPS Terminal ${{ github.ref_name }}
+
+            **Hash SHA256 del instalador:** (ver logs del workflow para verificación)
+
+            ### Instalación en Windows
+            1. Descargá `OPS-Terminal-Setup-*.exe`
+            2. Ejecutá el instalador (si Windows SmartScreen advierte, click en "More info" → "Run anyway")
+            3. Seguí el asistente — no requiere permisos de administrador
+            4. Abrí **OPS Terminal** desde el acceso directo del escritorio
+
+            ### Nota sobre antivirus
+            Firmado con certificado self-signed (modo: ${{ steps.cert.outputs.mode }}).
+            Algunos antivirus pueden mostrar advertencias de "publisher desconocido"
+            hasta que acumulemos reputación con SmartScreen o firmemos con un cert
+            comercial (Azure Trusted Signing está pre-configurado).
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
