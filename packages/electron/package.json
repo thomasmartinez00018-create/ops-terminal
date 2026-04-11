@@ -43,9 +43,7 @@
       "verifyUpdateCodeSignature": false,
       "requestedExecutionLevel": "asInvoker",
       "signingHashAlgorithms": ["sha256"],
-      "artifactName": "OPS-Terminal-Setup-${version}.${ext}",
-      "legalTrademarks": "OPS Terminal",
-      "fileAssociations": []
+      "artifactName": "OPS-Terminal-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
