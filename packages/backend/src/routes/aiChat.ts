@@ -10,11 +10,11 @@ Nunca inventés funcionalidades que no existen. Si no sabés algo específico de
 Usá bullet points cuando sea útil para listar pasos.`;
 
 // Gemini model name — centralizado para evitar duplicación.
-// gemini-3.1-flash-lite: modelo mas nuevo, estable y economico. Reemplaza
+// gemini-3.1-flash-lite-preview: modelo mas nuevo, estable y economico. Reemplaza
 // al 2.5-flash-lite y al preview 3.1-flash-lite-preview que ya estan
 // deprecados. Si en algun momento devuelve 404 por deprecacion, bajar
 // al anterior estable que haya disponible.
-const GEMINI_MODEL = 'gemini-3.1-flash-lite';
+const GEMINI_MODEL = 'gemini-3.1-flash-lite-preview';
 
 // POST /api/ai/chat
 router.post('/chat', async (req: Request, res: Response) => {
