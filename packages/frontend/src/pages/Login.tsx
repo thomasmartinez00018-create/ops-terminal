@@ -8,7 +8,7 @@ export default function Login() {
   // logueado todavía). Usa SessionContext para flipear al stage 3 una vez
   // que el staff login tenga éxito. AuthContext se monta después,
   // consumiendo el user desde localStorage y refrescando vía /api/auth/me.
-  const { onStaffLogin, workspace, backToWorkspaces, logout: cuentaLogout, cuenta, workspaces } = useSession();
+  const { onStaffLogin, workspace, backToWorkspaces, logout: cuentaLogout, cuenta } = useSession();
   const [usuarios, setUsuarios] = useState<any[]>([]);
   const [selected, setSelected] = useState<any | null>(null);
   const [pin, setPin] = useState('');
