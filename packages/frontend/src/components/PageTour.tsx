@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, ArrowRight } from 'lucide-react';
 import {
   ClipboardList, ArrowRightLeft, ShoppingCart, ScanBarcode,
@@ -221,7 +222,9 @@ function TourModal({ steps, onDone }: { steps: TourStep[]; onDone: () => void })
   const esFinal = step === steps.length - 1;
   const single = steps.length === 1;
 
-  return (
+  // Portal a document.body: evitamos que el `.page-enter` (que tiene
+  // transform) cree un containing block y rompa el fixed inset-0.
+  return createPortal(
     <div className={`fixed inset-0 z-[250] flex items-end sm:items-center justify-center transition-opacity duration-300 ${saliendo ? 'opacity-0' : 'opacity-100'}`}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={cerrar} />
       <div className="relative w-full sm:max-w-sm mx-4 sm:mx-auto bg-surface rounded-t-3xl sm:rounded-2xl border border-border shadow-2xl overflow-hidden">
@@ -280,6 +283,7 @@ function TourModal({ steps, onDone }: { steps: TourStep[]; onDone: () => void })
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
