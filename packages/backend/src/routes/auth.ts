@@ -1,13 +1,30 @@
 import { Router, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import prisma from '../lib/prisma';
-import { hashPin, verifyPin, isBcryptHash, signToken, requireAuth } from '../lib/auth';
+import {
+  hashPin,
+  verifyPin,
+  isBcryptHash,
+  signToken,
+  requireOrg,
+  requireStaff,
+  TokenOrg,
+  TokenStaff,
+} from '../lib/auth';
 
 const router = Router();
 
-// ── Rate limit: 10 intentos cada 15 min por IP ──────────────────────────────
-// Protege contra brute-force del PIN. En cloud la app está expuesta a internet
-// entero, así que esto es crítico.
+// ============================================================================
+// STAFF AUTH — nivel 2/3 (código + PIN dentro de un workspace)
+// ============================================================================
+// Estas rutas requieren un token stage 2 (cuenta con workspace elegido).
+// El staff login es SECUNDARIO al login de cuenta — primero elegiste la org,
+// ahora elegís qué usuario staff usás para operar.
+//
+// El filtro automático del Prisma extension garantiza que solo se listen /
+// loguen usuarios de la misma organizacionId del token.
+// ============================================================================
+
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -16,8 +33,28 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// POST /api/auth/login — devuelve { token, user }
-router.post('/login', loginLimiter, async (req: Request, res: Response) => {
+// ─── GET /api/auth/usuarios ─────────────────────────────────────────────────
+// Lista usuarios activos de la org actual para mostrar en el selector tipo
+// POS. NO expone PINs. Requiere stage 2 (org elegida).
+router.get('/usuarios', requireOrg, async (_req: Request, res: Response) => {
+  try {
+    const usuarios = await prisma.usuario.findMany({
+      where: { activo: true },
+      select: { id: true, codigo: true, nombre: true, rol: true },
+      orderBy: { nombre: 'asc' },
+    });
+    res.json(usuarios);
+  } catch (error) {
+    console.error('[auth/usuarios]', error);
+    res.status(500).json({ error: 'Error al obtener usuarios' });
+  }
+});
+
+// ─── POST /api/auth/login ───────────────────────────────────────────────────
+// Staff login con código + PIN. El Prisma extension filtra automáticamente
+// por organizacionId (del stage 2 token), así que usuarios de otras orgs
+// con el mismo código no colisionan.
+router.post('/login', loginLimiter, requireOrg, async (req: Request, res: Response) => {
   try {
     const { codigo, pin } = req.body;
     if (!codigo || typeof codigo !== 'string') {
@@ -25,17 +62,19 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
       return;
     }
 
-    const usuario = await prisma.usuario.findUnique({
-      where: { codigo },
+    const tokenOrg = req.token as TokenOrg;
+
+    const usuario = await prisma.usuario.findFirst({
+      where: { codigo, activo: true },
       include: { depositoDefecto: { select: { id: true, nombre: true } } },
     });
 
-    if (!usuario || !usuario.activo) {
+    if (!usuario) {
       res.status(401).json({ error: 'Usuario o PIN incorrectos' });
       return;
     }
 
-    // Verificar PIN (si el usuario tiene uno configurado)
+    // Verificar PIN
     if (usuario.pin) {
       if (typeof pin !== 'string' || pin.length === 0) {
         res.status(401).json({ error: 'Usuario o PIN incorrectos' });
@@ -46,9 +85,7 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
         res.status(401).json({ error: 'Usuario o PIN incorrectos' });
         return;
       }
-      // Migración transparente: si el PIN estaba en texto plano (legacy de
-      // antes del hardening), lo re-hasheamos ahora que sabemos el valor
-      // correcto. El usuario no nota nada.
+      // Migración transparente a bcrypt
       if (!isBcryptHash(usuario.pin)) {
         try {
           const newHash = await hashPin(pin);
@@ -71,8 +108,13 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
       try { configuracion = JSON.parse(usuario.configuracion); } catch {}
     }
 
-    // Firmar JWT
+    // Firmar STAGE 3 — staff autenticado
     const token = signToken({
+      kind: 'staff',
+      cuentaId: tokenOrg.cuentaId,
+      email: tokenOrg.email,
+      organizacionId: tokenOrg.organizacionId,
+      rolCuenta: tokenOrg.rolCuenta,
       uid: usuario.id,
       codigo: usuario.codigo,
       rol: usuario.rol,
@@ -97,12 +139,13 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/auth/me — validar token y refrescar datos del usuario
-router.get('/me', requireAuth, async (req: Request, res: Response) => {
+// ─── GET /api/auth/me ───────────────────────────────────────────────────────
+// Valida stage 3 (staff) y refresca datos del usuario staff.
+router.get('/me', requireStaff, async (req: Request, res: Response) => {
   try {
-    const uid = req.user!.uid;
-    const usuario = await prisma.usuario.findUnique({
-      where: { id: uid },
+    const tokenStaff = req.token as TokenStaff;
+    const usuario = await prisma.usuario.findFirst({
+      where: { id: tokenStaff.uid },
       include: { depositoDefecto: { select: { id: true, nombre: true } } },
     });
     if (!usuario || !usuario.activo) {
@@ -130,22 +173,8 @@ router.get('/me', requireAuth, async (req: Request, res: Response) => {
       depositoDefectoNombre: usuario.depositoDefecto?.nombre ?? null,
     });
   } catch (error) {
+    console.error('[auth/me]', error);
     res.status(500).json({ error: 'Error al validar sesión' });
-  }
-});
-
-// GET /api/auth/usuarios — lista de usuarios activos para el selector del login.
-// Esta ruta NO requiere auth (es pre-login) pero solo devuelve datos públicos
-// básicos (nombre, código, rol). Sin PINs, sin emails, sin nada sensible.
-router.get('/usuarios', async (_req: Request, res: Response) => {
-  try {
-    const usuarios = await prisma.usuario.findMany({
-      where: { activo: true },
-      select: { id: true, codigo: true, nombre: true, rol: true },
-    });
-    res.json(usuarios);
-  } catch (error) {
-    res.status(500).json({ error: 'Error al obtener usuarios' });
   }
 });
 

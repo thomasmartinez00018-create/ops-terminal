@@ -1,5 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useSession } from '../../context/SessionContext';
 import {
   LayoutDashboard, Package, Warehouse, Users, ArrowRightLeft,
   ClipboardList, LogOut, Menu, X, ChefHat, Truck, ClipboardCheck,
@@ -92,6 +93,7 @@ const navGroups: NavGroup[] = [
 // ── Sidebar ──────────────────────────────────────────────────
 export default function Sidebar() {
   const { user, logout, tienePermiso } = useAuth();
+  const { workspace, workspaces, backToWorkspaces } = useSession();
   const location = useLocation();
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -230,6 +232,22 @@ export default function Sidebar() {
 
       {/* ── User footer ───────────────────────────────────── */}
       <div className="p-3 pb-20 lg:pb-3 border-t border-border shrink-0">
+        {workspace && (
+          <div className="px-3 py-2 mb-1 rounded-lg bg-surface-high">
+            <p className="text-[9px] font-bold text-on-surface-variant uppercase tracking-widest">
+              Workspace
+            </p>
+            <p className="text-xs font-bold text-foreground truncate">{workspace.nombre}</p>
+            {workspaces.length > 1 && (
+              <button
+                onClick={backToWorkspaces}
+                className="text-[9px] font-bold text-primary uppercase tracking-wider hover:underline mt-0.5"
+              >
+                Cambiar workspace
+              </button>
+            )}
+          </div>
+        )}
         <div className="px-3 py-2">
           <p className="text-xs font-bold text-foreground">{user?.nombre}</p>
           <p className="text-[10px] text-on-surface-variant font-medium uppercase tracking-widest">{user?.rol}</p>

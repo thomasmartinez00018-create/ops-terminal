@@ -23,6 +23,29 @@ export function setToken(token: string | null) {
 // ruta de la app cierra sesión y vuelve al login automáticamente.
 export const AUTH_ERROR_EVENT = 'ops:auth-error';
 
+// ── JWT stage decoder (client-side, sin firma) ──────────────────────────────
+// El backend firma tokens en 3 "stages": cuenta, org, staff. Lo usamos para
+// decidir qué pantalla mostrar al cargar la app (login / workspaces / staff
+// login / main). NO es una validación de seguridad — solo es para routing.
+// La validación real la hace el backend en cada request.
+export type TokenStage = 'none' | 'cuenta' | 'org' | 'staff';
+export function getTokenStage(): TokenStage {
+  const token = getToken();
+  if (!token) return 'none';
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    if (payload.kind === 'cuenta') return 'cuenta';
+    if (payload.kind === 'org') return 'org';
+    if (payload.kind === 'staff') return 'staff';
+  } catch {}
+  return 'none';
+}
+export function decodeToken(): any | null {
+  const token = getToken();
+  if (!token) return null;
+  try { return JSON.parse(atob(token.split('.')[1])); } catch { return null; }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
   const headers = new Headers(options.headers);
@@ -51,8 +74,59 @@ function qs(params?: Record<string, string>) {
   return params ? '?' + new URLSearchParams(params).toString() : '';
 }
 
+// ── Tipos expuestos para el frontend ────────────────────────────────────────
+export interface CuentaInfo {
+  id: number;
+  email: string;
+  nombre: string;
+  emailVerificado?: boolean;
+}
+export interface WorkspaceInfo {
+  id: number;
+  nombre: string;
+  slug: string;
+  plan: string;
+  estadoSuscripcion: string;
+  rol: string;
+}
+export interface CuentaLoginResponse {
+  token: string;
+  cuenta: CuentaInfo;
+  workspaces: WorkspaceInfo[];
+  claimedDefault?: boolean;
+}
+export interface SwitchWorkspaceResponse {
+  token: string;
+  workspace: WorkspaceInfo;
+}
+
 export const api = {
-  // Auth
+  // ── Cuenta (stage 1) — signup, login, workspaces, switch ──────────────────
+  cuentaSignup: (data: { email: string; password: string; nombre: string; orgNombre?: string }) =>
+    request<CuentaLoginResponse>('/cuenta/signup', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  cuentaLogin: (email: string, password: string) =>
+    request<CuentaLoginResponse>('/cuenta/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
+  cuentaMe: () => request<CuentaInfo>('/cuenta/me'),
+  listWorkspaces: () => request<WorkspaceInfo[]>('/cuenta/workspaces'),
+  createWorkspace: (nombre: string) =>
+    request<WorkspaceInfo>('/cuenta/workspaces', {
+      method: 'POST',
+      body: JSON.stringify({ nombre }),
+    }),
+  switchWorkspace: (organizacionId: number) =>
+    request<SwitchWorkspaceResponse>('/cuenta/switch', {
+      method: 'POST',
+      body: JSON.stringify({ organizacionId }),
+    }),
+  cuentaLogout: () => request<{ ok: boolean }>('/cuenta/logout', { method: 'POST' }),
+
+  // ── Auth staff (stage 2 → 3) — selector de usuario + PIN ──────────────────
   getUsuariosLogin: () => request<any[]>('/auth/usuarios'),
   login: (codigo: string, pin: string) =>
     request<{ token: string; user: any }>('/auth/login', {

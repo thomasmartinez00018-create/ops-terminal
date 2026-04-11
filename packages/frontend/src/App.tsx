@@ -1,7 +1,10 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import { AuthProvider } from './context/AuthContext';
+import { SessionProvider, useSession } from './context/SessionContext';
 import { ToastProvider } from './context/ToastContext';
 import AppLayout from './components/layout/AppLayout';
+import AuthGate from './pages/AuthGate';
+import SelectWorkspace from './pages/SelectWorkspace';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Productos from './pages/Productos';
@@ -26,59 +29,84 @@ import Facturas from './pages/Facturas';
 import CuentasPorPagar from './pages/CuentasPorPagar';
 import ReportesCostos from './pages/ReportesCostos';
 
-function PrivateRoute({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
-  return user ? <>{children}</> : <Navigate to="/login" />;
-}
+// ============================================================================
+// SessionGate — decide qué pantalla mostrar según el stage del token
+// ============================================================================
+// Este es el "router" de más alto nivel, por encima de react-router. La
+// app principal solo se monta cuando el usuario completó los 3 stages:
+//   stage 'none'   → <AuthGate>       (login cuenta o signup)
+//   stage 'cuenta' → <SelectWorkspace>
+//   stage 'org'    → <Login>          (staff PIN login)
+//   stage 'staff'  → <AuthProvider>+app routes
+// ============================================================================
+function SessionGate() {
+  const { stage, loading } = useSession();
 
-function AppRoutes() {
-  const { user } = useAuth();
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <p className="text-on-surface-variant font-semibold">Conectando...</p>
+      </div>
+    );
+  }
 
+  if (stage === 'none') {
+    return <AuthGate />;
+  }
+
+  if (stage === 'cuenta') {
+    return <SelectWorkspace />;
+  }
+
+  if (stage === 'org') {
+    // Stage 2: workspace elegido pero staff sin loguear. El componente
+    // Login.tsx pega a /api/auth/usuarios (que pide stage 2) y luego hace
+    // /api/auth/login (que devuelve stage 3).
+    return <Login />;
+  }
+
+  // stage === 'staff' → app principal
   return (
-    <Routes>
-      <Route path="/login" element={user ? <Navigate to="/" /> : <Login />} />
-      <Route
-        element={
-          <PrivateRoute>
-            <AppLayout />
-          </PrivateRoute>
-        }
-      >
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/productos" element={<Productos />} />
-        <Route path="/depositos" element={<Depositos />} />
-        <Route path="/usuarios" element={<Usuarios />} />
-        <Route path="/movimientos" element={<Movimientos />} />
-        <Route path="/stock" element={<Stock />} />
-        <Route path="/recetas" element={<Recetas />} />
-        <Route path="/proveedores" element={<Proveedores />} />
-        <Route path="/inventarios" element={<Inventarios />} />
-        <Route path="/importar" element={<Importar />} />
-        <Route path="/ordenes-compra" element={<OrdenesCompra />} />
-        <Route path="/control-scanner" element={<ControlScanner />} />
-        <Route path="/discrepancias" element={<Discrepancias />} />
-        <Route path="/reportes" element={<Reportes />} />
-        <Route path="/vincular" element={<Vincular />} />
-        <Route path="/escanear-factura" element={<EscanerFactura />} />
-        <Route path="/facturas" element={<Facturas />} />
-        <Route path="/cuentas-por-pagar" element={<CuentasPorPagar />} />
-        <Route path="/reportes-costos" element={<ReportesCostos />} />
-        <Route path="/configuracion" element={<Configuracion />} />
-        <Route path="/tareas" element={<Tareas />} />
-        <Route path="/elaboraciones" element={<Elaboraciones />} />
-      </Route>
-    </Routes>
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route element={<AppLayout />}>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/productos" element={<Productos />} />
+            <Route path="/depositos" element={<Depositos />} />
+            <Route path="/usuarios" element={<Usuarios />} />
+            <Route path="/movimientos" element={<Movimientos />} />
+            <Route path="/stock" element={<Stock />} />
+            <Route path="/recetas" element={<Recetas />} />
+            <Route path="/proveedores" element={<Proveedores />} />
+            <Route path="/inventarios" element={<Inventarios />} />
+            <Route path="/importar" element={<Importar />} />
+            <Route path="/ordenes-compra" element={<OrdenesCompra />} />
+            <Route path="/control-scanner" element={<ControlScanner />} />
+            <Route path="/discrepancias" element={<Discrepancias />} />
+            <Route path="/reportes" element={<Reportes />} />
+            <Route path="/vincular" element={<Vincular />} />
+            <Route path="/escanear-factura" element={<EscanerFactura />} />
+            <Route path="/facturas" element={<Facturas />} />
+            <Route path="/cuentas-por-pagar" element={<CuentasPorPagar />} />
+            <Route path="/reportes-costos" element={<ReportesCostos />} />
+            <Route path="/configuracion" element={<Configuracion />} />
+            <Route path="/tareas" element={<Tareas />} />
+            <Route path="/elaboraciones" element={<Elaboraciones />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <ToastProvider>
-          <AppRoutes />
-        </ToastProvider>
-      </AuthProvider>
-    </BrowserRouter>
+    <SessionProvider>
+      <ToastProvider>
+        <SessionGate />
+      </ToastProvider>
+    </SessionProvider>
   );
 }

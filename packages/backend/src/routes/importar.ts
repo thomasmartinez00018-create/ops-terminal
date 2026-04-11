@@ -66,10 +66,10 @@ router.post('/csv', async (req: Request, res: Response) => {
           const clean: any = {};
           for (const k of allowed) { if (data[k] !== undefined) clean[k] = data[k]; }
 
-          const existing = await prisma.producto.findUnique({ where: { codigo: clean.codigo } });
+          const existing = await prisma.producto.findFirst({ where: { codigo: clean.codigo } });
           if (existing) {
             const { codigo: _, ...updateData } = clean;
-            await prisma.producto.update({ where: { codigo: existing.codigo }, data: updateData });
+            await prisma.producto.update({ where: { id: existing.id }, data: updateData });
             resultados.actualizados++;
           } else {
             await prisma.producto.create({ data: clean });
@@ -91,9 +91,9 @@ router.post('/csv', async (req: Request, res: Response) => {
             continue;
           }
 
-          const existing = await prisma.proveedor.findUnique({ where: { codigo: data.codigo } });
+          const existing = await prisma.proveedor.findFirst({ where: { codigo: data.codigo } });
           if (existing) {
-            await prisma.proveedor.update({ where: { codigo: data.codigo }, data });
+            await prisma.proveedor.update({ where: { id: existing.id }, data });
             resultados.actualizados++;
           } else {
             await prisma.proveedor.create({ data });
@@ -113,7 +113,7 @@ router.post('/csv', async (req: Request, res: Response) => {
             : { ...row };
 
           const receta = data.recetaCodigo
-            ? await prisma.receta.findUnique({
+            ? await prisma.receta.findFirst({
                 where: { codigo: data.recetaCodigo },
                 include: { ingredientes: true }
               })

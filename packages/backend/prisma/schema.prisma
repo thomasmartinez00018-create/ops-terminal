@@ -8,12 +8,91 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============================================================================
+// MULTI-TENANCY — Cuenta / Organizacion / Miembro
+// ============================================================================
+// - Cuenta: la persona que se loguea con email+password (el dueño / operador
+//   de alto nivel). Puede pertenecer a N organizaciones.
+// - Organizacion: el workspace. Todos los datos de negocio están scopeados
+//   a una organización (productos, depósitos, movimientos, etc.). Es la
+//   unidad de facturación y de aislamiento de datos.
+// - Miembro: tabla pivote N-a-N entre Cuenta y Organizacion, con el rol que
+//   esa cuenta tiene dentro de ese workspace.
+// ============================================================================
+
+model Cuenta {
+  id              Int       @id @default(autoincrement())
+  email           String    @unique
+  passwordHash    String    @map("password_hash")
+  nombre          String
+  emailVerificado Boolean   @default(false) @map("email_verificado")
+  ultimoLogin     DateTime? @map("ultimo_login")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  miembros Miembro[]
+
+  @@map("cuentas")
+}
+
+model Organizacion {
+  id                   Int       @id @default(autoincrement())
+  nombre               String
+  slug                 String    @unique
+  // Billing / suscripción — stub para Stripe. No hay integración real todavía,
+  // pero los campos existen para cuando la agreguemos.
+  plan                 String    @default("trial") // trial | free | starter | pro | business
+  estadoSuscripcion    String    @default("trialing") @map("estado_suscripcion") // trialing | active | past_due | canceled | unpaid
+  trialHasta           DateTime? @map("trial_hasta")
+  stripeCustomerId     String?   @map("stripe_customer_id")
+  stripeSubscriptionId String?   @map("stripe_subscription_id")
+  // Límites por plan (copia del plan al crear para evitar lookups)
+  limiteUsuarios       Int       @default(999) @map("limite_usuarios")
+  limiteProductos      Int       @default(99999) @map("limite_productos")
+  limiteDepositos      Int       @default(99) @map("limite_depositos")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  miembros            Miembro[]
+  productos           Producto[]
+  depositos           Deposito[]
+  usuarios            Usuario[]
+  movimientos         Movimiento[]
+  proveedores         Proveedor[]
+  proveedorProductos  ProveedorProducto[]
+  recetas             Receta[]
+  elaboraciones       ElaboracionLote[]
+  inventarios         Inventario[]
+  ordenesCompra       OrdenCompra[]
+  recepciones         Recepcion[]
+  tareas              Tarea[]
+  facturas            Factura[]
+  pagos               Pago[]
+
+  @@map("organizaciones")
+}
+
+model Miembro {
+  id             Int      @id @default(autoincrement())
+  cuentaId       Int      @map("cuenta_id")
+  organizacionId Int      @map("organizacion_id")
+  rol            String   @default("owner") // owner | admin | staff
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  cuenta       Cuenta       @relation(fields: [cuentaId], references: [id], onDelete: Cascade)
+  organizacion Organizacion @relation(fields: [organizacionId], references: [id], onDelete: Cascade)
+
+  @@unique([cuentaId, organizacionId])
+  @@map("miembros")
+}
+
 // ==========================================
 // MAESTRO DE PRODUCTOS
 // ==========================================
 model Producto {
   id                Int      @id @default(autoincrement())
-  codigo            String   @unique
+  organizacionId    Int      @default(0) @map("organizacion_id")
+  codigo            String
   nombre            String
   rubro             String   // Verduras, Carnes, Lacteos, Bebidas, etc.
   subrubro          String?  // Sub-categoría opcional: Chardonnay, Malbec, etc.
@@ -29,6 +108,7 @@ model Producto {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
+  organizacion        Organizacion         @relation(fields: [organizacionId], references: [id])
   depositoDefecto     Deposito?            @relation(fields: [depositoDefectoId], references: [id])
   movimientos         Movimiento[]
   proveedorProductos  ProveedorProducto[]
@@ -40,6 +120,8 @@ model Producto {
   elaboraciones       ElaboracionLote[]    @relation("elaborProducto")
   facturaItems        FacturaItem[]
 
+  @@unique([organizacionId, codigo])
+  @@index([organizacionId])
   @@map("productos")
 }
 
@@ -47,51 +129,63 @@ model Producto {
 // DEPÓSITOS
 // ==========================================
 model Deposito {
-  id     Int     @id @default(autoincrement())
-  codigo String  @unique
-  nombre String
-  tipo   String? // almacen, cocina, barra, freezer, camara, seco
-  activo Boolean @default(true)
+  id             Int     @id @default(autoincrement())
+  organizacionId Int     @default(0) @map("organizacion_id")
+  codigo         String
+  nombre         String
+  tipo           String? // almacen, cocina, barra, freezer, camara, seco
+  activo         Boolean @default(true)
 
+  organizacion         Organizacion      @relation(fields: [organizacionId], references: [id])
   productos            Producto[]
-  movimientosOrigen    Movimiento[] @relation("depositoOrigen")
-  movimientosDestino   Movimiento[] @relation("depositoDestino")
+  movimientosOrigen    Movimiento[]      @relation("depositoOrigen")
+  movimientosDestino   Movimiento[]      @relation("depositoDestino")
   inventarios          Inventario[]
-  ordenesCompra        OrdenCompra[] @relation("ocDeposito")
-  usuariosDefecto      Usuario[]    @relation("usuarioDepositoDefecto")
+  ordenesCompra        OrdenCompra[]     @relation("ocDeposito")
+  usuariosDefecto      Usuario[]         @relation("usuarioDepositoDefecto")
   elaboraciones        ElaboracionLote[] @relation("elaborDeposito")
 
+  @@unique([organizacionId, codigo])
+  @@index([organizacionId])
   @@map("depositos")
 }
 
 // ==========================================
-// USUARIOS
+// USUARIOS (staff interno — código + PIN para el POS)
 // ==========================================
+// Un Usuario es un operador del restaurante (cajero, cocinero, depósito…).
+// Se identifica con código + PIN, no con email. Pertenece a una sola
+// organización (si el mismo humano trabaja en dos restos del mismo dueño,
+// crea dos Usuarios, uno por org).
 model Usuario {
-  id       Int     @id @default(autoincrement())
-  codigo   String  @unique
-  nombre   String
-  rol      String  // admin, cocina, deposito, barra, compras
-  pin      String?
-  activo   Boolean @default(true)
+  id             Int     @id @default(autoincrement())
+  organizacionId Int     @default(0) @map("organizacion_id")
+  codigo         String
+  nombre         String
+  rol            String  // admin, cocina, deposito, barra, compras
+  pin            String?
+  activo         Boolean @default(true)
   permisos       String  @default("[]") // JSON array de claves de secciones habilitadas
   configuracion  String? // JSON: { tipo, widgets, acciones } — config de dashboard por usuario
 
-  depositoDefectoId        Int?     @map("deposito_defecto_id")
-  depositoDefecto          Deposito? @relation("usuarioDepositoDefecto", fields: [depositoDefectoId], references: [id])
+  depositoDefectoId Int?      @map("deposito_defecto_id")
+  depositoDefecto   Deposito? @relation("usuarioDepositoDefecto", fields: [depositoDefectoId], references: [id])
 
-  movimientos              Movimiento[] @relation("movUsuario")
-  movimientosResponsable   Movimiento[] @relation("movResponsable")
-  inventarios       Inventario[]
-  ordenesCreadas    OrdenCompra[] @relation("ocCreador")
-  ordenesAsignadas  OrdenCompra[] @relation("ocResponsable")
-  recepciones       Recepcion[]   @relation("recepcionUsuario")
-  tareasCreadas     Tarea[]       @relation("tareasCreadas")
-  tareasAsignadas   Tarea[]       @relation("tareasAsignadas")
-  elaboraciones     ElaboracionLote[] @relation("elaborUsuario")
-  facturasCreadas   Factura[]     @relation("facturaCreador")
-  pagosCreados      Pago[]        @relation("pagoCreador")
+  organizacion             Organizacion      @relation(fields: [organizacionId], references: [id])
+  movimientos              Movimiento[]      @relation("movUsuario")
+  movimientosResponsable   Movimiento[]      @relation("movResponsable")
+  inventarios              Inventario[]
+  ordenesCreadas           OrdenCompra[]     @relation("ocCreador")
+  ordenesAsignadas         OrdenCompra[]     @relation("ocResponsable")
+  recepciones              Recepcion[]       @relation("recepcionUsuario")
+  tareasCreadas            Tarea[]           @relation("tareasCreadas")
+  tareasAsignadas          Tarea[]           @relation("tareasAsignadas")
+  elaboraciones            ElaboracionLote[] @relation("elaborUsuario")
+  facturasCreadas          Factura[]         @relation("facturaCreador")
+  pagosCreados             Pago[]            @relation("pagoCreador")
 
+  @@unique([organizacionId, codigo])
+  @@index([organizacionId])
   @@map("usuarios")
 }
 
@@ -99,28 +193,30 @@ model Usuario {
 // MOVIMIENTOS (corazón del sistema)
 // ==========================================
 model Movimiento {
-  id               Int      @id @default(autoincrement())
-  fecha            String   // YYYY-MM-DD
-  hora             String   // HH:mm
-  usuarioId        Int      @map("usuario_id")
-  tipo             String   // ingreso, elaboracion, merma, transferencia, ajuste, conteo, consumo_interno, devolucion
-  depositoOrigenId  Int?    @map("deposito_origen_id")
-  depositoDestinoId Int?    @map("deposito_destino_id")
-  productoId       Int      @map("producto_id")
-  cantidad         Float
-  unidad           String
-  lote             String?
-  motivo           String?
-  costoUnitario    Float?   @map("costo_unitario")
-  proveedorId      Int?     @map("proveedor_id")
-  documentoRef     String?  @map("documento_ref")
-  observacion      String?
-  responsableId    Int?     @map("responsable_id")
-  recepcionId      Int?     @map("recepcion_id")
-  elaboracionLoteId Int?    @map("elaboracion_lote_id")
-  facturaId        Int?     @map("factura_id")
-  createdAt        DateTime @default(now()) @map("created_at")
+  id                Int      @id @default(autoincrement())
+  organizacionId    Int      @default(0) @map("organizacion_id")
+  fecha             String   // YYYY-MM-DD
+  hora              String   // HH:mm
+  usuarioId         Int      @map("usuario_id")
+  tipo              String   // ingreso, elaboracion, merma, transferencia, ajuste, conteo, consumo_interno, devolucion
+  depositoOrigenId  Int?     @map("deposito_origen_id")
+  depositoDestinoId Int?     @map("deposito_destino_id")
+  productoId        Int      @map("producto_id")
+  cantidad          Float
+  unidad            String
+  lote              String?
+  motivo            String?
+  costoUnitario     Float?   @map("costo_unitario")
+  proveedorId       Int?     @map("proveedor_id")
+  documentoRef      String?  @map("documento_ref")
+  observacion       String?
+  responsableId     Int?     @map("responsable_id")
+  recepcionId       Int?     @map("recepcion_id")
+  elaboracionLoteId Int?     @map("elaboracion_lote_id")
+  facturaId         Int?     @map("factura_id")
+  createdAt         DateTime @default(now()) @map("created_at")
 
+  organizacion     Organizacion     @relation(fields: [organizacionId], references: [id])
   usuario          Usuario          @relation("movUsuario", fields: [usuarioId], references: [id])
   responsable      Usuario?         @relation("movResponsable", fields: [responsableId], references: [id])
   depositoOrigen   Deposito?        @relation("depositoOrigen", fields: [depositoOrigenId], references: [id])
@@ -131,6 +227,8 @@ model Movimiento {
   elaboracionLote  ElaboracionLote? @relation(fields: [elaboracionLoteId], references: [id])
   factura          Factura?         @relation(fields: [facturaId], references: [id])
 
+  @@index([organizacionId])
+  @@index([organizacionId, fecha])
   @@map("movimientos")
 }
 
@@ -138,19 +236,23 @@ model Movimiento {
 // PROVEEDORES
 // ==========================================
 model Proveedor {
-  id       Int     @id @default(autoincrement())
-  codigo   String  @unique
-  nombre   String
-  contacto String?
-  telefono String?
-  email    String?
-  activo   Boolean @default(true)
+  id             Int     @id @default(autoincrement())
+  organizacionId Int     @default(0) @map("organizacion_id")
+  codigo         String
+  nombre         String
+  contacto       String?
+  telefono       String?
+  email          String?
+  activo         Boolean @default(true)
 
+  organizacion       Organizacion        @relation(fields: [organizacionId], references: [id])
   movimientos        Movimiento[]
   proveedorProductos ProveedorProducto[]
   ordenesCompra      OrdenCompra[]
   facturas           Factura[]
 
+  @@unique([organizacionId, codigo])
+  @@index([organizacionId])
   @@map("proveedores")
 }
 
@@ -159,6 +261,7 @@ model Proveedor {
 // ==========================================
 model ProveedorProducto {
   id               Int     @id @default(autoincrement())
+  organizacionId   Int     @default(0) @map("organizacion_id")
   proveedorId      Int     @map("proveedor_id")
   productoId       Int     @map("producto_id")
   nombreProveedor  String  @map("nombre_proveedor") // "Papa negra x 10kg"
@@ -168,9 +271,11 @@ model ProveedorProducto {
   ultimoPrecio     Float?  @map("ultimo_precio")
   fechaPrecio      String? @map("fecha_precio")
 
-  proveedor Proveedor @relation(fields: [proveedorId], references: [id])
-  producto  Producto  @relation(fields: [productoId], references: [id])
+  organizacion Organizacion @relation(fields: [organizacionId], references: [id])
+  proveedor    Proveedor    @relation(fields: [proveedorId], references: [id])
+  producto     Producto     @relation(fields: [productoId], references: [id])
 
+  @@index([organizacionId])
   @@map("proveedor_productos")
 }
 
@@ -179,7 +284,8 @@ model ProveedorProducto {
 // ==========================================
 model Receta {
   id                  Int     @id @default(autoincrement())
-  codigo              String  @unique
+  organizacionId      Int     @default(0) @map("organizacion_id")
+  codigo              String
   nombre              String
   categoria           String? // entrada, plato, postre, bebida
   porciones           Int     @default(1)
@@ -188,23 +294,27 @@ model Receta {
   unidadProducida     String? @map("unidad_producida")
   activo              Boolean @default(true)
 
+  organizacion      Organizacion        @relation(fields: [organizacionId], references: [id])
   ingredientes      RecetaIngrediente[]
   elaboraciones     ElaboracionLote[]
-  productoResultado Producto? @relation("recetaProducto", fields: [productoResultadoId], references: [id])
+  productoResultado Producto?           @relation("recetaProducto", fields: [productoResultadoId], references: [id])
 
+  @@unique([organizacionId, codigo])
+  @@index([organizacionId])
   @@map("recetas")
 }
 
 // ==========================================
 // INGREDIENTES DE RECETA
+// (child de Receta — no necesita organizacion_id, se filtra por parent)
 // ==========================================
 model RecetaIngrediente {
-  id             Int   @id @default(autoincrement())
-  recetaId       Int   @map("receta_id")
-  productoId     Int   @map("producto_id")
+  id             Int    @id @default(autoincrement())
+  recetaId       Int    @map("receta_id")
+  productoId     Int    @map("producto_id")
   cantidad       Float
   unidad         String
-  mermaEsperada  Float @default(0) @map("merma_esperada") // porcentaje
+  mermaEsperada  Float  @default(0) @map("merma_esperada") // porcentaje
 
   receta   Receta   @relation(fields: [recetaId], references: [id], onDelete: Cascade)
   producto Producto @relation(fields: [productoId], references: [id])
@@ -217,7 +327,8 @@ model RecetaIngrediente {
 // ==========================================
 model ElaboracionLote {
   id                  Int      @id @default(autoincrement())
-  codigo              String   @unique
+  organizacionId      Int      @default(0) @map("organizacion_id")
+  codigo              String
   fecha               String
   hora                String
   usuarioId           Int      @map("usuario_id")
@@ -229,12 +340,15 @@ model ElaboracionLote {
   observacion         String?
   createdAt           DateTime @default(now()) @map("created_at")
 
-  usuario           Usuario   @relation("elaborUsuario", fields: [usuarioId], references: [id])
-  receta            Receta?   @relation(fields: [recetaId], references: [id])
-  productoResultado Producto  @relation("elaborProducto", fields: [productoResultadoId], references: [id])
-  depositoDestino   Deposito? @relation("elaborDeposito", fields: [depositoDestinoId], references: [id])
+  organizacion      Organizacion @relation(fields: [organizacionId], references: [id])
+  usuario           Usuario      @relation("elaborUsuario", fields: [usuarioId], references: [id])
+  receta            Receta?      @relation(fields: [recetaId], references: [id])
+  productoResultado Producto     @relation("elaborProducto", fields: [productoResultadoId], references: [id])
+  depositoDestino   Deposito?    @relation("elaborDeposito", fields: [depositoDestinoId], references: [id])
   movimientos       Movimiento[]
 
+  @@unique([organizacionId, codigo])
+  @@index([organizacionId])
   @@map("elaboracion_lotes")
 }
 
@@ -242,18 +356,21 @@ model ElaboracionLote {
 // INVENTARIOS / CONTEOS
 // ==========================================
 model Inventario {
-  id          Int      @id @default(autoincrement())
-  fecha       String   // YYYY-MM-DD
-  usuarioId   Int      @map("usuario_id")
-  depositoId  Int      @map("deposito_id")
-  estado      String   @default("abierto") // abierto, cerrado
-  observacion String?
-  createdAt   DateTime @default(now()) @map("created_at")
+  id             Int      @id @default(autoincrement())
+  organizacionId Int      @default(0) @map("organizacion_id")
+  fecha          String   // YYYY-MM-DD
+  usuarioId      Int      @map("usuario_id")
+  depositoId     Int      @map("deposito_id")
+  estado         String   @default("abierto") // abierto, cerrado
+  observacion    String?
+  createdAt      DateTime @default(now()) @map("created_at")
 
-  usuario  Usuario  @relation(fields: [usuarioId], references: [id])
-  deposito Deposito @relation(fields: [depositoId], references: [id])
-  detalles InventarioDetalle[]
+  organizacion Organizacion        @relation(fields: [organizacionId], references: [id])
+  usuario      Usuario             @relation(fields: [usuarioId], references: [id])
+  deposito     Deposito            @relation(fields: [depositoId], references: [id])
+  detalles     InventarioDetalle[]
 
+  @@index([organizacionId])
   @@map("inventarios")
 }
 
@@ -277,8 +394,9 @@ model InventarioDetalle {
 // ==========================================
 model OrdenCompra {
   id                Int      @id @default(autoincrement())
-  codigo            String   @unique          // OC-001
-  fecha             String                    // YYYY-MM-DD
+  organizacionId    Int      @default(0) @map("organizacion_id")
+  codigo            String   // OC-001 (único dentro de la org)
+  fecha             String   // YYYY-MM-DD
   estado            String   @default("pendiente") // pendiente, parcial, recibida, cancelada
   proveedorId       Int      @map("proveedor_id")
   creadoPorId       Int      @map("creado_por_id")
@@ -288,14 +406,17 @@ model OrdenCompra {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  proveedor       Proveedor @relation(fields: [proveedorId], references: [id])
-  creadoPor       Usuario   @relation("ocCreador", fields: [creadoPorId], references: [id])
-  responsable     Usuario   @relation("ocResponsable", fields: [responsableId], references: [id])
-  depositoDestino Deposito? @relation("ocDeposito", fields: [depositoDestinoId], references: [id])
+  organizacion    Organizacion      @relation(fields: [organizacionId], references: [id])
+  proveedor       Proveedor         @relation(fields: [proveedorId], references: [id])
+  creadoPor       Usuario           @relation("ocCreador", fields: [creadoPorId], references: [id])
+  responsable     Usuario           @relation("ocResponsable", fields: [responsableId], references: [id])
+  depositoDestino Deposito?         @relation("ocDeposito", fields: [depositoDestinoId], references: [id])
   items           OrdenCompraItem[]
   recepciones     Recepcion[]
   facturas        Factura[]
 
+  @@unique([organizacionId, codigo])
+  @@index([organizacionId])
   @@map("ordenes_compra")
 }
 
@@ -317,19 +438,22 @@ model OrdenCompraItem {
 // RECEPCIONES (verificación de lo recibido)
 // ==========================================
 model Recepcion {
-  id            Int      @id @default(autoincrement())
-  ordenCompraId Int      @map("orden_compra_id")
-  fecha         String
-  hora          String
-  recibidoPorId Int      @map("recibido_por_id")
-  observacion   String?
-  createdAt     DateTime @default(now()) @map("created_at")
+  id             Int      @id @default(autoincrement())
+  organizacionId Int      @default(0) @map("organizacion_id")
+  ordenCompraId  Int      @map("orden_compra_id")
+  fecha          String
+  hora           String
+  recibidoPorId  Int      @map("recibido_por_id")
+  observacion    String?
+  createdAt      DateTime @default(now()) @map("created_at")
 
+  organizacion Organizacion    @relation(fields: [organizacionId], references: [id])
   ordenCompra  OrdenCompra     @relation(fields: [ordenCompraId], references: [id])
   recibidoPor  Usuario         @relation("recepcionUsuario", fields: [recibidoPorId], references: [id])
   items        RecepcionItem[]
   movimientos  Movimiento[]
 
+  @@index([organizacionId])
   @@map("recepciones")
 }
 
@@ -356,24 +480,27 @@ model RecepcionItem {
 // TAREAS (delegación de responsabilidades)
 // ==========================================
 model Tarea {
-  id            Int      @id @default(autoincrement())
-  titulo        String
-  descripcion   String?
-  tipo          String   @default("general") // general, recibir_mercaderia, inventario, limpieza, prep, cierre
-  estado        String   @default("pendiente") // pendiente, en_progreso, completada, cancelada
-  prioridad     String   @default("normal") // baja, normal, alta, urgente
-  fecha         String   // YYYY-MM-DD — para cuándo
-  horaLimite    String?  @map("hora_limite") // HH:mm — hora límite opcional
-  creadoPorId   Int      @map("creado_por_id")
-  asignadoAId   Int      @map("asignado_a_id")
-  completadaAt  DateTime? @map("completada_at")
-  observacion   String?  // nota al completar
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id             Int       @id @default(autoincrement())
+  organizacionId Int       @default(0) @map("organizacion_id")
+  titulo         String
+  descripcion    String?
+  tipo           String    @default("general") // general, recibir_mercaderia, inventario, limpieza, prep, cierre
+  estado         String    @default("pendiente") // pendiente, en_progreso, completada, cancelada
+  prioridad      String    @default("normal") // baja, normal, alta, urgente
+  fecha          String    // YYYY-MM-DD — para cuándo
+  horaLimite     String?   @map("hora_limite") // HH:mm — hora límite opcional
+  creadoPorId    Int       @map("creado_por_id")
+  asignadoAId    Int       @map("asignado_a_id")
+  completadaAt   DateTime? @map("completada_at")
+  observacion    String?   // nota al completar
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  creadoPor     Usuario  @relation("tareasCreadas", fields: [creadoPorId], references: [id])
-  asignadoA     Usuario  @relation("tareasAsignadas", fields: [asignadoAId], references: [id])
+  organizacion Organizacion @relation(fields: [organizacionId], references: [id])
+  creadoPor    Usuario      @relation("tareasCreadas", fields: [creadoPorId], references: [id])
+  asignadoA    Usuario      @relation("tareasAsignadas", fields: [asignadoAId], references: [id])
 
+  @@index([organizacionId])
   @@map("tareas")
 }
 
@@ -381,48 +508,52 @@ model Tarea {
 // FACTURAS RECIBIDAS (contabilidad)
 // ==========================================
 model Factura {
-  id                Int       @id @default(autoincrement())
-  codigo            String    @unique                         // FAC-001 auto
-  tipoComprobante   String    @map("tipo_comprobante")        // "A","B","C","ticket","remito"
-  numero            String                                    // nro original del proveedor
-  fecha             String                                    // YYYY-MM-DD fecha de emisión
-  fechaVencimiento  String?   @map("fecha_vencimiento")       // YYYY-MM-DD fecha de pago
-  proveedorId       Int       @map("proveedor_id")
-  ordenCompraId     Int?      @map("orden_compra_id")
-  subtotal          Float     @default(0)
-  iva               Float     @default(0)
-  total             Float     @default(0)
-  estado            String    @default("pendiente")           // pendiente|parcial|pagada|anulada
-  imagenBase64      String?   @map("imagen_base64")
-  observacion       String?
-  creadoPorId       Int       @map("creado_por_id")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
+  id               Int       @id @default(autoincrement())
+  organizacionId   Int       @default(0) @map("organizacion_id")
+  codigo           String    // FAC-001 auto (único dentro de la org)
+  tipoComprobante  String    @map("tipo_comprobante")        // "A","B","C","ticket","remito"
+  numero           String                                     // nro original del proveedor
+  fecha            String                                     // YYYY-MM-DD fecha de emisión
+  fechaVencimiento String?   @map("fecha_vencimiento")        // YYYY-MM-DD fecha de pago
+  proveedorId      Int       @map("proveedor_id")
+  ordenCompraId    Int?      @map("orden_compra_id")
+  subtotal         Float     @default(0)
+  iva              Float     @default(0)
+  total            Float     @default(0)
+  estado           String    @default("pendiente")            // pendiente|parcial|pagada|anulada
+  imagenBase64     String?   @map("imagen_base64")
+  observacion      String?
+  creadoPorId      Int       @map("creado_por_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
-  proveedor    Proveedor      @relation(fields: [proveedorId], references: [id])
-  ordenCompra  OrdenCompra?   @relation(fields: [ordenCompraId], references: [id])
-  creadoPor    Usuario        @relation("facturaCreador", fields: [creadoPorId], references: [id])
+  organizacion Organizacion  @relation(fields: [organizacionId], references: [id])
+  proveedor    Proveedor     @relation(fields: [proveedorId], references: [id])
+  ordenCompra  OrdenCompra?  @relation(fields: [ordenCompraId], references: [id])
+  creadoPor    Usuario       @relation("facturaCreador", fields: [creadoPorId], references: [id])
   items        FacturaItem[]
   pagos        Pago[]
   movimientos  Movimiento[]
 
+  @@unique([organizacionId, codigo])
+  @@index([organizacionId])
   @@map("facturas")
 }
 
 model FacturaItem {
-  id              Int     @id @default(autoincrement())
-  facturaId       Int     @map("factura_id")
-  productoId      Int?    @map("producto_id")
-  descripcion     String
-  cantidad        Float
-  unidad          String
-  precioUnitario  Float   @map("precio_unitario")
-  alicuotaIva     Float   @default(21) @map("alicuota_iva")  // 0, 10.5, 21, 27
-  subtotal        Float   @default(0)
-  iva             Float   @default(0)
+  id             Int    @id @default(autoincrement())
+  facturaId      Int    @map("factura_id")
+  productoId     Int?   @map("producto_id")
+  descripcion    String
+  cantidad       Float
+  unidad         String
+  precioUnitario Float  @map("precio_unitario")
+  alicuotaIva    Float  @default(21) @map("alicuota_iva")  // 0, 10.5, 21, 27
+  subtotal       Float  @default(0)
+  iva            Float  @default(0)
 
-  factura   Factura   @relation(fields: [facturaId], references: [id], onDelete: Cascade)
-  producto  Producto? @relation(fields: [productoId], references: [id])
+  factura  Factura   @relation(fields: [facturaId], references: [id], onDelete: Cascade)
+  producto Producto? @relation(fields: [productoId], references: [id])
 
   @@map("factura_items")
 }
@@ -431,18 +562,21 @@ model FacturaItem {
 // PAGOS (contra facturas)
 // ==========================================
 model Pago {
-  id          Int      @id @default(autoincrement())
-  facturaId   Int      @map("factura_id")
-  fecha       String                                      // YYYY-MM-DD
-  monto       Float
-  medioPago   String   @map("medio_pago")                 // efectivo|transferencia|cheque|debito|credito
-  referencia  String?
-  observacion String?
-  creadoPorId Int      @map("creado_por_id")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id             Int      @id @default(autoincrement())
+  organizacionId Int      @default(0) @map("organizacion_id")
+  facturaId      Int      @map("factura_id")
+  fecha          String                                      // YYYY-MM-DD
+  monto          Float
+  medioPago      String   @map("medio_pago")                 // efectivo|transferencia|cheque|debito|credito
+  referencia     String?
+  observacion    String?
+  creadoPorId    Int      @map("creado_por_id")
+  createdAt      DateTime @default(now()) @map("created_at")
 
-  factura   Factura @relation(fields: [facturaId], references: [id])
-  creadoPor Usuario @relation("pagoCreador", fields: [creadoPorId], references: [id])
+  organizacion Organizacion @relation(fields: [organizacionId], references: [id])
+  factura      Factura      @relation(fields: [facturaId], references: [id])
+  creadoPor    Usuario      @relation("pagoCreador", fields: [creadoPorId], references: [id])
 
+  @@index([organizacionId])
   @@map("pagos")
 }

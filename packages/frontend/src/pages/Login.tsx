@@ -1,10 +1,14 @@
 import { useState, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext';
-import { api } from '../lib/api';
+import { useSession } from '../context/SessionContext';
+import { api, setToken } from '../lib/api';
 import Button from '../components/ui/Button';
 
 export default function Login() {
-  const { login } = useAuth();
+  // Nota: este componente corre en stage 2 (workspace elegido, staff no
+  // logueado todavía). Usa SessionContext para flipear al stage 3 una vez
+  // que el staff login tenga éxito. AuthContext se monta después,
+  // consumiendo el user desde localStorage y refrescando vía /api/auth/me.
+  const { onStaffLogin, workspace, backToWorkspaces, logout: cuentaLogout, cuenta, workspaces } = useSession();
   const [usuarios, setUsuarios] = useState<any[]>([]);
   const [selected, setSelected] = useState<any | null>(null);
   const [pin, setPin] = useState('');
@@ -23,7 +27,11 @@ export default function Login() {
     setError('');
     try {
       const res = await api.login(selected.codigo, pin);
-      login(res.token, res.user);
+      // Stage 3 token + persistencia local del staff user. AuthProvider lo
+      // leerá de localStorage al montar y luego refrescará con /api/auth/me.
+      setToken(res.token);
+      localStorage.setItem('user', JSON.stringify(res.user));
+      onStaffLogin();
     } catch (e: any) {
       setError(e.message);
     }
@@ -67,6 +75,21 @@ export default function Login() {
           <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em] mt-1">
             Stock Gastro
           </p>
+          {workspace && (
+            <div className="mt-3 px-3 py-1.5 rounded-lg bg-surface-high inline-flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-primary" />
+              <span className="text-xs font-bold text-foreground">{workspace.nombre}</span>
+              {workspaces.length > 1 && (
+                <button
+                  onClick={backToWorkspaces}
+                  className="text-[10px] font-bold text-primary uppercase tracking-wider hover:underline ml-1"
+                  title="Cambiar de workspace"
+                >
+                  Cambiar
+                </button>
+              )}
+            </div>
+          )}
           <p className="text-xs text-on-surface-variant mt-3 font-semibold">
             {selected ? 'Ingresá tu PIN' : 'Seleccionar usuario'}
           </p>
@@ -158,6 +181,20 @@ export default function Login() {
             </Button>
           </div>
         )}
+
+        <div className="mt-6 pt-4 border-t border-border text-center">
+          {cuenta && (
+            <p className="text-[10px] text-on-surface-variant mb-2">
+              Sesión: <span className="font-semibold text-on-surface-variant/90">{cuenta.email}</span>
+            </p>
+          )}
+          <button
+            onClick={cuentaLogout}
+            className="text-[10px] font-bold text-on-surface-variant hover:text-destructive uppercase tracking-widest"
+          >
+            Cerrar sesión
+          </button>
+        </div>
       </div>
     </div>
   );

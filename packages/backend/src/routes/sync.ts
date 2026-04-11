@@ -79,11 +79,11 @@ router.post('/import', async (req: Request, res: Response) => {
     for (const p of productos) {
       if (!p.codigo || !p.nombre) continue;
       try {
-        const existing = await prisma.producto.findUnique({ where: { codigo: p.codigo } });
+        const existing = await prisma.producto.findFirst({ where: { codigo: p.codigo } });
         if (existing) {
           // Actualizar solo campos que vengan del sync y no sobrescribir datos operativos
           await prisma.producto.update({
-            where: { codigo: p.codigo },
+            where: { id: existing.id },
             data: {
               nombre: p.nombre,
               rubro: p.rubro || existing.rubro,
@@ -113,10 +113,10 @@ router.post('/import', async (req: Request, res: Response) => {
     for (const p of proveedores) {
       if (!p.codigo || !p.nombre) continue;
       try {
-        const existing = await prisma.proveedor.findUnique({ where: { codigo: p.codigo } });
+        const existing = await prisma.proveedor.findFirst({ where: { codigo: p.codigo } });
         if (existing) {
           await prisma.proveedor.update({
-            where: { codigo: p.codigo },
+            where: { id: existing.id },
             data: {
               nombre: p.nombre,
               contacto: p.contacto || existing.contacto,
@@ -147,8 +147,8 @@ router.post('/import', async (req: Request, res: Response) => {
       if (!pr.codigoProducto || !pr.codigoProveedor || !pr.precio) continue;
       try {
         const [producto, proveedor] = await Promise.all([
-          prisma.producto.findUnique({ where: { codigo: pr.codigoProducto } }),
-          prisma.proveedor.findUnique({ where: { codigo: pr.codigoProveedor } }),
+          prisma.producto.findFirst({ where: { codigo: pr.codigoProducto } }),
+          prisma.proveedor.findFirst({ where: { codigo: pr.codigoProveedor } }),
         ]);
         if (!producto || !proveedor) continue;
 

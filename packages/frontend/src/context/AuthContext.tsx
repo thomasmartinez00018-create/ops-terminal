@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { api, setToken, getToken, AUTH_ERROR_EVENT } from '../lib/api';
+import { useSession } from './SessionContext';
 
 export interface DashboardConfig {
   tipo?: 'auto' | 'admin' | 'simple' | 'deposito';
@@ -29,6 +30,10 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  // Delegamos el logout de sesión completa al SessionContext (que maneja
+  // los 3 stages). AuthProvider solo se monta cuando stage === 'staff',
+  // así que useSession siempre está disponible acá.
+  const session = useSession();
   const [user, setUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('user');
     return saved ? JSON.parse(saved) : null;
@@ -95,9 +100,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
-    setToken(null);
     setUser(null);
     localStorage.removeItem('user');
+    // Cerrar también la sesión de la cuenta → vuelve al login stage 1.
+    session.logout();
   };
 
   const tienePermiso = (clave: string): boolean => {
