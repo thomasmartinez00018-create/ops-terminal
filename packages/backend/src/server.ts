@@ -69,11 +69,32 @@ app.use(cors({
 
 app.use(express.json({ limit: '10mb' }));
 
+// ── Health check (usado por Railway/Vercel) ─────────────────────────────────
+// IMPORTANTE: va ANTES del tenantMiddleware y de cualquier router de negocio.
+// Railway pega a esta ruta sin JWT y si cualquier middleware posterior
+// (requireStaff, requireSuscripcionActiva, tenantMiddleware con DB) responde
+// con 401/503, el healthcheck falla y el deploy nunca marca el container
+// como healthy — rollback automático de Railway.
+app.get('/api/health', async (_req, res) => {
+  try {
+    // Verificar que la DB responde (toca un SELECT 1)
+    await prisma.$queryRawUnsafe('SELECT 1');
+    res.json({ status: 'ok', db: 'ok', timestamp: new Date().toISOString() });
+  } catch (e: any) {
+    res.status(503).json({ status: 'error', db: 'down', error: e?.message });
+  }
+});
+
+app.get('/api/ping', (_req, res) => {
+  res.json({ ok: true, ts: Date.now() });
+});
+
 // ── Multi-tenant context ────────────────────────────────────────────────────
-// Corre GLOBALMENTE antes de cualquier ruta. Si el request trae un token de
-// stage 2 o 3, abre un AsyncLocalStorage con { organizacionId, ... } y todo
-// lo async que venga después (Prisma queries incluidas) recibe el filtro
-// de tenant automáticamente. Si no hay token, el request pasa sin contexto.
+// Corre GLOBALMENTE antes de cualquier ruta de negocio. Si el request trae un
+// token de stage 2 o 3, abre un AsyncLocalStorage con { organizacionId, ... }
+// y todo lo async que venga después (Prisma queries incluidas) recibe el
+// filtro de tenant automáticamente. Si no hay token, el request pasa sin
+// contexto (el middleware de auth de cada ruta decide qué hacer).
 app.use(tenantMiddleware);
 
 // ── Rutas de nivel cuenta (pre-workspace) ───────────────────────────────────
@@ -81,21 +102,15 @@ app.use(tenantMiddleware);
 // switch. Corren antes del middleware de suscripción.
 app.use('/api/cuenta', cuentaRouter);
 
-// ── Rutas de negocio (requieren workspace + suscripción activa) ─────────────
-// El orden importa:
-//   1. Primero aplicamos requireOrg/requireStaff dentro de cada router
-//      (o a nivel router con app.use).
-//   2. requireSuscripcionActiva va DESPUÉS de tener req.token pero ANTES de
-//      ejecutar la lógica de la ruta.
-// Como todas estas rutas necesitan suscripción, la aplicamos globalmente al
-// prefijo /api excluyendo /api/cuenta, /api/auth y /api/health.
+// ── Rutas de auth staff (stage 2 → stage 3) ─────────────────────────────────
+// authRouter maneja su propio requireOrg/requireStaff por ruta.
 app.use('/api/auth', authRouter);
-// Todo lo que sigue requiere suscripción activa. Lo hacemos con un router
-// que monta el middleware antes de delegar a cada router específico.
+
+// ── Rutas de negocio (requieren workspace + staff + suscripción activa) ─────
+// Un sub-router que aplica requireStaff + requireSuscripcionActiva a todo de
+// una vez. Esto cierra de un plumazo el hueco de seguridad anterior donde
+// rutas como POST /api/usuarios estaban públicas.
 const businessApi = express.Router();
-// Todas las rutas de negocio requieren staff autenticado (stage 3) + suscripción
-// activa. Esto cierra de un plumazo el hueco de seguridad anterior donde rutas
-// como POST /api/usuarios estaban públicas.
 businessApi.use(requireStaff);
 businessApi.use(requireSuscripcionActiva);
 businessApi.use('/productos', productosRouter);
@@ -118,21 +133,6 @@ businessApi.use('/contabilidad', contabilidadRouter);
 businessApi.use('/config', configRouter);
 businessApi.use('/ai', aiChatRouter);
 app.use('/api', businessApi);
-
-// ── Health check (usado por Railway/Vercel) ─────────────────────────────────
-app.get('/api/health', async (_req, res) => {
-  try {
-    // Verificar que la DB responde (toca un SELECT 1)
-    await prisma.$queryRawUnsafe('SELECT 1');
-    res.json({ status: 'ok', db: 'ok', timestamp: new Date().toISOString() });
-  } catch (e: any) {
-    res.status(503).json({ status: 'error', db: 'down', error: e?.message });
-  }
-});
-
-app.get('/api/ping', (_req, res) => {
-  res.json({ ok: true, ts: Date.now() });
-});
 
 // ── En producción: servir frontend compilado (opcional) ─────────────────────
 // Si SERVE_FRONTEND=true, el mismo backend sirve el /dist del frontend.
