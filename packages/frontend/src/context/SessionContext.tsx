@@ -183,32 +183,29 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return ws;
   }, [workspaces]);
 
-  // "Volver al selector de workspaces" — tira el stage org/staff y pide re-elegir.
-  // Para volver a stage 1 necesitamos un token stage 1. El backend no tiene un
-  // endpoint de "downgrade", así que re-logueamos usando el mismo email si lo
-  // tenemos cacheado. Como no tenemos password, lo más simple es forzar un
-  // logout completo. Alternativa: listWorkspaces() acepta cualquier stage, así
-  // que solo necesitamos limpiar workspace local y que la UI muestre el selector.
-  // Hacemos esto último.
+  // "Volver al selector de workspaces" — baja el token a stage 1 sin pedir
+  // password. Usa POST /api/cuenta/to-stage-1 del backend, que reinyecta un
+  // token stage 1 basado en cuentaId+email del JWT actual. El gate re-pinta
+  // el selector con la lista fresca de workspaces.
   const backToWorkspaces = useCallback(async () => {
     try {
-      const list = await api.listWorkspaces();
-      setWorkspaces(list);
-      writeJSON(WORKSPACES_KEY, list);
-    } catch {}
-    setWorkspace(null);
-    writeJSON(WORKSPACE_KEY, null);
-    // El stage del token sigue siendo org/staff hasta que el usuario elija
-    // otro workspace. Forzamos el gate a mostrar el selector mediante un
-    // flag en memoria — o más simple: al no tener workspace local, el gate
-    // renderiza el selector.
-    // Pero con stage=staff la ruta principal lo toma. Solución: limpiar el
-    // token para bajar a stage 'none' y que el usuario re-logee con email.
-    // Mejor UX: mantener el token actual pero el gate chequea workspace.
-    setStage('none'); // fuerza re-login de cuenta
-    setToken(null);
-    setCuenta(null);
-    writeJSON(CUENTA_KEY, null);
+      const res = await api.downgradeToStage1();
+      applySession(res.token, res.cuenta, res.workspaces, null);
+      // Limpiar también el user staff persistido del AuthContext — si no,
+      // al volver a stage 2 y re-elegir un workspace el viejo user staff
+      // aparece residual hasta el próximo login.
+      localStorage.removeItem('user');
+    } catch (e) {
+      // Fallback: si el endpoint falla, hacemos el logout defensivo
+      setToken(null);
+      setCuenta(null);
+      setWorkspace(null);
+      setWorkspaces([]);
+      writeJSON(CUENTA_KEY, null);
+      writeJSON(WORKSPACE_KEY, null);
+      writeJSON(WORKSPACES_KEY, null);
+      setStage('none');
+    }
   }, []);
 
   const logout = useCallback(() => {

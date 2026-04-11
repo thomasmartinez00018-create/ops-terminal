@@ -125,6 +125,10 @@ export const api = {
       body: JSON.stringify({ organizacionId }),
     }),
   cuentaLogout: () => request<{ ok: boolean }>('/cuenta/logout', { method: 'POST' }),
+  // Baja un token stage 2/3 a stage 1 (selector de workspace) sin pedir
+  // password. Se usa desde dentro de la app para "Cambiar workspace".
+  downgradeToStage1: () =>
+    request<CuentaLoginResponse>('/cuenta/to-stage-1', { method: 'POST' }),
 
   // ── Auth staff (stage 2 → 3) — selector de usuario + PIN ──────────────────
   getUsuariosLogin: () => request<any[]>('/auth/usuarios'),

@@ -238,14 +238,14 @@ export default function Sidebar() {
               Workspace
             </p>
             <p className="text-xs font-bold text-foreground truncate">{workspace.nombre}</p>
-            {workspaces.length > 1 && (
-              <button
-                onClick={backToWorkspaces}
-                className="text-[9px] font-bold text-primary uppercase tracking-wider hover:underline mt-0.5"
-              >
-                Cambiar workspace
-              </button>
-            )}
+            {/* Siempre mostramos el botón para que el usuario pueda volver al
+                selector y crear nuevos workspaces (no solo cuando hay >1). */}
+            <button
+              onClick={backToWorkspaces}
+              className="text-[9px] font-bold text-primary uppercase tracking-wider hover:underline mt-0.5"
+            >
+              {workspaces.length > 1 ? 'Cambiar workspace' : 'Gestionar workspaces'}
+            </button>
           </div>
         )}
         <div className="px-3 py-2">

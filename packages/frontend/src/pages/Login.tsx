@@ -130,15 +130,13 @@ export default function Login() {
             <div className="mt-3 px-3 py-1.5 rounded-lg bg-surface-high inline-flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-primary" />
               <span className="text-xs font-bold text-foreground">{workspace.nombre}</span>
-              {workspaces.length > 1 && (
-                <button
-                  onClick={backToWorkspaces}
-                  className="text-[10px] font-bold text-primary uppercase tracking-wider hover:underline ml-1"
-                  title="Cambiar de workspace"
-                >
-                  Cambiar
-                </button>
-              )}
+              <button
+                onClick={backToWorkspaces}
+                className="text-[10px] font-bold text-primary uppercase tracking-wider hover:underline ml-1"
+                title="Volver al selector de workspaces"
+              >
+                Cambiar
+              </button>
             </div>
           )}
           <p className="text-xs text-on-surface-variant mt-3 font-semibold">

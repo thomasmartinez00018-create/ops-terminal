@@ -433,6 +433,69 @@ router.get('/me', requireAnyAuth, async (req: Request, res: Response) => {
 });
 
 // ============================================================================
+// POST /api/cuenta/to-stage-1
+// ----------------------------------------------------------------------------
+// Baja un token stage 2/3 (org/staff) a un token stage 1 (cuenta). Usa los
+// datos ya firmados en el JWT (cuentaId + email), así que no pide password.
+// Sirve para el flujo "cambiar workspace" desde dentro de la app: en vez de
+// forzar logout + re-login, el front pide este endpoint y recibe un nuevo
+// token stage 1 + lista de workspaces. El gate del front pinta el selector.
+// ============================================================================
+router.post('/to-stage-1', requireAnyAuth, async (req: Request, res: Response) => {
+  try {
+    const token = req.token as any;
+    if (!token || !token.cuentaId || !token.email) {
+      res.status(401).json({ error: 'Token inválido' });
+      return;
+    }
+
+    await runWithoutTenant(async () => {
+      // Validar que la cuenta sigue existiendo
+      const cuenta = await prismaRaw.cuenta.findUnique({
+        where: { id: token.cuentaId },
+        include: {
+          miembros: {
+            include: { organizacion: true },
+            orderBy: { createdAt: 'asc' },
+          },
+        },
+      });
+
+      if (!cuenta) {
+        res.status(404).json({ error: 'Cuenta no encontrada' });
+        return;
+      }
+
+      const nuevoToken = signToken({
+        kind: 'cuenta',
+        cuentaId: cuenta.id,
+        email: cuenta.email,
+      });
+
+      res.json({
+        token: nuevoToken,
+        cuenta: {
+          id: cuenta.id,
+          email: cuenta.email,
+          nombre: cuenta.nombre,
+        },
+        workspaces: cuenta.miembros.map(m => ({
+          id: m.organizacion.id,
+          nombre: m.organizacion.nombre,
+          slug: m.organizacion.slug,
+          plan: m.organizacion.plan,
+          estadoSuscripcion: m.organizacion.estadoSuscripcion,
+          rol: m.rol,
+        })),
+      });
+    });
+  } catch (err: any) {
+    console.error('[cuenta/to-stage-1]', err);
+    res.status(500).json({ error: 'Error al volver al selector' });
+  }
+});
+
+// ============================================================================
 // POST /api/cuenta/logout — stub (el logout real es client-side borrando el
 // token). Esta ruta existe por si en el futuro queremos una blacklist.
 // ============================================================================
