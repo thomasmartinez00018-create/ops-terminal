@@ -68,14 +68,7 @@
     "removePackageKeywords": true,
     "buildDependenciesFromSource": false,
     "nodeGypRebuild": false,
-    "npmRebuild": false,
-    "electronFuses": {
-      "runAsNode": false,
-      "enableCookieEncryption": true,
-      "enableNodeOptionsEnvironmentVariable": false,
-      "enableNodeCliInspectArguments": false,
-      "onlyLoadAppFromAsar": true
-    }
+    "npmRebuild": false
   },
   "devDependencies": {
     "electron": "32.3.3",
