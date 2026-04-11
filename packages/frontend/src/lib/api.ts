@@ -134,6 +134,11 @@ export const api = {
       body: JSON.stringify({ codigo, pin }),
     }),
   me: () => request<any>('/auth/me'),
+  bootstrapAdmin: (data: { codigo: string; nombre: string; pin: string }) =>
+    request<{ id: number; codigo: string; nombre: string; rol: string }>(
+      '/auth/bootstrap-admin',
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
 
   // Productos
   getProductos: (params?: Record<string, string>) => request<any[]>(`/productos${qs(params)}`),

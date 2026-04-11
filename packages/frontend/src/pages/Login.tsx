@@ -15,12 +15,63 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  // ── Bootstrap admin (primer usuario del workspace) ──────────────────────
+  const [bootstrapNombre, setBootstrapNombre] = useState('');
+  const [bootstrapCodigo, setBootstrapCodigo] = useState('');
+  const [bootstrapPin, setBootstrapPin] = useState('');
+  const [bootstrapPin2, setBootstrapPin2] = useState('');
+  const [bootstrapError, setBootstrapError] = useState('');
+  const [bootstrapLoading, setBootstrapLoading] = useState(false);
+
+  const loadUsuarios = () => {
+    setLoading(true);
     api.getUsuariosLogin()
       .then(setUsuarios)
       .catch(() => setError('No se pudo conectar al servidor'))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadUsuarios();
   }, []);
+
+  const handleBootstrap = async () => {
+    setBootstrapError('');
+    if (bootstrapNombre.trim().length < 2) {
+      setBootstrapError('Nombre requerido');
+      return;
+    }
+    if (!/^[a-zA-Z0-9_-]{2,20}$/.test(bootstrapCodigo.trim())) {
+      setBootstrapError('Código: 2-20 caracteres alfanuméricos');
+      return;
+    }
+    if (!/^\d{4}$/.test(bootstrapPin)) {
+      setBootstrapError('PIN debe ser de 4 dígitos');
+      return;
+    }
+    if (bootstrapPin !== bootstrapPin2) {
+      setBootstrapError('Los PINs no coinciden');
+      return;
+    }
+    setBootstrapLoading(true);
+    try {
+      await api.bootstrapAdmin({
+        nombre: bootstrapNombre.trim(),
+        codigo: bootstrapCodigo.trim(),
+        pin: bootstrapPin,
+      });
+      // Recargar lista — ahora debería haber 1 usuario
+      setBootstrapNombre('');
+      setBootstrapCodigo('');
+      setBootstrapPin('');
+      setBootstrapPin2('');
+      loadUsuarios();
+    } catch (e: any) {
+      setBootstrapError(e.message || 'Error al crear admin');
+    } finally {
+      setBootstrapLoading(false);
+    }
+  };
 
   const handleLogin = async () => {
     if (!selected) return;
@@ -96,28 +147,86 @@ export default function Login() {
         </div>
 
         {!selected ? (
-          <div className="space-y-2">
-            {usuarios.map(u => (
-              <button
-                key={u.id}
-                onClick={() => { setSelected(u); setPin(''); setError(''); }}
-                className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-surface-high transition-all text-left"
+          usuarios.length === 0 ? (
+            // ── Bootstrap: workspace nuevo sin usuarios ────────────────────
+            <div className="space-y-3">
+              <div className="text-center mb-2">
+                <p className="text-xs text-primary font-bold uppercase tracking-wider mb-1">
+                  Primer acceso
+                </p>
+                <p className="text-[11px] text-on-surface-variant leading-relaxed">
+                  Creá el usuario administrador para este workspace.
+                  Vas a usar este código + PIN para operar el sistema.
+                </p>
+              </div>
+              <input
+                type="text"
+                placeholder="Nombre (ej: Tomás)"
+                value={bootstrapNombre}
+                onChange={e => setBootstrapNombre(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-surface-high border border-border text-sm text-foreground focus:outline-none focus:border-primary"
+                autoComplete="off"
+              />
+              <input
+                type="text"
+                placeholder="Código (ej: tomas, admin)"
+                value={bootstrapCodigo}
+                onChange={e => setBootstrapCodigo(e.target.value.toLowerCase())}
+                className="w-full px-3 py-2 rounded-lg bg-surface-high border border-border text-sm text-foreground focus:outline-none focus:border-primary"
+                autoComplete="off"
+                maxLength={20}
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  placeholder="PIN (4 dígitos)"
+                  value={bootstrapPin}
+                  onChange={e => setBootstrapPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  className="w-full px-3 py-2 rounded-lg bg-surface-high border border-border text-sm text-foreground focus:outline-none focus:border-primary text-center tracking-widest"
+                  maxLength={4}
+                />
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  placeholder="Repetir PIN"
+                  value={bootstrapPin2}
+                  onChange={e => setBootstrapPin2(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  className="w-full px-3 py-2 rounded-lg bg-surface-high border border-border text-sm text-foreground focus:outline-none focus:border-primary text-center tracking-widest"
+                  maxLength={4}
+                />
+              </div>
+              {bootstrapError && (
+                <p className="text-xs text-destructive text-center font-semibold">{bootstrapError}</p>
+              )}
+              <Button
+                onClick={handleBootstrap}
+                disabled={bootstrapLoading}
+                className="w-full"
+                size="lg"
               >
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">
-                  {u.nombre.charAt(0)}
-                </div>
-                <div>
-                  <p className="font-semibold text-sm text-foreground">{u.nombre}</p>
-                  <p className="text-[10px] text-on-surface-variant font-bold uppercase tracking-widest">{u.rol}</p>
-                </div>
-              </button>
-            ))}
-            {usuarios.length === 0 && (
-              <p className="text-center text-sm text-on-surface-variant py-4">
-                No hay usuarios registrados
-              </p>
-            )}
-          </div>
+                {bootstrapLoading ? 'Creando...' : 'Crear administrador'}
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {usuarios.map(u => (
+                <button
+                  key={u.id}
+                  onClick={() => { setSelected(u); setPin(''); setError(''); }}
+                  className="w-full flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-surface-high transition-all text-left"
+                >
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">
+                    {u.nombre.charAt(0)}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-sm text-foreground">{u.nombre}</p>
+                    <p className="text-[10px] text-on-surface-variant font-bold uppercase tracking-widest">{u.rol}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )
         ) : (
           <div>
             <button
