@@ -83,7 +83,7 @@ async function matchProductosConIA(
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
     // Matching semántico: lite alcanza y es más barato
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite' });
 
     const catalogo = productos.map(p => ({
       id: p.id,
@@ -134,9 +134,10 @@ router.post('/escanear', async (req, res) => {
 
     // Llamar a Gemini
     const genAI = new GoogleGenerativeAI(apiKey);
-    // gemini-2.5-flash: modelo actual estable con soporte de visión.
-    // 'gemini-3.1-flash-lite-preview' y 'gemini-2.0-flash-lite' fueron deprecados/404
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    // Para OCR/visión de facturas usamos gemini-3.1-flash (no lite):
+    // flash-lite puede no rendir bien con imágenes complejas, flash es
+    // el sweet spot entre calidad de visión y costo.
+    const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash' });
 
     const result = await model.generateContent([
       EXTRACTION_PROMPT,
