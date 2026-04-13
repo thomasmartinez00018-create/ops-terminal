@@ -28,6 +28,9 @@ import Configuracion from './pages/Configuracion';
 import Facturas from './pages/Facturas';
 import CuentasPorPagar from './pages/CuentasPorPagar';
 import ReportesCostos from './pages/ReportesCostos';
+import ImportarLista from './pages/ImportarLista';
+import Equivalencias from './pages/Equivalencias';
+import ComparadorPrecios from './pages/ComparadorPrecios';
 
 // ============================================================================
 // SessionGate — decide qué pantalla mostrar según el stage del token
@@ -93,6 +96,9 @@ function SessionGate() {
             <Route path="/configuracion" element={<Configuracion />} />
             <Route path="/tareas" element={<Tareas />} />
             <Route path="/elaboraciones" element={<Elaboraciones />} />
+            <Route path="/importar-lista" element={<ImportarLista />} />
+            <Route path="/equivalencias" element={<Equivalencias />} />
+            <Route path="/comparador" element={<ComparadorPrecios />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

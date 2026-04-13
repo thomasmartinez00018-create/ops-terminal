@@ -69,6 +69,7 @@ model Organizacion {
   facturas            Factura[]
   pagos               Pago[]
   porcionados         Porcionado[]
+  listasPrecio        ListaPrecio[]
 
   @@map("organizaciones")
 }
@@ -253,11 +254,18 @@ model Proveedor {
   email          String?
   activo         Boolean @default(true)
 
+  descuentoPct     Float   @default(0)  @map("descuento_pct")
+  aplicaIva        Boolean @default(false) @map("aplica_iva")
+  aplicaPercepcion Boolean @default(false) @map("aplica_percepcion")
+  impuestoInterno  Float   @default(0)  @map("impuesto_interno")
+  whatsapp         String?
+
   organizacion       Organizacion        @relation(fields: [organizacionId], references: [id])
   movimientos        Movimiento[]
   proveedorProductos ProveedorProducto[]
   ordenesCompra      OrdenCompra[]
   facturas           Factura[]
+  listasPrecio       ListaPrecio[]
 
   @@unique([organizacionId, codigo])
   @@index([organizacionId])
@@ -279,9 +287,10 @@ model ProveedorProducto {
   ultimoPrecio     Float?  @map("ultimo_precio")
   fechaPrecio      String? @map("fecha_precio")
 
-  organizacion Organizacion @relation(fields: [organizacionId], references: [id])
-  proveedor    Proveedor    @relation(fields: [proveedorId], references: [id])
-  producto     Producto     @relation(fields: [productoId], references: [id])
+  organizacion     Organizacion      @relation(fields: [organizacionId], references: [id])
+  proveedor        Proveedor         @relation(fields: [proveedorId], references: [id])
+  producto         Producto          @relation(fields: [productoId], references: [id])
+  listaPrecioItems ListaPrecioItem[]
 
   @@index([organizacionId])
   @@map("proveedor_productos")
@@ -640,4 +649,49 @@ model Pago {
 
   @@index([organizacionId])
   @@map("pagos")
+}
+
+// ==========================================
+// LISTAS DE PRECIOS (importación de proveedores)
+// ==========================================
+model ListaPrecio {
+  id              Int      @id @default(autoincrement())
+  organizacionId  Int      @default(0) @map("organizacion_id")
+  codigo          String   // LP-001 auto
+  proveedorId     Int      @map("proveedor_id")
+  fecha           String   // YYYY-MM-DD
+  archivoOrigen   String?  @map("archivo_origen")
+  estado          String   @default("pendiente") // pendiente|procesada|archivada
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  organizacion Organizacion     @relation(fields: [organizacionId], references: [id])
+  proveedor    Proveedor        @relation(fields: [proveedorId], references: [id])
+  items        ListaPrecioItem[]
+
+  @@unique([organizacionId, codigo])
+  @@index([organizacionId])
+  @@map("listas_precio")
+}
+
+model ListaPrecioItem {
+  id                    Int      @id @default(autoincrement())
+  listaPrecioId         Int      @map("lista_precio_id")
+  productoOriginal      String   @map("producto_original")
+  presentacionOriginal  String?  @map("presentacion_original")
+  tipoCompra            String   @default("UNIDAD") @map("tipo_compra") // UNIDAD|CAJA
+  unidadesPorCaja       Int      @default(1) @map("unidades_por_caja")
+  cantidadPorUnidad     Float?   @map("cantidad_por_unidad")
+  unidadMedida          String?  @map("unidad_medida")
+  precioInformado       Float    @map("precio_informado")
+  precioPorUnidad       Float?   @map("precio_por_unidad")
+  precioPorMedidaBase   Float?   @map("precio_por_medida_base")
+  moneda                String   @default("ARS")
+  proveedorProductoId   Int?     @map("proveedor_producto_id")
+  estadoMatch           String   @default("PENDIENTE") @map("estado_match") // PENDIENTE|OK
+  activo                Boolean  @default(true)
+
+  listaPrecio       ListaPrecio        @relation(fields: [listaPrecioId], references: [id], onDelete: Cascade)
+  proveedorProducto ProveedorProducto? @relation(fields: [proveedorProductoId], references: [id])
+
+  @@map("lista_precio_items")
 }

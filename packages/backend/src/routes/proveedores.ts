@@ -75,9 +75,15 @@ router.get('/:id', async (req: Request, res: Response) => {
 // POST /api/proveedores - Crear proveedor
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { codigo, nombre, contacto, telefono, email } = req.body;
+    const { codigo, nombre, contacto, telefono, email, whatsapp, descuentoPct, aplicaIva, aplicaPercepcion, impuestoInterno } = req.body;
     const proveedor = await prisma.proveedor.create({
-      data: { codigo, nombre, contacto, telefono, email }
+      data: {
+        codigo, nombre, contacto, telefono, email, whatsapp,
+        descuentoPct: descuentoPct != null ? Number(descuentoPct) : 0,
+        aplicaIva: aplicaIva === true || aplicaIva === 'true',
+        aplicaPercepcion: aplicaPercepcion === true || aplicaPercepcion === 'true',
+        impuestoInterno: impuestoInterno != null ? Number(impuestoInterno) : 0,
+      }
     });
     res.status(201).json(proveedor);
   } catch (error: any) {

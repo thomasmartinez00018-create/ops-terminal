@@ -39,6 +39,7 @@ const TENANT_MODELS = new Set([
   'Tarea',
   'Factura',
   'Pago',
+  'ListaPrecio',
 ]);
 
 const READ_OPS = new Set([

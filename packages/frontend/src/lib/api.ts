@@ -332,4 +332,34 @@ export const api = {
   getSaldoProveedor: (proveedorId: number) => request<any>(`/contabilidad/saldo-proveedor/${proveedorId}`),
   getCogs: (params?: Record<string, string>) => request<any>(`/contabilidad/cogs${qs(params)}`),
   getHistorialPrecios: (productoId: number) => request<any[]>(`/contabilidad/historial-precios/${productoId}`),
+
+  // Listas de Precio
+  getListasPrecio: () => request<any[]>('/listas-precio'),
+  getListaPrecio: (id: number) => request<any>(`/listas-precio/${id}`),
+  importarListaPrecio: (formData: FormData) => {
+    const token = getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return fetch(`${API_BASE}/listas-precio/importar`, { method: 'POST', headers, body: formData })
+      .then(async (res) => {
+        if (res.status === 401) { setToken(null); window.dispatchEvent(new CustomEvent(AUTH_ERROR_EVENT)); throw new Error('Sesión expirada'); }
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+        return data;
+      });
+  },
+  matchListaItem: (listaId: number, data: { itemId: number; productoId: number }) =>
+    request<any>(`/listas-precio/${listaId}/match`, { method: 'POST', body: JSON.stringify(data) }),
+  matchListaAI: (listaId: number) =>
+    request<any>(`/listas-precio/${listaId}/match-ai`, { method: 'POST' }),
+  applyMatches: (listaId: number, data: { matches: { itemId: number; productoId: number }[] }) =>
+    request<any>(`/listas-precio/${listaId}/apply-matches`, { method: 'POST', body: JSON.stringify(data) }),
+  deleteListaPrecio: (id: number) =>
+    request<any>(`/listas-precio/${id}`, { method: 'DELETE' }),
+
+  // Comparador
+  getComparativa: (params?: Record<string, string>) => request<any[]>(`/comparador${qs(params)}`),
+  getEvolucion: (productoId: number, params?: Record<string, string>) =>
+    request<any[]>(`/comparador/evolucion/${productoId}${qs(params)}`),
+  getProveedoresImpuestos: () => request<any[]>('/comparador/proveedores-impuestos'),
 };

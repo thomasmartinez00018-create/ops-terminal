@@ -17,6 +17,11 @@ const emptyProveedorForm = {
   contacto: '',
   telefono: '',
   email: '',
+  whatsapp: '',
+  descuentoPct: 0,
+  aplicaIva: false,
+  aplicaPercepcion: false,
+  impuestoInterno: 0,
 };
 
 const emptyMapForm = {
@@ -69,6 +74,11 @@ export default function Proveedores() {
         contacto: prov.contacto || '',
         telefono: prov.telefono || '',
         email: prov.email || '',
+        whatsapp: prov.whatsapp || '',
+        descuentoPct: prov.descuentoPct || 0,
+        aplicaIva: prov.aplicaIva || false,
+        aplicaPercepcion: prov.aplicaPercepcion || false,
+        impuestoInterno: prov.impuestoInterno || 0,
       });
     } else {
       setEditProvId(null);
@@ -237,6 +247,15 @@ export default function Proveedores() {
                 </div>
               )}
             </div>
+            {/* Tax badges */}
+            {(prov.aplicaIva || prov.aplicaPercepcion || prov.descuentoPct > 0 || prov.impuestoInterno > 0) && (
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {prov.aplicaIva && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/15 text-blue-400">IVA 21%</span>}
+                {prov.aplicaPercepcion && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-500/15 text-purple-400">Perc 3%</span>}
+                {prov.descuentoPct > 0 && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-green-500/15 text-green-400">-{prov.descuentoPct}%</span>}
+                {prov.impuestoInterno > 0 && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/15 text-amber-400">II {prov.impuestoInterno}%</span>}
+              </div>
+            )}
             <button
               onClick={e => { e.stopPropagation(); navigate(`/facturas?proveedorId=${prov.id}`); }}
               className="mt-3 flex items-center gap-1.5 text-[10px] font-bold text-primary/70 hover:text-primary transition-colors uppercase tracking-wider"
@@ -378,6 +397,48 @@ export default function Proveedores() {
               onChange={e => setProvForm({ ...provForm, email: e.target.value })}
               placeholder="email@proveedor.com"
             />
+          </div>
+          <Input
+            label="WhatsApp"
+            id="prov-whatsapp"
+            value={provForm.whatsapp}
+            onChange={e => setProvForm({ ...provForm, whatsapp: e.target.value })}
+            placeholder="1145678901"
+          />
+
+          {/* Tax/discount fields */}
+          <div className="border-t border-border pt-3 mt-3">
+            <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-2">Impuestos y descuentos</p>
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Descuento %"
+                id="prov-descuento"
+                type="number"
+                value={provForm.descuentoPct}
+                onChange={e => setProvForm({ ...provForm, descuentoPct: Number(e.target.value) })}
+              />
+              <Input
+                label="Impuesto Interno %"
+                id="prov-impInt"
+                type="number"
+                value={provForm.impuestoInterno}
+                onChange={e => setProvForm({ ...provForm, impuestoInterno: Number(e.target.value) })}
+              />
+            </div>
+            <div className="flex gap-6 mt-2">
+              <label className="flex items-center gap-2 text-sm text-on-surface-variant cursor-pointer">
+                <input type="checkbox" checked={provForm.aplicaIva}
+                  onChange={e => setProvForm({ ...provForm, aplicaIva: e.target.checked })}
+                  className="accent-primary" />
+                IVA 21%
+              </label>
+              <label className="flex items-center gap-2 text-sm text-on-surface-variant cursor-pointer">
+                <input type="checkbox" checked={provForm.aplicaPercepcion}
+                  onChange={e => setProvForm({ ...provForm, aplicaPercepcion: e.target.checked })}
+                  className="accent-primary" />
+                Percepcion 3%
+              </label>
+            </div>
           </div>
 
           {error && <p className="text-sm text-destructive font-semibold">{error}</p>}

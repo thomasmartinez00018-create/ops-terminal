@@ -57,6 +57,9 @@ const navGroups: NavGroup[] = [
     label: 'Compras y contabilidad',
     items: [
       { to: '/proveedores', label: 'Proveedores', icon: Truck, permiso: 'proveedores' },
+      { to: '/importar-lista', label: 'Importar Listas', icon: Upload, permiso: 'proveedores' },
+      { to: '/equivalencias', label: 'Equivalencias', icon: Link2, permiso: 'proveedores' },
+      { to: '/comparador', label: 'Comparador', icon: BarChart3, permiso: 'proveedores' },
       { to: '/facturas', label: 'Facturas', icon: FileText, permiso: 'contabilidad' },
       { to: '/cuentas-por-pagar', label: 'Cuentas x Pagar', icon: DollarSign, permiso: 'contabilidad' },
       { to: '/reportes-costos', label: 'Costos', icon: TrendingUp, permiso: 'contabilidad' },

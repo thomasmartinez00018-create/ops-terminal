@@ -27,6 +27,8 @@ import contabilidadRouter from './routes/contabilidad';
 import configRouter from './routes/config';
 import aiChatRouter from './routes/aiChat';
 import porcionadoRouter from './routes/porcionado';
+import listasPrecioRouter from './routes/listas-precio';
+import comparadorRouter from './routes/comparador';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -132,6 +134,8 @@ businessApi.use('/tareas', tareasRouter);
 businessApi.use('/elaboraciones', elaboracionesRouter);
 businessApi.use('/porcionado', porcionadoRouter);
 businessApi.use('/contabilidad', contabilidadRouter);
+businessApi.use('/listas-precio', listasPrecioRouter);
+businessApi.use('/comparador', comparadorRouter);
 businessApi.use('/config', configRouter);
 businessApi.use('/ai', aiChatRouter);
 app.use('/api', businessApi);
