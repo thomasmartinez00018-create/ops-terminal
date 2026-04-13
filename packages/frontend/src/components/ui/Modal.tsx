@@ -7,9 +7,17 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   children: ReactNode;
+  size?: 'sm' | 'md' | 'lg' | 'xl';
 }
 
-export default function Modal({ open, onClose, title, children }: ModalProps) {
+const SIZE_MAP: Record<string, string> = {
+  sm: 'max-w-sm',
+  md: 'max-w-lg',
+  lg: 'max-w-2xl',
+  xl: 'max-w-4xl',
+};
+
+export default function Modal({ open, onClose, title, children, size = 'md' }: ModalProps) {
   useEffect(() => {
     if (open) {
       document.body.style.overflow = 'hidden';
@@ -41,7 +49,7 @@ export default function Modal({ open, onClose, title, children }: ModalProps) {
     >
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div
-        className="relative bg-surface rounded-xl shadow-2xl w-full max-w-lg mx-4 border border-border flex flex-col max-h-[90vh]"
+        className={`relative bg-surface rounded-xl shadow-2xl w-full ${SIZE_MAP[size] || 'max-w-lg'} mx-4 border border-border flex flex-col max-h-[90vh]`}
         style={{ animation: 'scaleIn 0.2s ease-out' }}
       >
         <div className="flex items-center justify-between p-5 border-b border-border flex-shrink-0">

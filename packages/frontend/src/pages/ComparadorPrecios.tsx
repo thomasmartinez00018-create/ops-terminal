@@ -1,6 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
 import { api } from '../lib/api';
-import { parsePresentacion } from '../lib/presentacion';
 import { buildWALink, buildOrderMessage } from '../lib/whatsapp';
 import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';

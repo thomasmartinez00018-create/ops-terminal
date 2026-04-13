@@ -4,7 +4,7 @@ import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import Modal from '../components/ui/Modal';
-import { Wand2, Check, X, Loader2, Link2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Wand2, Check, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const PAGE_SIZE = 30;
 
@@ -18,14 +18,14 @@ const CONFIANZA_STYLES: Record<string, { bg: string; text: string; label: string
 export default function Equivalencias() {
   const [listas, setListas] = useState<any[]>([]);
   const [productos, setProductos] = useState<any[]>([]);
-  const [proveedores, setProveedores] = useState<any[]>([]);
+  const [_proveedores, setProveedores] = useState<any[]>([]);
   const [selectedLista, setSelectedLista] = useState<any>(null);
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
   // Filters
   const [filterEstado, setFilterEstado] = useState('PENDIENTE');
-  const [filterProveedor, setFilterProveedor] = useState('');
+  const [_filterProveedor, _setFilterProveedor] = useState('');
   const [page, setPage] = useState(0);
 
   // AI matching
