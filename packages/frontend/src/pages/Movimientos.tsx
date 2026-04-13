@@ -5,7 +5,7 @@ import PageTour from '../components/PageTour';
 import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';
 import Input from '../components/ui/Input';
-import Modal from '../components/ui/Modal';
+import DrawerModal from '../components/ui/DrawerModal';
 import Badge from '../components/ui/Badge';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import { useToast } from '../context/ToastContext';
@@ -373,7 +373,7 @@ export default function Movimientos() {
         </div>
       </div>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Registrar movimiento" size="lg">
+      <DrawerModal open={modalOpen} onClose={() => setModalOpen(false)} title="Registrar movimiento" size="lg">
         <div className="space-y-3">
           <Select
             label="Tipo de movimiento"
@@ -479,10 +479,10 @@ export default function Movimientos() {
             <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button>
           </div>
         </div>
-      </Modal>
+      </DrawerModal>
 
       {/* ── Modal batch (múltiples productos) ── */}
-      <Modal open={batchOpen} onClose={() => setBatchOpen(false)} title="Movimiento múltiple" size="lg">
+      <DrawerModal open={batchOpen} onClose={() => setBatchOpen(false)} title="Movimiento múltiple" size="lg">
         <div className="space-y-3">
           <Select
             label="Tipo de movimiento"
@@ -619,7 +619,7 @@ export default function Movimientos() {
             <Button variant="secondary" onClick={() => setBatchOpen(false)}>Cancelar</Button>
           </div>
         </div>
-      </Modal>
+      </DrawerModal>
     </div>
   );
 }

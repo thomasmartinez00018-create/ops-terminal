@@ -4,7 +4,7 @@ import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import PageTour from '../components/PageTour';
-import Modal from '../components/ui/Modal';
+import DrawerModal from '../components/ui/DrawerModal';
 import { Plus, Pencil, Trash2, Truck, Package, Phone, Mail, FileText } from 'lucide-react';
 import ExportMenu from '../components/ui/ExportMenu';
 import type { ExportConfig } from '../lib/exportUtils';
@@ -354,7 +354,7 @@ export default function Proveedores() {
       )}
 
       {/* Modal proveedor */}
-      <Modal
+      <DrawerModal
         open={modalProvOpen}
         onClose={() => setModalProvOpen(false)}
         title={editProvId ? 'Editar proveedor' : 'Nuevo proveedor'}
@@ -452,10 +452,10 @@ export default function Proveedores() {
             </Button>
           </div>
         </div>
-      </Modal>
+      </DrawerModal>
 
       {/* Modal mapeo producto */}
-      <Modal
+      <DrawerModal
         open={modalMapOpen}
         onClose={() => setModalMapOpen(false)}
         title={editMapId ? 'Editar producto' : 'Agregar producto'}
@@ -520,7 +520,7 @@ export default function Proveedores() {
             </Button>
           </div>
         </div>
-      </Modal>
+      </DrawerModal>
     </div>
   );
 }

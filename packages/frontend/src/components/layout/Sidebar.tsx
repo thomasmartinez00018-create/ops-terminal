@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useSession } from '../../context/SessionContext';
 import {
   LayoutDashboard, Package, Warehouse, Users, ArrowRightLeft,
-  ClipboardList, LogOut, Menu, X, ChefHat, Truck, ClipboardCheck,
+  ClipboardList, LogOut, ChefHat, Truck, ClipboardCheck,
   Upload, BarChart3, Link2, ShoppingCart, ScanBarcode, AlertTriangle, ScanLine, ListTodo, FlaskConical,
   FileText, DollarSign, TrendingUp, Settings, ChevronDown
 } from 'lucide-react';
@@ -44,7 +44,7 @@ const navGroups: NavGroup[] = [
   },
   {
     key: 'stock',
-    label: 'Stock e inventario',
+    label: 'Stock',
     items: [
       { to: '/stock', label: 'Stock', icon: ClipboardList, permiso: 'stock' },
       { to: '/inventarios', label: 'Inventarios', icon: ClipboardCheck, permiso: 'inventarios' },
@@ -53,13 +53,19 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
-    key: 'compras',
-    label: 'Compras y contabilidad',
+    key: 'proveedores',
+    label: 'Proveedores',
     items: [
       { to: '/proveedores', label: 'Proveedores', icon: Truck, permiso: 'proveedores' },
-      { to: '/importar-lista', label: 'Importar Listas', icon: Upload, permiso: 'proveedores' },
+      { to: '/importar-lista', label: 'Listas de precio', icon: Upload, permiso: 'proveedores' },
       { to: '/equivalencias', label: 'Equivalencias', icon: Link2, permiso: 'proveedores' },
       { to: '/comparador', label: 'Comparador', icon: BarChart3, permiso: 'proveedores' },
+    ],
+  },
+  {
+    key: 'contabilidad',
+    label: 'Contabilidad',
+    items: [
       { to: '/facturas', label: 'Facturas', icon: FileText, permiso: 'contabilidad' },
       { to: '/cuentas-por-pagar', label: 'Cuentas x Pagar', icon: DollarSign, permiso: 'contabilidad' },
       { to: '/reportes-costos', label: 'Costos', icon: TrendingUp, permiso: 'contabilidad' },
@@ -67,38 +73,28 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
-    key: 'maestros',
-    label: 'Maestros',
+    key: 'config',
+    label: 'Configuración',
     items: [
       { to: '/productos', label: 'Productos', icon: Package, permiso: 'productos' },
       { to: '/depositos', label: 'Depósitos', icon: Warehouse, permiso: 'depositos' },
       { to: '/recetas', label: 'Recetas', icon: ChefHat, permiso: 'recetas' },
-    ],
-  },
-  {
-    key: 'herramientas',
-    label: 'Herramientas',
-    items: [
-      { to: '/importar', label: 'Importar', icon: Upload, permiso: 'importar' },
-      { to: '/vincular', label: 'Vincular', icon: Link2, permiso: 'vincular' },
-    ],
-  },
-  {
-    key: 'sistema',
-    label: 'Sistema',
-    items: [
       { to: '/usuarios', label: 'Usuarios', icon: Users, adminOnly: true },
-      { to: '/configuracion', label: 'Configuración', icon: Settings, adminOnly: true },
+      { to: '/configuracion', label: 'Ajustes', icon: Settings, adminOnly: true },
     ],
   },
 ];
 
 // ── Sidebar ──────────────────────────────────────────────────
-export default function Sidebar() {
+interface SidebarProps {
+  open?: boolean;
+  onClose?: () => void;
+}
+
+export default function Sidebar({ open = false, onClose }: SidebarProps) {
   const { user, logout, tienePermiso } = useAuth();
   const { workspace, workspaces, backToWorkspaces } = useSession();
   const location = useLocation();
-  const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   // Filtrar items según permisos
@@ -169,7 +165,7 @@ export default function Sidebar() {
               to={item.to}
               end={item.to === '/'}
               className={linkClass}
-              onClick={() => setOpen(false)}
+              onClick={() => onClose?.()}
             >
               <item.icon size={17} />
               {item.label}
@@ -220,7 +216,7 @@ export default function Sidebar() {
                       key={item.to}
                       to={item.to}
                       className={groupLinkClass}
-                      onClick={() => setOpen(false)}
+                      onClick={() => onClose?.()}
                     >
                       <item.icon size={15} className="opacity-70" />
                       {item.label}
@@ -268,19 +264,11 @@ export default function Sidebar() {
 
   return (
     <>
-      {/* Mobile toggle */}
-      <button
-        className="fixed top-4 left-4 z-50 p-2.5 rounded-lg bg-surface border border-border lg:hidden"
-        onClick={() => setOpen(!open)}
-      >
-        {open ? <X size={18} className="text-foreground" /> : <Menu size={18} className="text-foreground" />}
-      </button>
-
       {/* Mobile overlay */}
       {open && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 lg:hidden"
-          onClick={() => setOpen(false)}
+          onClick={() => onClose?.()}
         />
       )}
 
