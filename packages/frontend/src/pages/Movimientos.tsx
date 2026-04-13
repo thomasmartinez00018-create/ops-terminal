@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import PageTour from '../components/PageTour';
@@ -10,7 +10,7 @@ import Badge from '../components/ui/Badge';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import { useToast } from '../context/ToastContext';
 import { useRecentProducts } from '../hooks/useRecentProducts';
-import { Plus, ScanLine, Layers } from 'lucide-react';
+import { Plus, ScanLine, Layers, ScanBarcode } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import ExportMenu from '../components/ui/ExportMenu';
 import type { ExportConfig } from '../lib/exportUtils';
@@ -65,6 +65,10 @@ export default function Movimientos() {
   ]);
   const [batchError, setBatchError] = useState('');
   const [batchSaving, setBatchSaving] = useState(false);
+  const [scanMode, setScanMode] = useState(false);
+  const [scanInput, setScanInput] = useState('');
+  const [scanStatus, setScanStatus] = useState('');
+  const scanRef = useRef<HTMLInputElement>(null);
 
   const cargar = () => {
     setLoading(true);
@@ -181,6 +185,43 @@ export default function Movimientos() {
 
   const batchNeedsOrigen = ['merma', 'transferencia', 'consumo_interno', 'venta'].includes(batchTipo);
   const batchNeedsDestino = ['ingreso', 'elaboracion', 'transferencia', 'ajuste', 'devolucion'].includes(batchTipo);
+
+  const procesarScan = useCallback(async (barcode: string) => {
+    if (!barcode.trim()) return;
+    setScanStatus('');
+    try {
+      const producto = await api.scannerBuscarProducto(barcode.trim());
+      // Check if already in list → increment quantity
+      const existingIdx = batchItems.findIndex(i => i.productoId === producto.id.toString());
+      if (existingIdx >= 0) {
+        setBatchItems(prev => prev.map((item, i) => {
+          if (i !== existingIdx) return item;
+          return { ...item, cantidad: String((parseFloat(item.cantidad) || 0) + 1) };
+        }));
+        setScanStatus(`+1 ${producto.nombre}`);
+      } else {
+        // Add new row (replace empty first row or append)
+        const emptyIdx = batchItems.findIndex(i => !i.productoId);
+        if (emptyIdx >= 0) {
+          setBatchItems(prev => prev.map((item, i) => {
+            if (i !== emptyIdx) return item;
+            return { productoId: producto.id.toString(), cantidad: '1', unidad: producto.unidadUso || 'unidad' };
+          }));
+        } else {
+          setBatchItems(prev => [...prev, { productoId: producto.id.toString(), cantidad: '1', unidad: producto.unidadUso || 'unidad' }]);
+        }
+        setScanStatus(`✓ ${producto.nombre}`);
+      }
+    } catch {
+      setScanStatus(`✗ No encontrado: ${barcode}`);
+    }
+    setScanInput('');
+    setTimeout(() => scanRef.current?.focus(), 50);
+  }, [batchItems]);
+
+  const handleScanKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') { e.preventDefault(); procesarScan(scanInput); }
+  };
 
   const guardarBatch = async () => {
     setBatchError('');
@@ -332,7 +373,7 @@ export default function Movimientos() {
         </div>
       </div>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Registrar movimiento">
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Registrar movimiento" size="lg">
         <div className="space-y-3">
           <Select
             label="Tipo de movimiento"
@@ -441,7 +482,7 @@ export default function Movimientos() {
       </Modal>
 
       {/* ── Modal batch (múltiples productos) ── */}
-      <Modal open={batchOpen} onClose={() => setBatchOpen(false)} title="Movimiento múltiple">
+      <Modal open={batchOpen} onClose={() => setBatchOpen(false)} title="Movimiento múltiple" size="lg">
         <div className="space-y-3">
           <Select
             label="Tipo de movimiento"
@@ -474,61 +515,100 @@ export default function Movimientos() {
             )}
           </div>
 
-          <div className="border border-border rounded-lg p-3 space-y-2">
-            <div className="flex items-center justify-between mb-1">
-              <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Productos</p>
+          {/* Scanner toggle + input */}
+          <div className="border border-border rounded-lg p-3">
+            <div className="flex items-center justify-between mb-2">
+              <button
+                onClick={() => { setScanMode(!scanMode); setScanStatus(''); setTimeout(() => scanRef.current?.focus(), 100); }}
+                className={`flex items-center gap-2 text-xs font-bold uppercase tracking-wider transition ${
+                  scanMode ? 'text-primary' : 'text-on-surface-variant hover:text-primary'
+                }`}
+              >
+                <ScanBarcode size={14} />
+                {scanMode ? 'Scanner activo' : 'Usar scanner'}
+              </button>
               <button
                 onClick={batchAddItem}
                 className="text-xs font-bold text-primary hover:text-primary/80 uppercase tracking-wider"
               >
-                + Agregar
+                + Agregar manual
               </button>
             </div>
-            {batchItems.map((item, idx) => (
-              <div key={idx} className="grid grid-cols-12 gap-2 items-end">
-                <div className="col-span-6">
-                  <SearchableSelect
-                    label={idx === 0 ? 'Producto' : undefined}
-                    id={`bp-${idx}`}
-                    value={item.productoId}
-                    onChange={v => batchUpdateItem(idx, 'productoId', v)}
-                    options={productos.map(p => ({ value: p.id.toString(), label: `${p.codigo} - ${p.nombre}` }))}
-                    placeholder="Producto..."
-                    pinnedValues={getRecents()}
+
+            {scanMode && (
+              <div className="mb-3">
+                <div className="flex items-center gap-2 bg-surface-high rounded-lg px-3 py-2 border border-primary/30">
+                  <ScanBarcode size={18} className="text-primary animate-pulse shrink-0" />
+                  <input
+                    ref={scanRef}
+                    type="text"
+                    value={scanInput}
+                    onChange={e => setScanInput(e.target.value)}
+                    onKeyDown={handleScanKeyDown}
+                    placeholder="Escaneá o escribí un código..."
+                    autoFocus
+                    className="flex-1 bg-transparent text-sm font-bold text-foreground placeholder:text-on-surface-variant/50 outline-none"
                   />
                 </div>
-                <div className="col-span-2">
-                  <Input
-                    label={idx === 0 ? 'Cant' : undefined}
-                    id={`bq-${idx}`}
-                    type="number"
-                    step="0.01"
-                    value={item.cantidad}
-                    onChange={e => batchUpdateItem(idx, 'cantidad', e.target.value)}
-                    placeholder="0"
-                  />
-                </div>
-                <div className="col-span-2">
-                  <Input
-                    label={idx === 0 ? 'Unid' : undefined}
-                    id={`bu-${idx}`}
-                    value={item.unidad}
-                    onChange={e => batchUpdateItem(idx, 'unidad', e.target.value)}
-                    placeholder="kg"
-                  />
-                </div>
-                <div className="col-span-2 flex justify-center">
-                  {batchItems.length > 1 && (
-                    <button
-                      onClick={() => batchRemoveItem(idx)}
-                      className="text-xs text-destructive hover:text-destructive/80 font-bold"
-                    >
-                      Quitar
-                    </button>
-                  )}
-                </div>
+                {scanStatus && (
+                  <p className={`text-xs font-semibold mt-1.5 ${scanStatus.startsWith('✗') ? 'text-destructive' : 'text-success'}`}>
+                    {scanStatus}
+                  </p>
+                )}
               </div>
-            ))}
+            )}
+
+            {/* Product rows */}
+            <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-2">
+              Productos ({batchItems.filter(i => i.productoId).length})
+            </p>
+            <div className="space-y-2 max-h-[40vh] overflow-y-auto">
+              {batchItems.map((item, idx) => (
+                <div key={idx} className="grid grid-cols-12 gap-2 items-end">
+                  <div className="col-span-6">
+                    <SearchableSelect
+                      label={idx === 0 ? 'Producto' : undefined}
+                      id={`bp-${idx}`}
+                      value={item.productoId}
+                      onChange={v => batchUpdateItem(idx, 'productoId', v)}
+                      options={productos.map(p => ({ value: p.id.toString(), label: `${p.codigo} - ${p.nombre}` }))}
+                      placeholder="Producto..."
+                      pinnedValues={getRecents()}
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <Input
+                      label={idx === 0 ? 'Cant' : undefined}
+                      id={`bq-${idx}`}
+                      type="number"
+                      step="0.01"
+                      value={item.cantidad}
+                      onChange={e => batchUpdateItem(idx, 'cantidad', e.target.value)}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <Input
+                      label={idx === 0 ? 'Unid' : undefined}
+                      id={`bu-${idx}`}
+                      value={item.unidad}
+                      onChange={e => batchUpdateItem(idx, 'unidad', e.target.value)}
+                      placeholder="kg"
+                    />
+                  </div>
+                  <div className="col-span-2 flex justify-center">
+                    {batchItems.length > 1 && (
+                      <button
+                        onClick={() => batchRemoveItem(idx)}
+                        className="text-xs text-destructive hover:text-destructive/80 font-bold"
+                      >
+                        Quitar
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
           {batchError && <p className="text-sm text-destructive font-semibold">{batchError}</p>}
