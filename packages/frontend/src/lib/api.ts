@@ -178,6 +178,8 @@ export const api = {
   getMovimientos: (params?: Record<string, string>) => request<any[]>(`/movimientos${qs(params)}`),
   createMovimiento: (data: any) =>
     request<any>('/movimientos', { method: 'POST', body: JSON.stringify(data) }),
+  createMovimientosBatch: (data: any) =>
+    request<any>('/movimientos/batch', { method: 'POST', body: JSON.stringify(data) }),
 
   // Stock
   getStock: (params?: Record<string, string>) => request<any[]>(`/stock${qs(params)}`),
@@ -291,6 +293,12 @@ export const api = {
   createElaboracion: (data: any) => request<any>('/elaboraciones', { method: 'POST', body: JSON.stringify(data) }),
   getElaboracion: (id: number) => request<any>(`/elaboraciones/${id}`),
   getRecetasConProducto: () => request<any[]>('/recetas?activo=true'),
+
+  // Porcionado
+  getPorcionados: (params?: Record<string, string>) => request<any[]>(`/porcionado${qs(params)}`),
+  createPorcionado: (data: any) =>
+    request<any>('/porcionado', { method: 'POST', body: JSON.stringify(data) }),
+  getPorcionado: (id: number) => request<any>(`/porcionado/${id}`),
 
   // Contabilidad — Facturas
   getFacturas: (params?: Record<string, string>) => request<any[]>(`/contabilidad/facturas${qs(params)}`),

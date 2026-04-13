@@ -9,7 +9,7 @@ import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import PageTour from '../components/PageTour';
-import { Plus, FlaskConical, X, Wand2, ArrowRight, ArrowLeft, Package } from 'lucide-react';
+import { Plus, FlaskConical, X, Wand2, ArrowRight, ArrowLeft, Package, Scissors } from 'lucide-react';
 
 interface IngredienteRow {
   productoId: number | null;
@@ -25,8 +25,17 @@ const emptyIngrediente: IngredienteRow = {
   depositoOrigenId: null,
 };
 
+const SECTORES = [
+  { value: '', label: 'Sin sector' },
+  { value: 'pizzeria', label: 'Pizzería' },
+  { value: 'cocina', label: 'Cocina' },
+  { value: 'pasteleria', label: 'Pastelería' },
+  { value: 'pastas', label: 'Pastas' },
+];
+
 const emptyForm = {
   recetaId: null as number | null,
+  sector: '' as string,
   productoResultadoId: null as number | null,
   cantidadProducida: '' as string | number,
   unidadProducida: '',
@@ -49,6 +58,21 @@ export default function Elaboraciones() {
   const [form, setForm] = useState({ ...emptyForm });
   const [loading, setLoading] = useState(false);
   const [loadingList, setLoadingList] = useState(true);
+  const [tab, setTab] = useState<'elaboracion' | 'porcionado'>('elaboracion');
+
+  // ── Porcionado state ──
+  const [porcionados, setPorcionados] = useState<any[]>([]);
+  const [porcionadoOpen, setPorcionadoOpen] = useState(false);
+  const [porcionadoLoading, setPorcionadoLoading] = useState(false);
+  const [porcForm, setPorcForm] = useState({
+    productoOrigenId: null as number | null,
+    cantidadOrigen: '' as string | number,
+    unidadOrigen: '',
+    depositoOrigenId: null as number | null,
+    merma: '' as string | number,
+    observacion: '',
+    items: [{ productoId: null as number | null, cantidad: '', pesoUnidad: '', unidad: '', depositoDestinoId: null as number | null }],
+  });
 
   const cargar = () => {
     setLoadingList(true);
@@ -181,6 +205,7 @@ export default function Elaboraciones() {
         unidadProducida: form.unidadProducida || 'unidad',
         depositoDestinoId: form.depositoDestinoId,
         recetaId: form.recetaId,
+        sector: form.sector || null,
         usuarioId: user!.id,
         fecha: form.fecha,
         hora: form.hora,
@@ -204,6 +229,80 @@ export default function Elaboraciones() {
     }
   };
 
+  // ── Porcionado functions ──
+  const cargarPorcionados = () => {
+    api.getPorcionados().then(setPorcionados).catch(console.error);
+  };
+  useEffect(() => { if (tab === 'porcionado') cargarPorcionados(); }, [tab]);
+
+  const abrirPorcionado = () => {
+    setPorcForm({
+      productoOrigenId: null, cantidadOrigen: '', unidadOrigen: '',
+      depositoOrigenId: null, merma: '', observacion: '',
+      items: [{ productoId: null, cantidad: '', pesoUnidad: '', unidad: '', depositoDestinoId: null }],
+    });
+    setPorcionadoOpen(true);
+  };
+
+  const porcAddItem = () => setPorcForm(f => ({
+    ...f,
+    items: [...f.items, { productoId: null, cantidad: '', pesoUnidad: '', unidad: '', depositoDestinoId: null }],
+  }));
+  const porcRemoveItem = (idx: number) => setPorcForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }));
+  const porcUpdateItem = (idx: number, field: string, value: any) => {
+    setPorcForm(f => ({
+      ...f,
+      items: f.items.map((item, i) => {
+        if (i !== idx) return item;
+        const updated = { ...item, [field]: value };
+        if (field === 'productoId' && value) {
+          const prod = productos.find(p => p.id === Number(value));
+          if (prod) updated.unidad = prod.unidadUso || 'kg';
+        }
+        return updated;
+      }),
+    }));
+  };
+
+  const guardarPorcionado = async () => {
+    if (!porcForm.productoOrigenId) { addToast('Seleccioná el producto a porcionar', 'error'); return; }
+    if (!porcForm.cantidadOrigen || Number(porcForm.cantidadOrigen) <= 0) { addToast('Ingresá la cantidad de entrada', 'error'); return; }
+    const validItems = porcForm.items.filter(i => i.productoId && Number(i.cantidad) > 0 && Number(i.pesoUnidad) > 0);
+    if (!validItems.length) { addToast('Agregá al menos un sub-producto con cantidad y peso', 'error'); return; }
+
+    setPorcionadoLoading(true);
+    try {
+      await api.createPorcionado({
+        productoOrigenId: porcForm.productoOrigenId,
+        cantidadOrigen: Number(porcForm.cantidadOrigen),
+        unidadOrigen: porcForm.unidadOrigen || 'kg',
+        depositoOrigenId: porcForm.depositoOrigenId,
+        merma: Number(porcForm.merma || 0),
+        observacion: porcForm.observacion || null,
+        usuarioId: user!.id,
+        items: validItems.map(i => ({
+          productoId: Number(i.productoId),
+          cantidad: Number(i.cantidad),
+          pesoUnidad: Number(i.pesoUnidad),
+          unidad: i.unidad || 'kg',
+          depositoDestinoId: i.depositoDestinoId,
+        })),
+      });
+      addToast('Porcionado registrado', 'success');
+      setPorcionadoOpen(false);
+      cargarPorcionados();
+    } catch (e: any) {
+      addToast(e.message || 'Error al registrar porcionado', 'error');
+    } finally {
+      setPorcionadoLoading(false);
+    }
+  };
+
+  // Cálculo de rendimiento del porcionado
+  const porcTotalSalida = porcForm.items.reduce((acc, i) => acc + (Number(i.cantidad) * Number(i.pesoUnidad || 0)), 0);
+  const porcEntrada = Number(porcForm.cantidadOrigen || 0);
+  const porcMermaCalc = porcEntrada > 0 && porcTotalSalida > 0 ? Math.max(0, porcEntrada - porcTotalSalida - Number(porcForm.merma || 0)) : 0;
+
   const productoResultado = productos.find(p => p.id === form.productoResultadoId);
 
   return (
@@ -213,21 +312,46 @@ export default function Elaboraciones() {
         <div>
           <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Producción</p>
           <h1 className="text-xl font-extrabold text-foreground mt-1">Elaboraciones</h1>
-          <p className="text-xs text-on-surface-variant mt-1">Transformación de ingredientes en productos elaborados — ej: Nalga 5kg → Milanesa 3kg</p>
+          <p className="text-xs text-on-surface-variant mt-1">
+            {tab === 'elaboracion'
+              ? 'Transformación de ingredientes en productos elaborados — ej: Nalga 5kg → Milanesa 3kg'
+              : 'Dividí un producto elaborado en sub-productos — ej: 10kg Masa → 30 bollos'}
+          </p>
         </div>
-        <Button onClick={abrirModal}>
-          <Plus size={16} /> Registrar elaboración
-        </Button>
+        <div className="flex gap-2">
+          {tab === 'elaboracion' ? (
+            <Button onClick={abrirModal}><Plus size={16} /> Registrar elaboración</Button>
+          ) : (
+            <Button onClick={abrirPorcionado}><Scissors size={16} /> Registrar porcionado</Button>
+          )}
+        </div>
       </div>
 
-      {/* History table */}
-      <div className="bg-surface rounded-xl border border-border overflow-hidden">
+      {/* Tabs */}
+      <div className="flex gap-1 mb-4 bg-surface-high rounded-lg p-1 w-fit">
+        <button
+          onClick={() => setTab('elaboracion')}
+          className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${tab === 'elaboracion' ? 'bg-primary text-background shadow-sm' : 'text-on-surface-variant hover:text-foreground'}`}
+        >
+          <FlaskConical size={14} className="inline mr-1.5" />Elaboraciones
+        </button>
+        <button
+          onClick={() => setTab('porcionado')}
+          className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${tab === 'porcionado' ? 'bg-primary text-background shadow-sm' : 'text-on-surface-variant hover:text-foreground'}`}
+        >
+          <Scissors size={14} className="inline mr-1.5" />Porcionado
+        </button>
+      </div>
+
+      {/* ── Tab: Elaboraciones ── */}
+      {tab === 'elaboracion' && <div className="bg-surface rounded-xl border border-border overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border">
                 <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Código</th>
                 <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Fecha</th>
+                <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden sm:table-cell">Sector</th>
                 <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Producto elaborado</th>
                 <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Cantidad</th>
                 <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden md:table-cell">Ingredientes consumidos</th>
@@ -238,7 +362,7 @@ export default function Elaboraciones() {
             <tbody className="divide-y divide-border">
               {loadingList && (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center">
+                  <td colSpan={8} className="p-8 text-center">
                     <div className="flex items-center justify-center gap-2 text-on-surface-variant">
                       <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
                       <span className="text-sm font-medium">Cargando elaboraciones...</span>
@@ -250,6 +374,12 @@ export default function Elaboraciones() {
                 <tr key={lote.id} className="hover:bg-surface-high/50 transition-colors">
                   <td className="p-3 font-mono text-xs text-primary">{lote.codigo}</td>
                   <td className="p-3 text-on-surface-variant text-xs">{lote.fecha}</td>
+                  <td className="p-3 hidden sm:table-cell">
+                    {lote.sector
+                      ? <Badge variant="default">{SECTORES.find(s => s.value === lote.sector)?.label || lote.sector}</Badge>
+                      : <span className="text-on-surface-variant/50 text-xs">—</span>
+                    }
+                  </td>
                   <td className="p-3 font-semibold text-foreground">
                     <div className="flex items-center gap-2">
                       <FlaskConical size={14} className="text-primary shrink-0" />
@@ -284,7 +414,7 @@ export default function Elaboraciones() {
               ))}
               {!loadingList && lotes.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-on-surface-variant font-medium">
+                  <td colSpan={8} className="p-8 text-center text-on-surface-variant font-medium">
                     No hay elaboraciones registradas
                   </td>
                 </tr>
@@ -292,7 +422,71 @@ export default function Elaboraciones() {
             </tbody>
           </table>
         </div>
-      </div>
+      </div>}
+
+      {/* ── Tab: Porcionado ── */}
+      {tab === 'porcionado' && (
+        <div className="bg-surface rounded-xl border border-border overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Código</th>
+                  <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Fecha</th>
+                  <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Producto origen</th>
+                  <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Entrada</th>
+                  <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden md:table-cell">Sub-productos</th>
+                  <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden lg:table-cell">Merma</th>
+                  <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden lg:table-cell">Registró</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {porcionados.map(p => (
+                  <tr key={p.id} className="hover:bg-surface-high/50 transition-colors">
+                    <td className="p-3 font-mono text-xs text-primary">{p.codigo}</td>
+                    <td className="p-3 text-on-surface-variant text-xs">{p.fecha}</td>
+                    <td className="p-3 font-semibold text-foreground">
+                      <div className="flex items-center gap-2">
+                        <Scissors size={14} className="text-primary shrink-0" />
+                        {p.productoOrigen?.nombre}
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      <span className="font-bold text-orange-400">{p.cantidadOrigen}</span>
+                      <span className="text-on-surface-variant ml-1 text-xs">{p.unidadOrigen}</span>
+                    </td>
+                    <td className="p-3 hidden md:table-cell">
+                      <div className="space-y-0.5">
+                        {p.items?.map((item: any, i: number) => (
+                          <div key={i} className="text-xs text-on-surface-variant">
+                            <span className="text-emerald-400 font-semibold">{item.cantidad}x</span>
+                            {' '}{item.producto?.nombre}
+                            <span className="text-[10px] ml-1">({item.pesoUnidad} {item.unidad} c/u)</span>
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="p-3 hidden lg:table-cell">
+                      {p.merma > 0
+                        ? <span className="text-amber-400 font-semibold text-xs">{p.merma} {p.unidadOrigen}</span>
+                        : <span className="text-on-surface-variant/50 text-xs">—</span>
+                      }
+                    </td>
+                    <td className="p-3 hidden lg:table-cell text-on-surface-variant text-xs">{p.usuario?.nombre}</td>
+                  </tr>
+                ))}
+                {porcionados.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-on-surface-variant font-medium">
+                      No hay porcionados registrados
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Modal nueva elaboración */}
       <Modal
@@ -318,6 +512,15 @@ export default function Elaboraciones() {
               onChange={e => setForm(f => ({ ...f, hora: e.target.value }))}
             />
           </div>
+
+          {/* Sector */}
+          <Select
+            label="Sector"
+            id="sector"
+            value={form.sector}
+            onChange={e => setForm(f => ({ ...f, sector: e.target.value }))}
+            options={SECTORES}
+          />
 
           {/* Recipe selector */}
           <div>
@@ -528,6 +731,167 @@ export default function Elaboraciones() {
             <Button variant="secondary" onClick={() => setModalOpen(false)}>
               Cancelar
             </Button>
+          </div>
+        </div>
+      </Modal>
+      {/* Modal porcionado */}
+      <Modal open={porcionadoOpen} onClose={() => setPorcionadoOpen(false)} title="Registrar porcionado">
+        <div className="space-y-4">
+          <p className="text-xs text-on-surface-variant">
+            Dividí un producto elaborado (ej: masa, nalga) en sub-productos (ej: bollos, milanesas) con peso por unidad.
+          </p>
+
+          {/* Producto origen (input) */}
+          <div className="rounded-xl border border-orange-500/20 bg-orange-500/5 p-3 space-y-2">
+            <div className="flex items-center gap-2 mb-1">
+              <ArrowLeft size={14} className="text-orange-400" />
+              <p className="text-[10px] font-bold text-orange-400 uppercase tracking-widest">Producto a porcionar (entrada)</p>
+            </div>
+            <SearchableSelect
+              label="Producto"
+              value={porcForm.productoOrigenId?.toString() || ''}
+              onChange={v => {
+                const prod = productos.find(p => p.id === Number(v));
+                setPorcForm(f => ({ ...f, productoOrigenId: v ? Number(v) : null, unidadOrigen: prod?.unidadUso || f.unidadOrigen }));
+              }}
+              options={productos.filter(p => ['elaborado', 'semielaborado'].includes(p.tipo)).map(p => ({ value: p.id.toString(), label: `${p.codigo} - ${p.nombre}` }))}
+              placeholder="Seleccionar producto elaborado..."
+            />
+            <div className="grid grid-cols-3 gap-2">
+              <Input
+                label="Cantidad"
+                type="number"
+                value={porcForm.cantidadOrigen}
+                onChange={e => setPorcForm(f => ({ ...f, cantidadOrigen: e.target.value }))}
+                placeholder="0"
+              />
+              <Input
+                label="Unidad"
+                value={porcForm.unidadOrigen}
+                onChange={e => setPorcForm(f => ({ ...f, unidadOrigen: e.target.value }))}
+                placeholder="kg"
+              />
+              <Select
+                label="Depósito origen"
+                value={porcForm.depositoOrigenId?.toString() || ''}
+                onChange={e => setPorcForm(f => ({ ...f, depositoOrigenId: e.target.value ? Number(e.target.value) : null }))}
+                options={depositos.map(d => ({ value: d.id.toString(), label: d.nombre }))}
+                placeholder="Sin asignar"
+              />
+            </div>
+          </div>
+
+          {/* Sub-productos (output) */}
+          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 space-y-2">
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2">
+                <ArrowRight size={14} className="text-emerald-400" />
+                <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Sub-productos que salen</p>
+              </div>
+              <button onClick={porcAddItem} className="text-xs font-bold text-emerald-400 hover:text-emerald-300">+ Agregar</button>
+            </div>
+            {porcForm.items.map((item, idx) => (
+              <div key={idx} className="bg-surface-high/50 rounded-lg p-2">
+                <div className="grid grid-cols-12 gap-2 items-start">
+                  <div className="col-span-4">
+                    <SearchableSelect
+                      label={idx === 0 ? 'Producto' : undefined}
+                      value={item.productoId?.toString() || ''}
+                      onChange={v => porcUpdateItem(idx, 'productoId', v ? Number(v) : null)}
+                      options={productos.map(p => ({ value: p.id.toString(), label: p.nombre }))}
+                      placeholder="Producto..."
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <Input
+                      label={idx === 0 ? 'Unidades' : undefined}
+                      type="number"
+                      value={item.cantidad}
+                      onChange={e => porcUpdateItem(idx, 'cantidad', e.target.value)}
+                      placeholder="30"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <Input
+                      label={idx === 0 ? 'Peso/u' : undefined}
+                      type="number"
+                      step="0.01"
+                      value={item.pesoUnidad}
+                      onChange={e => porcUpdateItem(idx, 'pesoUnidad', e.target.value)}
+                      placeholder="0.3"
+                    />
+                  </div>
+                  <div className="col-span-1">
+                    <Input
+                      label={idx === 0 ? 'Ud' : undefined}
+                      value={item.unidad}
+                      onChange={e => porcUpdateItem(idx, 'unidad', e.target.value)}
+                      placeholder="kg"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <Select
+                      label={idx === 0 ? 'Depósito' : undefined}
+                      value={item.depositoDestinoId?.toString() || ''}
+                      onChange={e => porcUpdateItem(idx, 'depositoDestinoId', e.target.value ? Number(e.target.value) : null)}
+                      options={depositos.map(d => ({ value: d.id.toString(), label: d.nombre }))}
+                      placeholder="Dep..."
+                    />
+                  </div>
+                  <div className="col-span-1 flex justify-end pt-1">
+                    {porcForm.items.length > 1 && (
+                      <button onClick={() => porcRemoveItem(idx)} className="p-1 rounded-lg hover:bg-destructive/10 text-on-surface-variant hover:text-destructive">
+                        <X size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Merma */}
+          <Input
+            label="Merma (opcional)"
+            type="number"
+            step="0.01"
+            value={porcForm.merma}
+            onChange={e => setPorcForm(f => ({ ...f, merma: e.target.value }))}
+            placeholder="0"
+          />
+
+          {/* Preview rendimiento */}
+          {porcEntrada > 0 && porcTotalSalida > 0 && (
+            <div className="rounded-xl border border-border bg-surface-high/30 p-3 space-y-1">
+              <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1">Rendimiento</p>
+              <div className="flex items-center gap-4 text-xs">
+                <span className="text-orange-400 font-bold">Entrada: {porcEntrada} {porcForm.unidadOrigen}</span>
+                <span className="text-primary">→</span>
+                <span className="text-emerald-400 font-bold">Salida: {porcTotalSalida.toFixed(2)} {porcForm.unidadOrigen}</span>
+                {Number(porcForm.merma) > 0 && (
+                  <span className="text-amber-400 font-bold">Merma: {porcForm.merma}</span>
+                )}
+              </div>
+              {porcMermaCalc > 0.01 && (
+                <p className="text-[10px] text-amber-400">
+                  Diferencia sin asignar: {porcMermaCalc.toFixed(3)} {porcForm.unidadOrigen} ({((porcMermaCalc / porcEntrada) * 100).toFixed(1)}%)
+                </p>
+              )}
+            </div>
+          )}
+
+          <Input
+            label="Observación (opcional)"
+            value={porcForm.observacion}
+            onChange={e => setPorcForm(f => ({ ...f, observacion: e.target.value }))}
+            placeholder="Notas adicionales..."
+          />
+
+          <div className="flex gap-2 pt-1">
+            <Button onClick={guardarPorcionado} disabled={porcionadoLoading} className="flex-1">
+              {porcionadoLoading ? 'Guardando...' : 'Registrar porcionado'}
+            </Button>
+            <Button variant="secondary" onClick={() => setPorcionadoOpen(false)}>Cancelar</Button>
           </div>
         </div>
       </Modal>

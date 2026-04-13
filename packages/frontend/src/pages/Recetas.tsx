@@ -18,6 +18,14 @@ const CATEGORIAS = [
   { value: 'guarnicion', label: 'Guarnición' },
 ];
 
+const SECTORES = [
+  { value: '', label: 'Sin sector' },
+  { value: 'pizzeria', label: 'Pizzería' },
+  { value: 'cocina', label: 'Cocina' },
+  { value: 'pasteleria', label: 'Pastelería' },
+  { value: 'pastas', label: 'Pastas' },
+];
+
 interface Ingrediente {
   productoId: number | null;
   cantidad: number;
@@ -36,6 +44,7 @@ const emptyForm = {
   codigo: '',
   nombre: '',
   categoria: '',
+  sector: '',
   porciones: 1,
   productoResultadoId: null as number | null,
   cantidadProducida: '' as string | number,
@@ -70,6 +79,7 @@ export default function Recetas() {
         codigo: receta.codigo,
         nombre: receta.nombre,
         categoria: receta.categoria,
+        sector: receta.sector || '',
         porciones: receta.porciones,
         productoResultadoId: receta.productoResultadoId ?? null,
         cantidadProducida: receta.cantidadProducida ?? '',
@@ -96,6 +106,7 @@ export default function Recetas() {
         codigo: form.codigo,
         nombre: form.nombre,
         categoria: form.categoria,
+        sector: form.sector || null,
         porciones: Number(form.porciones),
         productoResultadoId: form.productoResultadoId ?? null,
         cantidadProducida: form.cantidadProducida !== '' ? Number(form.cantidadProducida) : null,
@@ -188,6 +199,7 @@ export default function Recetas() {
                 <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Código</th>
                 <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Nombre</th>
                 <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden sm:table-cell">Categoría</th>
+                <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden sm:table-cell">Sector</th>
                 <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden md:table-cell">Porciones</th>
                 <th className="text-right p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Acciones</th>
               </tr>
@@ -199,6 +211,9 @@ export default function Recetas() {
                   <td className="p-3 font-semibold text-foreground">{r.nombre}</td>
                   <td className="p-3 hidden sm:table-cell">
                     <Badge>{r.categoria}</Badge>
+                  </td>
+                  <td className="p-3 hidden sm:table-cell text-xs text-on-surface-variant">
+                    {r.sector ? (SECTORES.find(s => s.value === r.sector)?.label || r.sector) : '—'}
                   </td>
                   <td className="p-3 hidden md:table-cell text-on-surface-variant">{r.porciones}</td>
                   <td className="p-3 text-right">
@@ -251,7 +266,7 @@ export default function Recetas() {
               placeholder="Nombre de la receta"
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <Select
               label="Categoría"
               id="categoria"
@@ -259,6 +274,13 @@ export default function Recetas() {
               onChange={e => setForm({ ...form, categoria: e.target.value })}
               options={CATEGORIAS}
               placeholder="Seleccionar..."
+            />
+            <Select
+              label="Sector"
+              id="sector"
+              value={form.sector}
+              onChange={e => setForm({ ...form, sector: e.target.value })}
+              options={SECTORES}
             />
             <Input
               label="Porciones"

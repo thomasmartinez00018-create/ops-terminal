@@ -10,7 +10,7 @@ import Badge from '../components/ui/Badge';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import { useToast } from '../context/ToastContext';
 import { useRecentProducts } from '../hooks/useRecentProducts';
-import { Plus, ScanLine } from 'lucide-react';
+import { Plus, ScanLine, Layers } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import ExportMenu from '../components/ui/ExportMenu';
 import type { ExportConfig } from '../lib/exportUtils';
@@ -54,6 +54,17 @@ export default function Movimientos() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // ── Batch modal (transferencia múltiple) ──
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchTipo, setBatchTipo] = useState('transferencia');
+  const [batchDepOrigen, setBatchDepOrigen] = useState('');
+  const [batchDepDestino, setBatchDepDestino] = useState('');
+  const [batchItems, setBatchItems] = useState<{ productoId: string; cantidad: string; unidad: string }[]>([
+    { productoId: '', cantidad: '', unidad: '' }
+  ]);
+  const [batchError, setBatchError] = useState('');
+  const [batchSaving, setBatchSaving] = useState(false);
 
   const cargar = () => {
     setLoading(true);
@@ -144,6 +155,67 @@ export default function Movimientos() {
   const needsOrigen = ['merma', 'transferencia', 'consumo_interno', 'venta'].includes(form.tipo);
   const needsDestino = ['ingreso', 'elaboracion', 'transferencia', 'ajuste', 'devolucion'].includes(form.tipo);
 
+  // ── Batch helpers ──
+  const abrirBatch = () => {
+    setBatchTipo('transferencia');
+    setBatchDepOrigen('');
+    setBatchDepDestino('');
+    setBatchItems([{ productoId: '', cantidad: '', unidad: '' }]);
+    setBatchError('');
+    setBatchOpen(true);
+  };
+
+  const batchAddItem = () => setBatchItems(prev => [...prev, { productoId: '', cantidad: '', unidad: '' }]);
+  const batchRemoveItem = (idx: number) => setBatchItems(prev => prev.filter((_, i) => i !== idx));
+  const batchUpdateItem = (idx: number, field: string, value: string) => {
+    setBatchItems(prev => prev.map((item, i) => {
+      if (i !== idx) return item;
+      const updated = { ...item, [field]: value };
+      if (field === 'productoId') {
+        const prod = productos.find(p => p.id === Number(value));
+        if (prod) updated.unidad = prod.unidadUso || '';
+      }
+      return updated;
+    }));
+  };
+
+  const batchNeedsOrigen = ['merma', 'transferencia', 'consumo_interno', 'venta'].includes(batchTipo);
+  const batchNeedsDestino = ['ingreso', 'elaboracion', 'transferencia', 'ajuste', 'devolucion'].includes(batchTipo);
+
+  const guardarBatch = async () => {
+    setBatchError('');
+    const validItems = batchItems.filter(i => i.productoId && Number(i.cantidad) > 0);
+    if (!validItems.length) { setBatchError('Agregá al menos un producto con cantidad'); return; }
+    if (batchNeedsOrigen && !batchDepOrigen) { setBatchError('Seleccioná depósito de origen'); return; }
+    if (batchNeedsDestino && !batchDepDestino) { setBatchError('Seleccioná depósito de destino'); return; }
+
+    setBatchSaving(true);
+    const now = new Date();
+    try {
+      const res = await api.createMovimientosBatch({
+        tipo: batchTipo,
+        usuarioId: user!.id,
+        fecha: now.toISOString().split('T')[0],
+        hora: now.toTimeString().slice(0, 5),
+        depositoOrigenId: batchDepOrigen ? Number(batchDepOrigen) : null,
+        depositoDestinoId: batchDepDestino ? Number(batchDepDestino) : null,
+        items: validItems.map(i => ({
+          productoId: Number(i.productoId),
+          cantidad: Number(i.cantidad),
+          unidad: i.unidad || 'unidad',
+        })),
+      });
+      addToast(`${res.count} movimientos registrados`);
+      setBatchOpen(false);
+      cargar();
+    } catch (e: any) {
+      setBatchError(e.message);
+      addToast('Error al registrar movimientos', 'error');
+    } finally {
+      setBatchSaving(false);
+    }
+  };
+
   return (
     <div>
       <PageTour pageKey="movimientos" />
@@ -173,6 +245,12 @@ export default function Movimientos() {
             className="flex items-center gap-2 px-4 py-2.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-500 font-semibold rounded-lg text-sm transition border border-amber-600/30"
           >
             <ScanLine size={16} /> Escanear factura
+          </button>
+          <button
+            onClick={abrirBatch}
+            className="flex items-center gap-2 px-4 py-2.5 bg-primary/10 hover:bg-primary/20 text-primary font-semibold rounded-lg text-sm transition border border-primary/20"
+          >
+            <Layers size={16} /> Múltiple
           </button>
           <Button onClick={abrirNuevo}>
             <Plus size={16} /> Registrar movimiento
@@ -358,6 +436,107 @@ export default function Movimientos() {
           <div className="flex gap-2 pt-2">
             <Button onClick={guardar} className="flex-1" disabled={saving}>{saving ? 'Registrando...' : 'Registrar'}</Button>
             <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Modal batch (múltiples productos) ── */}
+      <Modal open={batchOpen} onClose={() => setBatchOpen(false)} title="Movimiento múltiple">
+        <div className="space-y-3">
+          <Select
+            label="Tipo de movimiento"
+            id="batchTipo"
+            value={batchTipo}
+            onChange={e => setBatchTipo(e.target.value)}
+            options={TIPOS_MOV.filter(t => !['elaboracion', 'conteo'].includes(t.value))}
+          />
+
+          <div className="grid grid-cols-2 gap-3">
+            {batchNeedsOrigen && (
+              <Select
+                label="Depósito origen"
+                id="batchDepOrigen"
+                value={batchDepOrigen}
+                onChange={e => setBatchDepOrigen(e.target.value)}
+                options={depositos.map(d => ({ value: d.id.toString(), label: d.nombre }))}
+                placeholder="Seleccionar..."
+              />
+            )}
+            {batchNeedsDestino && (
+              <Select
+                label="Depósito destino"
+                id="batchDepDestino"
+                value={batchDepDestino}
+                onChange={e => setBatchDepDestino(e.target.value)}
+                options={depositos.map(d => ({ value: d.id.toString(), label: d.nombre }))}
+                placeholder="Seleccionar..."
+              />
+            )}
+          </div>
+
+          <div className="border border-border rounded-lg p-3 space-y-2">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Productos</p>
+              <button
+                onClick={batchAddItem}
+                className="text-xs font-bold text-primary hover:text-primary/80 uppercase tracking-wider"
+              >
+                + Agregar
+              </button>
+            </div>
+            {batchItems.map((item, idx) => (
+              <div key={idx} className="grid grid-cols-12 gap-2 items-end">
+                <div className="col-span-6">
+                  <SearchableSelect
+                    label={idx === 0 ? 'Producto' : undefined}
+                    id={`bp-${idx}`}
+                    value={item.productoId}
+                    onChange={v => batchUpdateItem(idx, 'productoId', v)}
+                    options={productos.map(p => ({ value: p.id.toString(), label: `${p.codigo} - ${p.nombre}` }))}
+                    placeholder="Producto..."
+                    pinnedValues={getRecents()}
+                  />
+                </div>
+                <div className="col-span-2">
+                  <Input
+                    label={idx === 0 ? 'Cant' : undefined}
+                    id={`bq-${idx}`}
+                    type="number"
+                    step="0.01"
+                    value={item.cantidad}
+                    onChange={e => batchUpdateItem(idx, 'cantidad', e.target.value)}
+                    placeholder="0"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <Input
+                    label={idx === 0 ? 'Unid' : undefined}
+                    id={`bu-${idx}`}
+                    value={item.unidad}
+                    onChange={e => batchUpdateItem(idx, 'unidad', e.target.value)}
+                    placeholder="kg"
+                  />
+                </div>
+                <div className="col-span-2 flex justify-center">
+                  {batchItems.length > 1 && (
+                    <button
+                      onClick={() => batchRemoveItem(idx)}
+                      className="text-xs text-destructive hover:text-destructive/80 font-bold"
+                    >
+                      Quitar
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {batchError && <p className="text-sm text-destructive font-semibold">{batchError}</p>}
+          <div className="flex gap-2 pt-2">
+            <Button onClick={guardarBatch} className="flex-1" disabled={batchSaving}>
+              {batchSaving ? 'Registrando...' : `Registrar ${batchItems.filter(i => i.productoId && Number(i.cantidad) > 0).length} movimientos`}
+            </Button>
+            <Button variant="secondary" onClick={() => setBatchOpen(false)}>Cancelar</Button>
           </div>
         </div>
       </Modal>

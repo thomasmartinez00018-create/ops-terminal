@@ -56,7 +56,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 // POST /api/recetas
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { codigo, nombre, categoria, porciones, productoResultadoId, cantidadProducida, unidadProducida, ingredientes } = req.body;
+    const { codigo, nombre, categoria, sector, porciones, productoResultadoId, cantidadProducida, unidadProducida, ingredientes } = req.body;
 
     if (!ingredientes || !Array.isArray(ingredientes) || ingredientes.length === 0) {
       res.status(400).json({ error: 'Se requiere al menos un ingrediente' });
@@ -69,6 +69,7 @@ router.post('/', async (req: Request, res: Response) => {
           codigo,
           nombre,
           categoria,
+          sector: sector || null,
           porciones,
           productoResultadoId: productoResultadoId ? Number(productoResultadoId) : null,
           cantidadProducida: cantidadProducida ? Number(cantidadProducida) : null,
@@ -108,7 +109,7 @@ router.post('/', async (req: Request, res: Response) => {
 router.put('/:id', async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id as string);
-    const { codigo, nombre, categoria, porciones, productoResultadoId, cantidadProducida, unidadProducida, ingredientes } = req.body;
+    const { codigo, nombre, categoria, sector, porciones, productoResultadoId, cantidadProducida, unidadProducida, ingredientes } = req.body;
 
     if (!ingredientes || !Array.isArray(ingredientes) || ingredientes.length === 0) {
       res.status(400).json({ error: 'Se requiere al menos un ingrediente' });
@@ -119,7 +120,7 @@ router.put('/:id', async (req: Request, res: Response) => {
       const recetaActualizada = await tx.receta.update({
         where: { id },
         data: {
-          codigo, nombre, categoria, porciones,
+          codigo, nombre, categoria, sector: sector || null, porciones,
           productoResultadoId: productoResultadoId ? Number(productoResultadoId) : null,
           cantidadProducida: cantidadProducida ? Number(cantidadProducida) : null,
           unidadProducida: unidadProducida || null,

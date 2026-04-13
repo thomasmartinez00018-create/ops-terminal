@@ -6,7 +6,7 @@ const router = Router();
 // GET /api/elaboraciones
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { fechaDesde, fechaHasta, productoId } = req.query;
+    const { fechaDesde, fechaHasta, productoId, sector } = req.query;
     const where: any = {};
     if (fechaDesde || fechaHasta) {
       where.fecha = {};
@@ -14,6 +14,7 @@ router.get('/', async (req: Request, res: Response) => {
       if (fechaHasta) where.fecha.lte = fechaHasta as string;
     }
     if (productoId) where.productoResultadoId = parseInt(productoId as string);
+    if (sector) where.sector = sector as string;
 
     const lotes = await prisma.elaboracionLote.findMany({
       where,
@@ -47,7 +48,7 @@ router.post('/', async (req: Request, res: Response) => {
     const {
       productoResultadoId, cantidadProducida, unidadProducida,
       depositoDestinoId, recetaId, usuarioId, fecha, hora,
-      observacion, ingredientes
+      observacion, ingredientes, sector
     } = req.body;
 
     if (!productoResultadoId || !cantidadProducida || !usuarioId || !ingredientes?.length) {
@@ -76,6 +77,7 @@ router.post('/', async (req: Request, res: Response) => {
           hora: horaFinal,
           usuarioId: Number(usuarioId),
           recetaId: recetaId ? Number(recetaId) : null,
+          sector: sector || null,
           productoResultadoId: Number(productoResultadoId),
           cantidadProducida: Number(cantidadProducida),
           unidadProducida: unidadProducida || 'unidad',

@@ -68,6 +68,7 @@ model Organizacion {
   tareas              Tarea[]
   facturas            Factura[]
   pagos               Pago[]
+  porcionados         Porcionado[]
 
   @@map("organizaciones")
 }
@@ -119,6 +120,8 @@ model Producto {
   recetasResultado    Receta[]             @relation("recetaProducto")
   elaboraciones       ElaboracionLote[]    @relation("elaborProducto")
   facturaItems        FacturaItem[]
+  porcionadosOrigen   Porcionado[]         @relation("porcionadoOrigen")
+  porcionadoItems     PorcionadoItem[]
 
   @@unique([organizacionId, codigo])
   @@index([organizacionId])
@@ -144,6 +147,8 @@ model Deposito {
   ordenesCompra        OrdenCompra[]     @relation("ocDeposito")
   usuariosDefecto      Usuario[]         @relation("usuarioDepositoDefecto")
   elaboraciones        ElaboracionLote[] @relation("elaborDeposito")
+  porcionadosOrigen    Porcionado[]      @relation("porcionadoDepOrigen")
+  porcionadoItemsDep   PorcionadoItem[]  @relation("porcionadoItemDep")
 
   @@unique([organizacionId, codigo])
   @@index([organizacionId])
@@ -181,6 +186,7 @@ model Usuario {
   tareasCreadas            Tarea[]           @relation("tareasCreadas")
   tareasAsignadas          Tarea[]           @relation("tareasAsignadas")
   elaboraciones            ElaboracionLote[] @relation("elaborUsuario")
+  porcionados              Porcionado[]      @relation("porcionadoUsuario")
   facturasCreadas          Factura[]         @relation("facturaCreador")
   pagosCreados             Pago[]            @relation("pagoCreador")
 
@@ -214,6 +220,7 @@ model Movimiento {
   recepcionId       Int?     @map("recepcion_id")
   elaboracionLoteId Int?     @map("elaboracion_lote_id")
   facturaId         Int?     @map("factura_id")
+  porcionadoId      Int?     @map("porcionado_id")
   createdAt         DateTime @default(now()) @map("created_at")
 
   organizacion     Organizacion     @relation(fields: [organizacionId], references: [id])
@@ -226,6 +233,7 @@ model Movimiento {
   recepcion        Recepcion?       @relation(fields: [recepcionId], references: [id])
   elaboracionLote  ElaboracionLote? @relation(fields: [elaboracionLoteId], references: [id])
   factura          Factura?         @relation(fields: [facturaId], references: [id])
+  porcionado       Porcionado?      @relation(fields: [porcionadoId], references: [id])
 
   @@index([organizacionId])
   @@index([organizacionId, fecha])
@@ -288,6 +296,7 @@ model Receta {
   codigo              String
   nombre              String
   categoria           String? // entrada, plato, postre, bebida
+  sector              String? // pizzeria, cocina, pasteleria, pastas
   porciones           Int     @default(1)
   productoResultadoId Int?    @map("producto_resultado_id")
   cantidadProducida   Float?  @map("cantidad_producida")
@@ -333,6 +342,7 @@ model ElaboracionLote {
   hora                String
   usuarioId           Int      @map("usuario_id")
   recetaId            Int?     @map("receta_id")
+  sector              String?  // pizzeria, cocina, pasteleria, pastas
   productoResultadoId Int      @map("producto_resultado_id")
   cantidadProducida   Float    @map("cantidad_producida")
   unidadProducida     String   @map("unidad_producida")
@@ -346,10 +356,61 @@ model ElaboracionLote {
   productoResultado Producto     @relation("elaborProducto", fields: [productoResultadoId], references: [id])
   depositoDestino   Deposito?    @relation("elaborDeposito", fields: [depositoDestinoId], references: [id])
   movimientos       Movimiento[]
+  porcionados       Porcionado[]
 
   @@unique([organizacionId, codigo])
   @@index([organizacionId])
   @@map("elaboracion_lotes")
+}
+
+// ==========================================
+// PORCIONADO (elaboración base → sub-productos)
+// ==========================================
+// Toma un producto elaborado (ej: masa) y lo divide en N sub-productos
+// (ej: bollo grande, bollo chico, bollo individual) con peso por unidad.
+model Porcionado {
+  id                  Int      @id @default(autoincrement())
+  organizacionId      Int      @default(0) @map("organizacion_id")
+  codigo              String   // POR-001
+  fecha               String
+  hora                String
+  usuarioId           Int      @map("usuario_id")
+  elaboracionLoteId   Int?     @map("elaboracion_lote_id") // vínculo opcional a la elaboración origen
+  productoOrigenId    Int      @map("producto_origen_id")  // producto que se porciona (ej: masa)
+  cantidadOrigen      Float    @map("cantidad_origen")     // cantidad total de entrada
+  unidadOrigen        String   @map("unidad_origen")       // kg, lt, etc.
+  depositoOrigenId    Int?     @map("deposito_origen_id")
+  merma               Float    @default(0)                 // desperdicio durante porcionado
+  observacion         String?
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  organizacion    Organizacion     @relation(fields: [organizacionId], references: [id])
+  usuario         Usuario          @relation("porcionadoUsuario", fields: [usuarioId], references: [id])
+  elaboracionLote ElaboracionLote? @relation(fields: [elaboracionLoteId], references: [id])
+  productoOrigen  Producto         @relation("porcionadoOrigen", fields: [productoOrigenId], references: [id])
+  depositoOrigen  Deposito?        @relation("porcionadoDepOrigen", fields: [depositoOrigenId], references: [id])
+  items           PorcionadoItem[]
+  movimientos     Movimiento[]
+
+  @@unique([organizacionId, codigo])
+  @@index([organizacionId])
+  @@map("porcionados")
+}
+
+model PorcionadoItem {
+  id                Int    @id @default(autoincrement())
+  porcionadoId      Int    @map("porcionado_id")
+  productoId        Int    @map("producto_id")
+  cantidad          Float                               // cuántas unidades salen
+  pesoUnidad        Float  @map("peso_unidad")          // peso por unidad (ej: 0.3 kg por bollo)
+  unidad            String                              // unidad del producto (kg, unidad, etc.)
+  depositoDestinoId Int?   @map("deposito_destino_id")
+
+  porcionado      Porcionado @relation(fields: [porcionadoId], references: [id], onDelete: Cascade)
+  producto        Producto   @relation(fields: [productoId], references: [id])
+  depositoDestino Deposito?  @relation("porcionadoItemDep", fields: [depositoDestinoId], references: [id])
+
+  @@map("porcionado_items")
 }
 
 // ==========================================

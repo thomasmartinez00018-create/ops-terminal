@@ -122,6 +122,67 @@ router.post('/', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/movimientos/batch — Crear múltiples movimientos del mismo tipo a la vez
+// Útil para transferencias o ingresos de varios productos simultáneamente
+router.post('/batch', async (req: Request, res: Response) => {
+  try {
+    const { tipo, items, usuarioId, fecha, hora, depositoOrigenId, depositoDestinoId, observacion } = req.body;
+    const tiposValidos = ['ingreso', 'venta', 'merma', 'transferencia', 'ajuste', 'consumo_interno', 'devolucion'];
+
+    if (!tipo || !tiposValidos.includes(tipo)) {
+      res.status(400).json({ error: 'Tipo de movimiento inválido' });
+      return;
+    }
+    if (!items?.length) {
+      res.status(400).json({ error: 'Se requiere al menos un item' });
+      return;
+    }
+    if (!usuarioId) {
+      res.status(400).json({ error: 'Usuario es requerido' });
+      return;
+    }
+
+    const fechaFinal = fecha || new Date().toISOString().split('T')[0];
+    const horaFinal = hora || new Date().toTimeString().slice(0, 5);
+
+    const movimientos = await prisma.$transaction(async (tx) => {
+      const created = [];
+      for (const item of items) {
+        if (!item.productoId || !item.cantidad || Number(item.cantidad) <= 0) continue;
+        const mov = await tx.movimiento.create({
+          data: {
+            tipo,
+            productoId: Number(item.productoId),
+            cantidad: Number(item.cantidad),
+            unidad: item.unidad || 'unidad',
+            usuarioId: Number(usuarioId),
+            fecha: fechaFinal,
+            hora: horaFinal,
+            depositoOrigenId: item.depositoOrigenId ? Number(item.depositoOrigenId) : (depositoOrigenId ? Number(depositoOrigenId) : null),
+            depositoDestinoId: item.depositoDestinoId ? Number(item.depositoDestinoId) : (depositoDestinoId ? Number(depositoDestinoId) : null),
+            lote: item.lote || null,
+            motivo: item.motivo || null,
+            costoUnitario: item.costoUnitario ? Number(item.costoUnitario) : null,
+            observacion: observacion || null,
+          },
+          include: {
+            producto: { select: { codigo: true, nombre: true } },
+            depositoOrigen: { select: { nombre: true } },
+            depositoDestino: { select: { nombre: true } },
+          }
+        });
+        created.push(mov);
+      }
+      return created;
+    });
+
+    res.status(201).json({ ok: true, count: movimientos.length, movimientos });
+  } catch (error: any) {
+    console.error('[movimientos/batch]', error);
+    res.status(500).json({ error: error.message || 'Error al crear movimientos batch' });
+  }
+});
+
 // GET /api/movimientos/tipos - Tipos de movimiento disponibles
 router.get('/tipos', (_req: Request, res: Response) => {
   res.json([

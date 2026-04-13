@@ -26,6 +26,7 @@ import elaboracionesRouter from './routes/elaboraciones';
 import contabilidadRouter from './routes/contabilidad';
 import configRouter from './routes/config';
 import aiChatRouter from './routes/aiChat';
+import porcionadoRouter from './routes/porcionado';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -129,6 +130,7 @@ businessApi.use('/scanner', scannerRouter);
 businessApi.use('/facturas', facturasRouter);
 businessApi.use('/tareas', tareasRouter);
 businessApi.use('/elaboraciones', elaboracionesRouter);
+businessApi.use('/porcionado', porcionadoRouter);
 businessApi.use('/contabilidad', contabilidadRouter);
 businessApi.use('/config', configRouter);
 businessApi.use('/ai', aiChatRouter);
