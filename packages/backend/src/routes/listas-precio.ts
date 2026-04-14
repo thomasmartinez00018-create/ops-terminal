@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import prisma from '../lib/prisma';
+import { getTenant } from '../lib/tenantContext';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const router = Router();
@@ -293,9 +294,19 @@ router.post('/importar', upload.single('archivo'), async (req: Request, res: Res
     }
 
     // Create in transaction
+    // NOTE: `tx` inside $transaction is a raw PrismaClient — the multi-tenant
+    // extension does NOT apply to it. We pull organizacionId from the
+    // AsyncLocalStorage context and inject it explicitly on every tenant-model
+    // operation inside this transaction.
+    const { organizacionId } = getTenant();
+
     const resultado = await prisma.$transaction(async (tx: any) => {
-      // Auto-generate code LP-XXX
-      const last = await tx.listaPrecio.findFirst({ orderBy: { id: 'desc' }, select: { codigo: true } });
+      // Auto-generate code LP-XXX (scoped to this org)
+      const last = await tx.listaPrecio.findFirst({
+        where: { organizacionId },
+        orderBy: { id: 'desc' },
+        select: { codigo: true },
+      });
       let nextNum = 1;
       if (last) {
         const m = last.codigo.match(/LP-(\d+)/);
@@ -305,6 +316,7 @@ router.post('/importar', upload.single('archivo'), async (req: Request, res: Res
 
       const lista = await tx.listaPrecio.create({
         data: {
+          organizacionId,
           codigo,
           proveedorId: Number(proveedorId),
           fecha: fechaFinal,
@@ -315,7 +327,7 @@ router.post('/importar', upload.single('archivo'), async (req: Request, res: Res
 
       // Try auto-match by name against existing ProveedorProducto
       const existingMaps = await tx.proveedorProducto.findMany({
-        where: { proveedorId: Number(proveedorId) },
+        where: { organizacionId, proveedorId: Number(proveedorId) },
         select: { id: true, nombreProveedor: true },
       });
       const nameIndex: Record<string, number> = {};
