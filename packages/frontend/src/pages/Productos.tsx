@@ -321,22 +321,28 @@ export default function Productos() {
             placeholder="Nombre del producto"
           />
           <div className="grid grid-cols-2 gap-3">
-            <Select
-              label="Rubro"
-              id="rubro"
-              value={form.rubro}
-              onChange={e => {
-                const nuevoRubro = e.target.value;
-                setForm({ ...form, rubro: nuevoRubro, subrubro: '' });
-                if (nuevoRubro) {
-                  api.getSubrubros(nuevoRubro).then(setSubrubrosForm).catch(() => setSubrubrosForm([]));
-                } else {
-                  setSubrubrosForm([]);
-                }
-              }}
-              options={RUBROS.map(r => ({ value: r, label: r }))}
-              placeholder="Seleccionar..."
-            />
+            <div>
+              <label className="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Rubro</label>
+              <input
+                type="text"
+                list="rubros-productos-list"
+                value={form.rubro}
+                onChange={e => {
+                  const nuevoRubro = e.target.value;
+                  setForm({ ...form, rubro: nuevoRubro, subrubro: '' });
+                  if (nuevoRubro) {
+                    api.getSubrubros(nuevoRubro).then(setSubrubrosForm).catch(() => setSubrubrosForm([]));
+                  } else {
+                    setSubrubrosForm([]);
+                  }
+                }}
+                placeholder="Ej: Verduras, Carnes..."
+                className="w-full px-3 py-2.5 rounded-lg bg-surface-high border-0 text-foreground text-sm font-semibold placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+              <datalist id="rubros-productos-list">
+                {RUBROS.map(r => <option key={r} value={r} />)}
+              </datalist>
+            </div>
             <Select
               label="Tipo"
               id="tipo"
