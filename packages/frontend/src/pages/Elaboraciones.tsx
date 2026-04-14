@@ -754,7 +754,7 @@ export default function Elaboraciones() {
                 const prod = productos.find(p => p.id === Number(v));
                 setPorcForm(f => ({ ...f, productoOrigenId: v ? Number(v) : null, unidadOrigen: prod?.unidadUso || f.unidadOrigen }));
               }}
-              options={productos.filter(p => ['elaborado', 'semielaborado'].includes(p.tipo)).map(p => ({ value: p.id.toString(), label: `${p.codigo} - ${p.nombre}` }))}
+              options={productos.map(p => ({ value: p.id.toString(), label: `${p.codigo} - ${p.nombre}` }))}
               placeholder="Seleccionar producto elaborado..."
             />
             <div className="grid grid-cols-3 gap-2">

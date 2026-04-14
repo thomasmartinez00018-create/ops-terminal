@@ -218,10 +218,11 @@ router.post('/importar', upload.single('archivo'), async (req: Request, res: Res
         .filter((r: any[]) => r.some((c: any) => c != null && String(c).trim()))
         .map((r: any[]) => r.map((c: any) => c ?? '').join(' | '));
     } else if (ext === 'pdf') {
-      const pdfMod = await import('pdf-parse');
-      const pdfParse = (pdfMod as any).default || pdfMod;
-      const parsed = await pdfParse(file.buffer);
-      textLines = parsed.text.split('\n').filter((l: string) => l.trim());
+      const { PDFParse } = await import('pdf-parse');
+      const pdf = new PDFParse({ data: file.buffer });
+      const result = await pdf.getText();
+      await pdf.destroy();
+      textLines = result.text.split('\n').filter((l: string) => l.trim());
     } else {
       // Plain text
       textLines = file.buffer.toString('utf-8').split('\n').filter((l: string) => l.trim());

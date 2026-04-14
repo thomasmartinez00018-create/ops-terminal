@@ -8,3 +8,4 @@ packages/backend/prisma/data/
 *.db-journal
 .env.local
 .DS_Store
+.superpowers/

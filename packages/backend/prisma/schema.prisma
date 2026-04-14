@@ -252,6 +252,7 @@ model Proveedor {
   contacto       String?
   telefono       String?
   email          String?
+  rubro          String?
   activo         Boolean @default(true)
 
   descuentoPct     Float   @default(0)  @map("descuento_pct")

@@ -69,7 +69,7 @@ export default function SearchableSelect({
   };
 
   return (
-    <div className="space-y-2" ref={containerRef}>
+    <div className="relative space-y-2" ref={containerRef}>
       {label && (
         <label htmlFor={id} className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-widest ml-1">
           {label}

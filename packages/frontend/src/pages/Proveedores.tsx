@@ -11,6 +11,12 @@ import type { ExportConfig } from '../lib/exportUtils';
 import { todayStr } from '../lib/exportUtils';
 import { useNavigate } from 'react-router-dom';
 
+const RUBROS_SUGERIDOS = [
+  'Verdulería', 'Carnicería', 'Fiambrería', 'Bebidas', 'Limpieza',
+  'Descartables', 'Lácteos', 'Secos/Almacén', 'Panadería', 'Congelados',
+  'Especias', 'Aceites', 'Pescadería',
+];
+
 const emptyProveedorForm = {
   codigo: '',
   nombre: '',
@@ -18,6 +24,7 @@ const emptyProveedorForm = {
   telefono: '',
   email: '',
   whatsapp: '',
+  rubro: '',
   descuentoPct: 0,
   aplicaIva: false,
   aplicaPercepcion: false,
@@ -75,6 +82,7 @@ export default function Proveedores() {
         telefono: prov.telefono || '',
         email: prov.email || '',
         whatsapp: prov.whatsapp || '',
+        rubro: prov.rubro || '',
         descuentoPct: prov.descuentoPct || 0,
         aplicaIva: prov.aplicaIva || false,
         aplicaPercepcion: prov.aplicaPercepcion || false,
@@ -183,8 +191,8 @@ export default function Proveedores() {
           <ExportMenu size="sm" disabled={proveedores.length === 0} getConfig={() => ({
             title: 'Proveedores',
             filename: `proveedores-${todayStr()}`,
-            headers: ['Codigo', 'Nombre', 'Contacto', 'Telefono', 'Email'],
-            rows: proveedores.map((p: any) => [p.codigo, p.nombre, p.contacto || '', p.telefono || '', p.email || '']),
+            headers: ['Codigo', 'Nombre', 'Rubro', 'Contacto', 'Telefono', 'Email'],
+            rows: proveedores.map((p: any) => [p.codigo, p.nombre, p.rubro || '', p.contacto || '', p.telefono || '', p.email || '']),
             summary: [{ label: 'Total proveedores', value: proveedores.length }],
           } as ExportConfig)} />
           <Button onClick={() => abrirProv()}>
@@ -247,6 +255,9 @@ export default function Proveedores() {
                 </div>
               )}
             </div>
+            {prov.rubro && (
+              <span className="inline-block mt-2 px-2 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary">{prov.rubro}</span>
+            )}
             {/* Tax badges */}
             {(prov.aplicaIva || prov.aplicaPercepcion || prov.descuentoPct > 0 || prov.impuestoInterno > 0) && (
               <div className="flex flex-wrap gap-1.5 mt-2">
@@ -405,6 +416,20 @@ export default function Proveedores() {
             onChange={e => setProvForm({ ...provForm, whatsapp: e.target.value })}
             placeholder="1145678901"
           />
+          <div>
+            <label htmlFor="prov-rubro" className="block text-xs font-semibold text-on-surface-variant mb-1">Rubro</label>
+            <input
+              list="rubros-sugeridos"
+              id="prov-rubro"
+              value={provForm.rubro}
+              onChange={e => setProvForm({ ...provForm, rubro: e.target.value })}
+              placeholder="Ej: Verdulería, Carnicería..."
+              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary/40"
+            />
+            <datalist id="rubros-sugeridos">
+              {RUBROS_SUGERIDOS.map(r => <option key={r} value={r} />)}
+            </datalist>
+          </div>
 
           {/* Tax/discount fields */}
           <div className="border-t border-border pt-3 mt-3">
