@@ -81,58 +81,89 @@ async function callGemini(prompt: string, maxTokens = 4000): Promise<string> {
 }
 
 // ── AI Prompt: Extract prices from text ──────────────────────────────────────
-const EXTRACTION_PROMPT = (chunk: string) => `Sos un experto en listas de precios de proveedores gastronómicos argentinos.
-Tu tarea: extraer productos con nombre, presentación y precio de este fragmento de lista.
+const EXTRACTION_PROMPT = (chunk: string) => `TAREA: Extraer productos, presentaciones y precios de un fragmento de lista de precios de un proveedor gastronómico argentino.
 
-REGLAS DE PRECIOS:
-- Formato argentino: 17.007,31 → 17007.31 (punto=miles, coma=decimal)
-- Si ves "$17.007,31" o "$ 17.007" tratalo igual
-- Si el precio parece por encima de $5.000.000 o por debajo de $1, marcalo como sospechoso
+FORMATO DE RESPUESTA — JSON array estricto, sin markdown, sin backticks, sin texto extra:
+[{"producto":"NOMBRE","presentacion":"PRESENTACIÓN","precio":NUMERO,"ambiguo":false}]
 
-REGLAS DE PRESENTACIÓN Y UNIDADES (MUY IMPORTANTES):
-- "x 250 GRS" o "250 gr" o "250 grs" → presentacion:"x 250 GRS"
-- "1/2 kg" o "1/2KG" → presentacion:"x 500 GRS"
-- "1/4 kg" → presentacion:"x 250 GRS"
-- "x 5 LT" o "5 lts" o "5 litros" → presentacion:"x 5 LT"
-- "x 12 UN" o "x12 uds" o "caja x 12" → tipo_compra:"CAJA", presentacion:"Caja x 12 UN"
-- "KG." al final → vendido por kg, presentacion:"KG"
-- "UD." o "UN." al final → unidad, presentacion:"UN"
-- Si la cantidad/unidad es ambigua → ambiguo:true
+REGLAS DE PRECIOS — formato argentino:
+- "17.007,31" → 17007.31 (punto = miles, coma = decimal). SIEMPRE.
+- "$17.007" sin coma → 17007 (entero). El punto es separador de miles, NO decimal.
+- "$ 850" → 850. "$ 1.200" → 1200.
+- Si el precio resulta < $10 o > $5.000.000 → probablemente leíste mal el formato. Revisá el separador.
+- NUNCA dejes el precio como 17.007 (float) cuando debería ser 17007 (entero con punto de miles).
 
-EJEMPLOS:
-- "BARRA DANBO LA PAULINA SIN TACC KG. 9.000,00" → {producto:"Barra Danbo La Paulina Sin TACC", presentacion:"KG", precio:9000}
-- "BURRATA MOZZARI X 250 GRS 8.053,39" → {producto:"Burrata Mozzari", presentacion:"x 250 GRS", precio:8053.39}
-- "CREMA DE LECHE LA PAULINA BALDE X 5LT 43.287,24" → {producto:"Crema de Leche La Paulina", presentacion:"Balde x 5 LT", precio:43287.24}
+REGLAS DE NOMBRE DE PRODUCTO:
+- Extraé el nombre comercial completo incluyendo marca si aparece: "Crema de Leche La Paulina", no solo "Crema de Leche".
+- Capitalizá tipo título: "BARRA DANBO LA PAULINA" → "Barra Danbo La Paulina".
+- NO incluyas la presentación/peso en el nombre: "BURRATA MOZZARI X 250 GRS" → producto: "Burrata Mozzari", presentacion: "x 250 GRS".
 
-QUÉ OMITIR: Encabezados de categoría, totales/IVA/subtotales, líneas sin precio, promociones.
+REGLAS DE PRESENTACIÓN Y UNIDADES:
+- "x 250 GRS" / "250 gr" / "250 grs" / "250g" → presentacion: "x 250 GRS"
+- "1/2 kg" / "1/2KG" / "medio kilo" → presentacion: "x 500 GRS"
+- "1/4 kg" → presentacion: "x 250 GRS"
+- "x 5 LT" / "5 lts" / "5 litros" / "5L" → presentacion: "x 5 LT"
+- "x 12 UN" / "x12 uds" / "caja x 12" / "cajón x 12" → presentacion: "Caja x 12 UN"
+- "KG" / "KG." / "por kilo" / "x kg" al final → presentacion: "KG" (se vende por kilo)
+- "UD." / "UN." / "unidad" / "c/u" → presentacion: "UN"
+- "BALDE" / "BIDON" → incluirlo: "Balde x 5 LT", "Bidón x 10 LT"
+- Si NO hay información de presentación/unidad → presentacion: null, ambiguo: true
+
+EJEMPLOS COMPLETOS:
+- "BARRA DANBO LA PAULINA SIN TACC KG. 9.000,00" → {"producto":"Barra Danbo La Paulina Sin TACC","presentacion":"KG","precio":9000,"ambiguo":false}
+- "BURRATA MOZZARI X 250 GRS 8.053,39" → {"producto":"Burrata Mozzari","presentacion":"x 250 GRS","precio":8053.39,"ambiguo":false}
+- "CREMA DE LECHE LA PAULINA BALDE X 5LT 43.287,24" → {"producto":"Crema de Leche La Paulina","presentacion":"Balde x 5 LT","precio":43287.24,"ambiguo":false}
+- "ACEITE GIRASOL COCINERO 15.500" → {"producto":"Aceite Girasol Cocinero","presentacion":null,"precio":15500,"ambiguo":true}
+
+QUÉ OMITIR (no incluir en el array):
+- Encabezados de categoría/sección (ej: "LÁCTEOS", "FIAMBRES", "--- CARNES ---")
+- Totales, subtotales, IVA, descuentos
+- Líneas sin precio numérico
+- Texto promocional, condiciones de venta, datos del proveedor
+- Líneas duplicadas (si el mismo producto aparece dos veces con el mismo precio, incluilo una sola vez)
 
 TEXTO A PROCESAR:
 ${chunk}
 
-Respondé SOLO con JSON array válido, sin markdown ni texto extra:
-[{"producto":"NOMBRE","presentacion":"PRESENTACIÓN","precio":NUMERO,"ambiguo":false},...]`;
+Respondé SOLO con el JSON array.`;
 
 // ── AI Prompt: Match items to products ───────────────────────────────────────
 function buildMatchPrompt(prodList: string, itemList: string) {
-  return `Sos un experto en insumos gastronómicos de Argentina.
-Tenés que identificar a qué producto interno corresponde cada producto de proveedor.
+  return `TAREA: Matchear productos de un proveedor con los productos internos de un restaurante argentino.
 
-PRODUCTOS INTERNOS (ID|CODIGO|NOMBRE|RUBRO):
+PRODUCTOS INTERNOS DEL RESTAURANTE (ID|CODIGO|NOMBRE|RUBRO):
 ${prodList}
 
-PRODUCTOS DE PROVEEDOR (IDX|NOMBRE|PRESENTACIÓN):
+PRODUCTOS DEL PROVEEDOR A MATCHEAR (IDX|NOMBRE|PRESENTACIÓN):
 ${itemList}
 
-Respondé ÚNICAMENTE con JSON válido (sin markdown ni texto extra):
+CRITERIOS DE MATCHING — en orden de prioridad:
+1. ¿Es el mismo insumo base? Ignorá marca, presentación, peso y envase.
+   "Crema de Leche La Paulina Balde x 5LT" → matchea con "Crema de Leche" interno.
+   "Muzza. La Serenísima 5kg" → matchea con "Muzzarella" interno.
+2. Usá el rubro del producto interno como contexto para desambiguar.
+3. Si el proveedor vende una variedad específica y el catálogo tiene el genérico, matcheá igual (ej: "Tomate Perita" → "Tomate").
+4. Si el catálogo tiene la variedad específica, preferí esa sobre el genérico.
+
+ABREVIACIONES COMUNES:
+- "Muzza"/"Muz."/"Mozza" → Muzzarella | "Tom." → Tomate | "Ceb." → Cebolla
+- "Morr." → Morrón | "Prov." → Provolone | "Parm." → Parmesano
+- "Rúc." → Rúcula | "Criolla" → Cebolla Criolla | "Yerba" → Yerba mate
+- "Harina 000"/"H. 000"/"H000" → Harina 000
+
+CONFIANZA:
+- "alta": match claro e inequívoco.
+- "media": probablemente el mismo producto pero hay ambigüedad.
+- "baja": match muy dudoso o no hay correspondencia → usá productoId: null.
+
+REGLAS ESTRICTAS:
+- SOLO usá IDs que existan en la lista de productos internos de arriba. Si inventás un ID, el sistema falla.
+- Si no hay match razonable → productoId: null.
+- Respondé SOLO con JSON array (sin markdown, sin backticks, sin texto):
 [
   {"idx":0,"productoId":123,"confianza":"alta"},
   {"idx":1,"productoId":null,"confianza":"baja"}
-]
-
-Reglas:
-- Si el producto del proveedor es claramente el mismo insumo que uno interno → ponés su productoId (el ID numérico)
-- Si no hay match claro → productoId:null
-- confianza: "alta" (muy seguro), "media" (razonablemente seguro), "baja" (con dudas)`;
+]`;
 }
 
 // ── Routes ───────────────────────────────────────────────────────────────────

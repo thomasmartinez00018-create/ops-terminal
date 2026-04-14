@@ -5,17 +5,17 @@ import prisma from '../lib/prisma';
 const router = Router();
 
 // ── Prompt para Gemini — detecta tipo comprobante + IVA ────────────────────
-const EXTRACTION_PROMPT = `Analizá esta imagen de factura/remito de un proveedor gastronómico argentino.
-Extraé la información en formato JSON estricto (sin markdown, sin backticks, solo JSON puro):
+const EXTRACTION_PROMPT = `TAREA: Extraer datos estructurados de esta imagen de factura/remito de un proveedor gastronómico argentino.
 
+FORMATO DE RESPUESTA — JSON estricto, sin markdown, sin backticks, sin texto antes o después:
 {
-  "proveedor": "nombre del proveedor",
+  "proveedor": "nombre comercial del proveedor (no razón social CUIT)",
   "fecha": "YYYY-MM-DD",
-  "numero_factura": "número de factura o remito",
+  "numero_factura": "número completo incluyendo punto de venta (ej: 0003-00001234)",
   "tipo_comprobante": "A",
   "items": [
     {
-      "descripcion": "nombre del producto tal como aparece",
+      "descripcion": "nombre del producto TAL COMO APARECE en la factura",
       "cantidad": 10.5,
       "unidad": "kg",
       "precio_unitario": 150.50,
@@ -27,46 +27,80 @@ Extraé la información en formato JSON estricto (sin markdown, sin backticks, s
   "total": 1815.00
 }
 
-Reglas:
-- Detectá el tipo de comprobante: "A", "B", "C", "ticket" o "remito".
-  Buscá la letra grande en el centro-superior del documento. Si dice "FACTURA" con una letra (A, B, C), usá esa. Si parece un ticket de caja, poné "ticket". Si dice REMITO, poné "remito".
-- Para Factura A: el IVA está discriminado. Extraé alicuota_iva por item (21, 10.5, 27 o 0).
-- Para Factura B/C/Ticket: el IVA está incluido en el precio. Poné alicuota_iva: 0 en cada item.
-- Incluí subtotal, iva_total, total si están impresos en el documento.
-- Cantidades siempre como número decimal
-- Precios en pesos argentinos sin símbolo $
-- Si no podés leer un campo, poné null
-- Normalizá unidades: "KILO"/"KG"/"Kg"/"Kilogramo" → "kg", "LITRO"/"LT"/"Lt" → "lt", "UN"/"UNID" → "unidad", "CJ"/"CAJA" → "caja"
-- Incluí TODOS los items/líneas de la factura
-- Respondé SOLO con el JSON, sin texto adicional`;
+TIPO DE COMPROBANTE — determinalo así:
+1. Buscá la letra grande (A, B, C) en el recuadro central superior del documento → "A", "B" o "C".
+2. Si dice "REMITO" o "R" → "remito".
+3. Si es un ticket de caja o factura simplificada sin letra → "ticket".
+4. Si no podés determinarlo → "ticket" (valor seguro por defecto).
+
+REGLAS DE IVA según tipo:
+- Factura A: IVA discriminado. Extraé alicuota_iva real por item (21, 10.5, 27 o 0). Verificá que la suma de (precio_unitario × cantidad × alicuota/100) sea coherente con el iva_total impreso.
+- Factura B, C, ticket, remito: IVA incluido en precio. Poné alicuota_iva: 0 en todos los items.
+
+REGLAS DE PRECIOS — formato argentino:
+- "17.007,31" → 17007.31 (punto = separador de miles, coma = decimal).
+- "$17.007" sin coma → 17007 (entero, no 17.007).
+- Si un precio parece < $1 o > $5.000.000 por unidad, revisá si leíste mal el separador de miles/decimales.
+- NUNCA incluir el símbolo $ en los números.
+
+REGLAS DE CANTIDADES Y UNIDADES:
+- Cantidades siempre como número decimal (10 → 10, 2.5 → 2.5).
+- Normalizá unidades: "KILO"/"KG"/"Kg"/"Kilogramo"/"kgs" → "kg" | "LITRO"/"LT"/"Lt"/"lts" → "lt" | "UN"/"UNID"/"UNI"/"c/u" → "unidad" | "CJ"/"CAJA" → "caja" | "DOCENA"/"DOC" → "docena" | "ATADO"/"AT" → "atado" | "BOLSA"/"BLS" → "bolsa" | "PACK" → "pack".
+- Si la unidad no es clara, usá "unidad".
+
+VALIDACIÓN — antes de responder, verificá:
+1. ¿La suma de (precio_unitario × cantidad) de todos los items es cercana al subtotal? Si difiere mucho, revisá los precios.
+2. ¿El total ≈ subtotal + iva_total? Si no cuadra, revisá.
+3. ¿Incluiste TODOS los items/líneas de la factura? No te saltes ninguno.
+
+CAMPOS ILEGIBLES: Si no podés leer un campo con certeza, poné null. Es preferible null a inventar un valor.
+
+Respondé SOLO con el JSON.`;
 
 // ── Prompt para matching semántico de productos con IA ─────────────────────
 function buildMatchingPrompt(itemsDescripciones: string[], catalogo: { id: number; codigo: string; nombre: string; rubro: string }[]) {
   const catalogoStr = catalogo.map(p => `${p.id}|${p.codigo}|${p.nombre}|${p.rubro}`).join('\n');
   const itemsStr = itemsDescripciones.map((d, i) => `${i}|${d}`).join('\n');
 
-  return `Sos un asistente de un sistema de stock gastronómico argentino.
-Tu tarea: para cada item de factura, buscá el producto MÁS PROBABLE del catálogo.
+  return `TAREA: Matchear cada item de una factura de proveedor con el producto interno más probable del catálogo de un restaurante argentino.
 
-CATÁLOGO DE PRODUCTOS (id|codigo|nombre|rubro):
+CATÁLOGO DE PRODUCTOS INTERNOS (id|codigo|nombre|rubro):
 ${catalogoStr}
 
-ITEMS DE LA FACTURA (index|descripcion):
+ITEMS DE LA FACTURA A MATCHEAR (index|descripcion):
 ${itemsStr}
 
-REGLAS:
-- Cada item puede matchear con UN solo producto del catálogo, o con ninguno.
-- Considerá sinónimos, abreviaciones, marcas, presentaciones. Ej: "Queso Crema Ilolay x500g" → "Queso Cremoso", "Tom. cherry" → "Tomate Cherry", "Muz." → "Muzzarella".
-- Ignorá marcas, pesos y presentaciones al comparar — enfocate en QUÉ producto es.
-- Si hay un match claro, confianza "alta". Si es probable pero ambiguo, "media". Si no hay match razonable, "ninguna".
-- NO inventes IDs. Usá SOLO IDs que existan en el catálogo.
-- Si dos items de la factura parecen el mismo producto, asigná el mismo ID a ambos.
+CRITERIOS DE MATCHING — en orden de prioridad:
+1. ¿Es el mismo producto base? Ignorá marca, presentación, peso y envase. "Queso Crema Ilolay x500g" y "Queso Cremoso" son lo mismo. "Muz. Barra 5kg" y "Muzzarella" son lo mismo.
+2. Usá el rubro como contexto: si el item dice "Barra" y hay un producto "Barra de Chocolate" en rubro lácteos Y otro "Barra Danbo" en rubro quesos, el rubro te ayuda a desambiguar.
+3. Cada item matchea con UN producto o con ninguno.
 
-Respondé SOLO con JSON puro (sin markdown, sin backticks):
+ABREVIACIONES COMUNES EN GASTRONOMÍA ARGENTINA:
+- "Muz."/"Mozza"/"Muzza" → Muzzarella
+- "Tom." → Tomate
+- "Ceb." → Cebolla
+- "Morr." → Morrón
+- "Prov." → Provolone
+- "Criolla" → Cebolla criolla
+- "Rúc." → Rúcula
+- "Parm." → Parmesano
+- "Crema" sin especificar → Crema de leche
+- "Jamón" sin especificar → Jamón cocido (no crudo)
+- "Aceite" sin especificar → Aceite de girasol (el más común)
+- "Harina" sin especificar → Harina 000
+
+CONFIANZA:
+- "alta": match claro e inequívoco (mismo producto, sin dudas).
+- "media": probablemente el mismo producto pero hay ambigüedad (ej: "Tomate" podría ser perita o redondo, pero solo hay un "Tomate" en el catálogo).
+- "ninguna": no hay producto interno que corresponda. Usá productoId: null.
+
+REGLAS ESTRICTAS:
+- SOLO usá IDs que existan en el catálogo de arriba. Si inventás un ID, el sistema falla.
+- Si dos items de la factura son el mismo producto interno, asigná el mismo ID a ambos.
+- Respondé SOLO con JSON array puro (sin markdown, sin backticks, sin texto extra):
 [
   { "index": 0, "productoId": 45, "confianza": "alta" },
-  { "index": 1, "productoId": 12, "confianza": "media" },
-  { "index": 2, "productoId": null, "confianza": "ninguna" }
+  { "index": 1, "productoId": null, "confianza": "ninguna" }
 ]`;
 }
 
@@ -97,7 +131,10 @@ async function matchProductosConIA(
       catalogo
     );
 
-    const result = await model.generateContent(prompt);
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 4000 },
+    });
     const responseText = result.response.text();
     const jsonStr = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const matches: { index: number; productoId: number | null; confianza: string }[] = JSON.parse(jsonStr);
@@ -139,15 +176,13 @@ router.post('/escanear', async (req, res) => {
     // Si la calidad de OCR resulta floja, considerar subir a flash (no lite).
     const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite-preview' });
 
-    const result = await model.generateContent([
-      EXTRACTION_PROMPT,
-      {
-        inlineData: {
-          mimeType,
-          data: imagen.replace(/^data:[^;]+;base64,/, ''), // strip data URL prefix if present
-        },
-      },
-    ]);
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [
+        { text: EXTRACTION_PROMPT },
+        { inlineData: { mimeType, data: imagen.replace(/^data:[^;]+;base64,/, '') } },
+      ]}],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 4000 },
+    });
 
     const responseText = result.response.text();
 
