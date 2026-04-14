@@ -340,12 +340,20 @@ export const api = {
     const token = getToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
-    return fetch(`${API_BASE}/listas-precio/importar`, { method: 'POST', headers, body: formData })
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120_000); // 2 min timeout
+    return fetch(`${API_BASE}/listas-precio/importar`, { method: 'POST', headers, body: formData, signal: controller.signal })
       .then(async (res) => {
+        clearTimeout(timeoutId);
         if (res.status === 401) { setToken(null); window.dispatchEvent(new CustomEvent(AUTH_ERROR_EVENT)); throw new Error('Sesión expirada'); }
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
         return data;
+      })
+      .catch((err) => {
+        clearTimeout(timeoutId);
+        if (err.name === 'AbortError') throw new Error('La importación tardó demasiado. Intentá con un archivo más chico.');
+        throw err;
       });
   },
   matchListaItem: (listaId: number, data: { itemId: number; productoId: number }) =>

@@ -264,21 +264,27 @@ router.post('/importar', upload.single('archivo'), async (req: Request, res: Res
       return;
     }
 
-    // AI extraction in chunks
-    const CHUNK = 80;
-    const allRows: any[] = [];
+    // AI extraction in chunks — parallel for speed
+    const CHUNK = 150;
+    const chunks: string[] = [];
     for (let i = 0; i < textLines.length; i += CHUNK) {
-      const chunk = textLines.slice(i, i + CHUNK).join('\n');
-      try {
-        const text = await callGemini(EXTRACTION_PROMPT(chunk));
+      chunks.push(textLines.slice(i, i + CHUNK).join('\n'));
+    }
+
+    const allRows: any[] = [];
+    const chunkResults = await Promise.allSettled(
+      chunks.map(async (chunk) => {
+        const text = await callGemini(EXTRACTION_PROMPT(chunk), 8000);
         const match = text.match(/\[[\s\S]*\]/);
         if (match) {
-          const parsed = JSON.parse(match[0]);
-          allRows.push(...parsed.filter((r: any) => r.producto && typeof r.precio === 'number' && r.precio > 0));
+          return JSON.parse(match[0]).filter((r: any) => r.producto && typeof r.precio === 'number' && r.precio > 0);
         }
-      } catch (e: any) {
-        console.warn('[listas-precio] chunk error:', e.message);
-      }
+        return [];
+      })
+    );
+    for (const r of chunkResults) {
+      if (r.status === 'fulfilled' && r.value.length) allRows.push(...r.value);
+      else if (r.status === 'rejected') console.warn('[listas-precio] chunk error:', r.reason?.message);
     }
 
     if (!allRows.length) {
