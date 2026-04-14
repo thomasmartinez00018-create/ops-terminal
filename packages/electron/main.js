@@ -45,6 +45,11 @@ function checkConnectivity (url, timeoutMs = 8000) {
 // ── Ventana principal ──────────────────────────────────────────────────
 let mainWindow = null
 
+function showError (detail) {
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#0A0A0A;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:2rem;font-family:'Segoe UI',system-ui,sans-serif;color:#fff}h1{font-size:1.4rem;color:#ef4444;margin-bottom:.75rem}.sub{color:#888;font-size:.85rem;margin-bottom:1.5rem}.log-box{background:#111;border:1px solid #333;border-radius:6px;padding:1rem;width:100%;max-width:700px;font-family:monospace;font-size:.75rem;color:#f87171;max-height:260px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;margin-bottom:1.5rem}.buttons{display:flex;gap:.75rem}button{padding:.55rem 1.25rem;background:#D4AF37;color:#000;border:none;border-radius:4px;font-weight:700;cursor:pointer;font-size:.85rem}</style></head><body><h1>⚠ No se pudo cargar la app</h1><p class="sub">Verificá tu conexión a internet e intentá de nuevo.</p><div class="log-box">${detail.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div><div class="buttons"><button onclick="location.reload()">↺ Reintentar</button></div></body></html>`
+  mainWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
+}
+
 async function createWindow () {
   mainWindow = new BrowserWindow({
     width:           1400,
@@ -84,7 +89,8 @@ async function createWindow () {
   ]))
 
   // 1. Mostrar splash mientras chequeamos conectividad
-  mainWindow.loadFile(path.join(__dirname, 'loading.html'))
+  // Usamos loadURL con HTML inline para evitar problemas de rutas dentro del .asar
+  mainWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#0A0A0A;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:'Segoe UI',system-ui,sans-serif;color:#D4AF37;user-select:none}.logo{font-size:2.5rem;font-weight:800;letter-spacing:0.1em;margin-bottom:0.25rem}.sub{font-size:0.75rem;letter-spacing:0.3em;color:#666;text-transform:uppercase;margin-bottom:3rem}.spinner{width:40px;height:40px;border:3px solid #262626;border-top-color:#D4AF37;border-radius:50%;animation:spin 0.8s linear infinite}.msg{margin-top:1.5rem;font-size:0.8rem;color:#555;letter-spacing:0.05em}@keyframes spin{to{transform:rotate(360deg)}}</style></head><body><div class="logo"><span style="color:#D4AF37">OPS</span>TERMINAL</div><div class="sub">Stock Gastro</div><div class="spinner"></div><div class="msg">Conectando...</div></body></html>`))
   mainWindow.once('ready-to-show', () => mainWindow.show())
 
   log('comprobando conectividad con', CLOUD_URL)
@@ -92,28 +98,14 @@ async function createWindow () {
 
   if (!reachable) {
     log('ERROR: no se pudo alcanzar', CLOUD_URL)
-    mainWindow.loadFile(path.join(__dirname, 'error.html'), {
-      query: {
-        data: new URLSearchParams({
-          logPath,
-          detail: `No se pudo conectar con ${CLOUD_URL}. Verificá tu conexión a internet e intentá nuevamente.`,
-        }).toString(),
-      },
-    })
+    showError(`No se pudo conectar con ${CLOUD_URL}.\nVerificá tu conexión a internet e intentá nuevamente.`)
     return
   }
 
   log('cargando', CLOUD_URL)
   mainWindow.loadURL(CLOUD_URL).catch(err => {
     log('ERROR: loadURL falló:', err.message)
-    mainWindow.loadFile(path.join(__dirname, 'error.html'), {
-      query: {
-        data: new URLSearchParams({
-          logPath,
-          detail: 'No se pudo cargar la app: ' + err.message,
-        }).toString(),
-      },
-    })
+    showError('No se pudo cargar la app: ' + err.message)
   })
 
   // Links externos → abrir en el browser del usuario
