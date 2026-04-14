@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-mono": "^5.2.7",
+    "@fontsource/instrument-serif": "^5.2.8",
     "@fontsource/manrope": "^5.2.8",
     "@tailwindcss/vite": "^4.2.2",
     "clsx": "^2.1.1",

@@ -31,6 +31,7 @@ import ReportesCostos from './pages/ReportesCostos';
 import ImportarLista from './pages/ImportarLista';
 import Equivalencias from './pages/Equivalencias';
 import ComparadorPrecios from './pages/ComparadorPrecios';
+import Landing from './pages/Landing';
 
 // ============================================================================
 // SessionGate — decide qué pantalla mostrar según el stage del token
@@ -54,7 +55,17 @@ function SessionGate() {
   }
 
   if (stage === 'none') {
-    return <AuthGate />;
+    // Public surface: landing en `/`, login en `/login`. Cualquier otra ruta
+    // redirige a `/` para que un bookmark viejo (ej: /stock) no quede colgado.
+    return (
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Landing />} />
+          <Route path="/login" element={<AuthGate />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </BrowserRouter>
+    );
   }
 
   if (stage === 'cuenta') {

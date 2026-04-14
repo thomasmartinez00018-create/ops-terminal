@@ -4,6 +4,11 @@
 @import "@fontsource/manrope/600.css";
 @import "@fontsource/manrope/700.css";
 @import "@fontsource/manrope/800.css";
+@import "@fontsource/instrument-serif/400.css";
+@import "@fontsource/instrument-serif/400-italic.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
 
 @theme {
   /* Dark Industrial Theme - Amber/Gold */
@@ -256,4 +261,154 @@ tbody tr {
 
 .pulse-gold {
   animation: pulseGlow 2s ease-in-out infinite;
+}
+
+/* ── Landing page typography & atmosphere ─────────────────── */
+
+.font-display {
+  font-family: 'Instrument Serif', 'Times New Roman', serif;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+.font-mono-alt {
+  font-family: 'IBM Plex Mono', 'Courier New', monospace;
+  font-feature-settings: 'ss01', 'ss02';
+}
+
+/* Grain overlay — applied to full-screen background for texture */
+.grain-overlay::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.06;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 300 300' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.6 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 220px 220px;
+}
+
+/* Gold glow radial backdrop — decorative hero background */
+.hero-backdrop {
+  background:
+    radial-gradient(ellipse 80% 60% at 70% 20%, rgba(212, 175, 55, 0.12), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 20% 80%, rgba(212, 175, 55, 0.05), transparent 60%),
+    #0A0A0A;
+}
+
+/* Horizontal gold hairline divider */
+.hairline {
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, rgba(212, 175, 55, 0.3) 20%, rgba(212, 175, 55, 0.3) 80%, transparent 100%);
+}
+
+/* Vertical hairline for editorial columns */
+.hairline-v {
+  width: 1px;
+  background: linear-gradient(180deg, transparent 0%, rgba(212, 175, 55, 0.2) 20%, rgba(212, 175, 55, 0.2) 80%, transparent 100%);
+}
+
+/* Landing screenshot mock cards */
+.mock-window {
+  background: linear-gradient(180deg, #0f0f0f 0%, #0a0a0a 100%);
+  border: 1px solid rgba(212, 175, 55, 0.15);
+  box-shadow:
+    0 40px 80px -20px rgba(0, 0, 0, 0.8),
+    0 20px 40px -10px rgba(212, 175, 55, 0.08),
+    0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.mock-chrome {
+  background: #111;
+  border-bottom: 1px solid #222;
+}
+
+/* Ticker — horizontal scrolling marquee for stats strip */
+@keyframes ticker {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.ticker-track {
+  display: flex;
+  width: max-content;
+  animation: ticker 60s linear infinite;
+}
+
+/* Slow float for decorative numbers */
+@keyframes floatSlow {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-12px) rotate(0.5deg); }
+}
+.float-slow {
+  animation: floatSlow 8s ease-in-out infinite;
+}
+
+/* Staggered reveal on page load */
+@keyframes revealUp {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+.reveal {
+  animation: revealUp 1s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.reveal-1 { animation-delay: 0.05s; }
+.reveal-2 { animation-delay: 0.18s; }
+.reveal-3 { animation-delay: 0.32s; }
+.reveal-4 { animation-delay: 0.48s; }
+.reveal-5 { animation-delay: 0.65s; }
+.reveal-6 { animation-delay: 0.82s; }
+
+/* Marquee gradient mask — fades edges of infinite ticker */
+.marquee-mask {
+  mask-image: linear-gradient(90deg, transparent 0%, #000 10%, #000 90%, transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 10%, #000 90%, transparent 100%);
+}
+
+/* Shimmer highlight on CTA hover */
+@keyframes ctaShine {
+  0% { background-position: -100% 0; }
+  100% { background-position: 200% 0; }
+}
+.cta-primary {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #D4AF37 0%, #E8C654 50%, #D4AF37 100%);
+  background-size: 200% 100%;
+  color: #0A0A0A;
+  transition: transform 0.25s cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 0.25s ease;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.25) inset,
+    0 -1px 0 rgba(0, 0, 0, 0.2) inset,
+    0 12px 28px -10px rgba(212, 175, 55, 0.5);
+}
+.cta-primary:hover {
+  transform: translateY(-1px);
+  animation: ctaShine 1.2s ease;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.3) inset,
+    0 -1px 0 rgba(0, 0, 0, 0.2) inset,
+    0 18px 36px -12px rgba(212, 175, 55, 0.7);
+}
+
+.cta-ghost {
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  color: #F2F2F2;
+  background: transparent;
+  transition: all 0.25s ease;
+}
+.cta-ghost:hover {
+  border-color: #D4AF37;
+  background: rgba(212, 175, 55, 0.06);
+  transform: translateY(-1px);
 }
