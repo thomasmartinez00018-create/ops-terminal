@@ -5,7 +5,7 @@ import PageTour from '../components/PageTour';
 import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';
 import Badge from '../components/ui/Badge';
-import { ScanBarcode, Play, Square, Save, RotateCcw } from 'lucide-react';
+import { ScanBarcode, Play, Square, Save, RotateCcw, Warehouse } from 'lucide-react';
 
 interface ConteoItem {
   productoId: number;
@@ -46,6 +46,18 @@ export default function ControlScanner() {
   const detenerControl = () => {
     setActivo(false);
   };
+
+  const cambiarDeposito = () => {
+    if (items.length > 0) {
+      if (!confirm('Si cambiás de depósito se va a perder el conteo actual. ¿Continuar?')) return;
+    }
+    setItems([]);
+    setActivo(false);
+    setDepositoId('');
+    setError('');
+  };
+
+  const depositoNombre = depositos.find(d => String(d.id) === String(depositoId))?.nombre || '';
 
   const procesarScan = useCallback(async (barcode: string) => {
     if (!barcode.trim() || !depositoId) return;
@@ -193,6 +205,22 @@ export default function ControlScanner() {
       {/* Active scanning */}
       {activo && (
         <>
+          {/* Depósito activo — visible para que el usuario sepa qué está controlando */}
+          <div className="flex items-center justify-between glass rounded-xl px-4 py-3 mb-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="p-2 rounded-lg bg-primary/10 shrink-0">
+                <Warehouse size={18} className="text-primary" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Controlando depósito</p>
+                <p className="text-base font-extrabold text-foreground truncate">{depositoNombre || '—'}</p>
+              </div>
+            </div>
+            <Button variant="ghost" onClick={cambiarDeposito} className="shrink-0">
+              Cambiar
+            </Button>
+          </div>
+
           {/* Scanner input - grande y prominente */}
           <div className="glass rounded-xl p-4 mb-4">
             <div className="flex items-center gap-3">
