@@ -228,6 +228,20 @@ router.get('/:id', async (req: Request, res: Response) => {
 // POST /api/listas-precio/importar — Upload file + AI extraction
 router.post('/importar', upload.single('archivo'), async (req: Request, res: Response) => {
   try {
+    // Capturamos el tenant context INMEDIATAMENTE, antes de cualquier trabajo
+    // async pesado (parseo de PDF/xlsx, llamadas paralelas a Gemini via
+    // Promise.allSettled, prisma.$transaction interactiva). Varias de esas
+    // operaciones crean async resources nuevos (undici fetch, workers de
+    // pdf-parse, conexiones dedicadas de transaction interactiva) que, en
+    // combinación con multer consumiendo el stream del req, pueden saltar
+    // fuera del frame ALS aunque tenantMiddleware haya seteado el store.
+    //
+    // Al leer getTenant() ACÁ — primer tick del handler, mientras el ALS
+    // frame recién inicializado por tenantMiddleware todavía está vivo —
+    // metemos organizacionId en una variable local y eliminamos toda
+    // dependencia del contexto para el resto del request.
+    const { organizacionId } = getTenant();
+
     const { proveedorId, fecha } = req.body;
     const file = req.file;
 
@@ -295,11 +309,9 @@ router.post('/importar', upload.single('archivo'), async (req: Request, res: Res
 
     // Create in transaction
     // NOTE: `tx` inside $transaction is a raw PrismaClient — the multi-tenant
-    // extension does NOT apply to it. We pull organizacionId from the
-    // AsyncLocalStorage context and inject it explicitly on every tenant-model
-    // operation inside this transaction.
-    const { organizacionId } = getTenant();
-
+    // extension does NOT apply to it. Usamos el organizacionId que capturamos
+    // al principio del handler (línea ~231) y lo inyectamos explícitamente en
+    // cada operación tenant-aware dentro de la transacción.
     const resultado = await prisma.$transaction(async (tx: any) => {
       // Auto-generate code LP-XXX (scoped to this org)
       const last = await tx.listaPrecio.findFirst({

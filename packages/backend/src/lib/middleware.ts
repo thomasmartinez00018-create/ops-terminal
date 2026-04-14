@@ -45,7 +45,29 @@ export function tenantMiddleware(req: Request, res: Response, next: NextFunction
       rolCuenta: (token as TokenOrg).rolCuenta,
       rolStaff: token.kind === 'staff' ? (token as TokenStaff).rol : undefined,
     };
-    tenantContext.run(store, () => next());
+    // IMPORTANTE: usar enterWith en vez de run(store, () => next()).
+    //
+    // Problema con run(store, () => next()): run() abre un frame ALS que
+    // se asocia al callback y a todas sus continuaciones async. Para
+    // middlewares puramente async eso funciona, pero en rutas que usan
+    // multer (upload.single), el parser de multipart consume el stream
+    // del req y llama next() desde un listener del stream ('end') que
+    // fue creado en otro async resource, saltando fuera del frame de
+    // run(). Cuando el handler de la ruta llega a getTenant() después
+    // de awaits (Promise.allSettled, prisma.$transaction, etc), la ALS
+    // ya no tiene store y getTenant() tira.
+    //
+    // enterWith() no depende de un scope de callback: marca el async
+    // resource actual con el store y TODA descendencia async (incluido
+    // lo que cree multer o cualquier librería downstream) hereda el
+    // contexto automáticamente. No hay frame que pueda "salirse".
+    //
+    // Seguro porque tenantMiddleware corre una vez por request al inicio
+    // del pipeline, antes de cualquier router de negocio, así que el
+    // contexto de cada request es su propio async resource y no hay
+    // leak entre requests.
+    tenantContext.enterWith(store);
+    next();
     return;
   }
 
