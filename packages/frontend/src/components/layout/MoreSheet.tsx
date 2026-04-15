@@ -5,7 +5,7 @@ import {
   ArrowRightLeft, FlaskConical, ShoppingCart, ScanBarcode,
   ClipboardList, ClipboardCheck, AlertTriangle, BarChart3,
   Truck, Upload, Link2, FileText, DollarSign, TrendingUp,
-  ScanLine, Package, Warehouse, ChefHat, Users, Settings, ListTodo, X
+  ScanLine, Package, Warehouse, ChefHat, Users, Settings, ListTodo, X, Repeat
 } from 'lucide-react';
 
 interface SheetItem {
@@ -26,6 +26,7 @@ const GROUPS: SheetGroup[] = [
     label: 'Operaciones',
     items: [
       { to: '/movimientos', label: 'Movimientos', icon: ArrowRightLeft, permiso: 'movimientos' },
+      { to: '/reposicion', label: 'Reposición', icon: Repeat, permiso: 'stock' },
       { to: '/elaboraciones', label: 'Elaborar', icon: FlaskConical, permiso: 'movimientos' },
       { to: '/ordenes-compra', label: 'Órdenes', icon: ShoppingCart, permiso: 'ordenes-compra' },
       { to: '/control-scanner', label: 'Scanner', icon: ScanBarcode, permiso: 'control-scanner' },

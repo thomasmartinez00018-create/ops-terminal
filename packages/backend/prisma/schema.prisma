@@ -79,6 +79,8 @@ model Organizacion {
   pagos              Pago[]
   porcionados        Porcionado[]
   listasPrecio       ListaPrecio[]
+  stockParametros    StockParametro[]
+  ordenesReposicion  OrdenReposicion[]
   suscripcion        Suscripcion?
 
   @@map("organizaciones")
@@ -145,19 +147,21 @@ model Producto {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  organizacion       Organizacion        @relation(fields: [organizacionId], references: [id])
-  depositoDefecto    Deposito?           @relation(fields: [depositoDefectoId], references: [id])
-  movimientos        Movimiento[]
-  proveedorProductos ProveedorProducto[]
-  recetaIngredientes RecetaIngrediente[]
-  inventarioDetalles InventarioDetalle[]
-  ordenCompraItems   OrdenCompraItem[]
-  recepcionItems     RecepcionItem[]
-  recetasResultado   Receta[]            @relation("recetaProducto")
-  elaboraciones      ElaboracionLote[]   @relation("elaborProducto")
-  facturaItems       FacturaItem[]
-  porcionadosOrigen  Porcionado[]        @relation("porcionadoOrigen")
-  porcionadoItems    PorcionadoItem[]
+  organizacion        Organizacion          @relation(fields: [organizacionId], references: [id])
+  depositoDefecto     Deposito?             @relation(fields: [depositoDefectoId], references: [id])
+  movimientos         Movimiento[]
+  proveedorProductos  ProveedorProducto[]
+  recetaIngredientes  RecetaIngrediente[]
+  inventarioDetalles  InventarioDetalle[]
+  ordenCompraItems    OrdenCompraItem[]
+  recepcionItems      RecepcionItem[]
+  recetasResultado    Receta[]              @relation("recetaProducto")
+  elaboraciones       ElaboracionLote[]     @relation("elaborProducto")
+  facturaItems        FacturaItem[]
+  porcionadosOrigen   Porcionado[]          @relation("porcionadoOrigen")
+  porcionadoItems     PorcionadoItem[]
+  stockParametros     StockParametro[]
+  ordenReposicionItem OrdenReposicionItem[]
 
   @@unique([organizacionId, codigo])
   @@index([organizacionId])
@@ -168,26 +172,40 @@ model Producto {
 // DEPÓSITOS
 // ==========================================
 model Deposito {
-  id             Int     @id @default(autoincrement())
-  organizacionId Int     @default(0) @map("organizacion_id")
-  codigo         String
-  nombre         String
-  tipo           String? // almacen, cocina, barra, freezer, camara, seco
-  activo         Boolean @default(true)
+  id               Int     @id @default(autoincrement())
+  organizacionId   Int     @default(0) @map("organizacion_id")
+  codigo           String
+  nombre           String
+  tipo             String? // almacen, cocina, barra, freezer, camara, seco
+  // Jerarquía opcional: el depósito padre es el que "abastece" a éste.
+  // Permite modelar cadenas tipo Garage → Gamuza → Barra (N niveles, no
+  // hardcoded 3). El motor de reposición sugiere transferencias siguiendo
+  // esta cadena cuando un depósito cae por debajo del punto de reposición.
+  depositoPadreId  Int?    @map("deposito_padre_id")
+  activo           Boolean @default(true)
 
-  organizacion       Organizacion      @relation(fields: [organizacionId], references: [id])
+  organizacion       Organizacion       @relation(fields: [organizacionId], references: [id])
   productos          Producto[]
-  movimientosOrigen  Movimiento[]      @relation("depositoOrigen")
-  movimientosDestino Movimiento[]      @relation("depositoDestino")
+  movimientosOrigen  Movimiento[]       @relation("depositoOrigen")
+  movimientosDestino Movimiento[]       @relation("depositoDestino")
   inventarios        Inventario[]
-  ordenesCompra      OrdenCompra[]     @relation("ocDeposito")
-  usuariosDefecto    Usuario[]         @relation("usuarioDepositoDefecto")
-  elaboraciones      ElaboracionLote[] @relation("elaborDeposito")
-  porcionadosOrigen  Porcionado[]      @relation("porcionadoDepOrigen")
-  porcionadoItemsDep PorcionadoItem[]  @relation("porcionadoItemDep")
+  ordenesCompra      OrdenCompra[]      @relation("ocDeposito")
+  usuariosDefecto    Usuario[]          @relation("usuarioDepositoDefecto")
+  elaboraciones      ElaboracionLote[]  @relation("elaborDeposito")
+  porcionadosOrigen  Porcionado[]       @relation("porcionadoDepOrigen")
+  porcionadoItemsDep PorcionadoItem[]   @relation("porcionadoItemDep")
+  // Árbol: padre / hijos (self-relation)
+  depositoPadre      Deposito?          @relation("DepositoJerarquia", fields: [depositoPadreId], references: [id])
+  depositosHijos     Deposito[]         @relation("DepositoJerarquia")
+  // Parámetros de reposición por producto × depósito
+  stockParametros    StockParametro[]
+  // Reposiciones donde este depósito es origen / destino
+  reposicionesOrigen  OrdenReposicion[] @relation("reposicionOrigen")
+  reposicionesDestino OrdenReposicion[] @relation("reposicionDestino")
 
   @@unique([organizacionId, codigo])
   @@index([organizacionId])
+  @@index([depositoPadreId])
   @@map("depositos")
 }
 
@@ -225,6 +243,9 @@ model Usuario {
   porcionados            Porcionado[]      @relation("porcionadoUsuario")
   facturasCreadas        Factura[]         @relation("facturaCreador")
   pagosCreados           Pago[]            @relation("pagoCreador")
+  reposicionesCreadas    OrdenReposicion[] @relation("repoCreador")
+  reposicionesAsignadas  OrdenReposicion[] @relation("repoAsignado")
+  reposicionesEjecutadas OrdenReposicion[] @relation("repoEjecutor")
 
   @@unique([organizacionId, codigo])
   @@index([organizacionId])
@@ -814,4 +835,110 @@ model PagoSuscripcion {
 
   @@index([suscripcionId])
   @@map("pagos_suscripcion")
+}
+
+// ==========================================
+// STOCK PARÁMETROS (por producto × depósito)
+// ==========================================
+// Parámetros de reposición a nivel fino: mínimo, objetivo y punto de
+// reposición específicos para un producto en un depósito particular.
+// Cuando no existe una fila para un (producto, depósito), el motor de
+// reposición usa como fallback los valores globales en `Producto`
+// (stockMinimo / stockIdeal). Esto permite empezar a usar la feature sin
+// configurar nada y refinar por depósito a medida que se usa.
+//
+// - stockMinimo: por debajo de esto, alerta + sugerencia de reposición
+// - stockObjetivo: cantidad "ideal" (techo del refill). El motor sugiere
+//   llevar al depósito desde su punto actual hasta este valor.
+// - puntoReposicion: umbral que dispara la sugerencia. Suele estar entre
+//   mínimo y objetivo; si es null, se usa stockMinimo como disparador.
+// ==========================================
+model StockParametro {
+  id              Int      @id @default(autoincrement())
+  organizacionId  Int      @default(0) @map("organizacion_id")
+  productoId      Int      @map("producto_id")
+  depositoId      Int      @map("deposito_id")
+  stockMinimo     Float?   @map("stock_minimo")
+  stockObjetivo   Float?   @map("stock_objetivo")
+  puntoReposicion Float?   @map("punto_reposicion")
+  activo          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  organizacion Organizacion @relation(fields: [organizacionId], references: [id])
+  producto     Producto     @relation(fields: [productoId], references: [id])
+  deposito     Deposito     @relation(fields: [depositoId], references: [id])
+
+  @@unique([organizacionId, productoId, depositoId])
+  @@index([organizacionId])
+  @@index([depositoId])
+  @@map("stock_parametros")
+}
+
+// ==========================================
+// ÓRDENES DE REPOSICIÓN (transferencias internas sugeridas)
+// ==========================================
+// Las órdenes de compra (OrdenCompra) son hacia PROVEEDORES externos.
+// Las órdenes de reposición son transferencias INTERNAS entre depósitos,
+// típicamente de un depósito "padre" (Garage, almacén central) hacia un
+// depósito "hijo" (Gamuza, cocina, barra). El motor las SUGIERE cuando
+// el depósito hijo baja del punto de reposición; un humano las confirma
+// ajustando cantidades antes de que se ejecuten. Al confirmar+ejecutar,
+// se crea un Movimiento de `transferencia` por cada item — el stock real
+// se sigue calculando on-demand desde la tabla movimientos.
+//
+// Estados:
+//   - sugerida   → el motor la propuso, esperando confirmación humana
+//   - pendiente  → humano la confirmó y asignó, aún sin ejecutar
+//   - ejecutada  → las cantidades se transfirieron (Movimiento creados)
+//   - cancelada  → se descartó antes de ejecutar
+// ==========================================
+model OrdenReposicion {
+  id                Int      @id @default(autoincrement())
+  organizacionId    Int      @default(0) @map("organizacion_id")
+  codigo            String // OR-001 (único dentro de la org)
+  fecha             String // YYYY-MM-DD en que se generó
+  estado            String   @default("sugerida") // sugerida | pendiente | ejecutada | cancelada
+  depositoOrigenId  Int      @map("deposito_origen_id")
+  depositoDestinoId Int      @map("deposito_destino_id")
+  motivo            String? // "Punto de reposición" | "Manual" | "Cadena Garage→Gamuza→Barra"
+  creadoPorId       Int      @map("creado_por_id")
+  asignadoAId       Int?     @map("asignado_a_id")
+  ejecutadoPorId    Int?     @map("ejecutado_por_id")
+  fechaEjecucion    String?  @map("fecha_ejecucion")
+  observacion       String?
+  generadoAuto      Boolean  @default(false) @map("generado_auto") // true si lo creó el motor
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  organizacion    Organizacion @relation(fields: [organizacionId], references: [id])
+  depositoOrigen  Deposito     @relation("reposicionOrigen", fields: [depositoOrigenId], references: [id])
+  depositoDestino Deposito     @relation("reposicionDestino", fields: [depositoDestinoId], references: [id])
+  creadoPor       Usuario      @relation("repoCreador", fields: [creadoPorId], references: [id])
+  asignadoA       Usuario?     @relation("repoAsignado", fields: [asignadoAId], references: [id])
+  ejecutadoPor    Usuario?     @relation("repoEjecutor", fields: [ejecutadoPorId], references: [id])
+  items           OrdenReposicionItem[]
+
+  @@unique([organizacionId, codigo])
+  @@index([organizacionId])
+  @@index([organizacionId, estado])
+  @@map("ordenes_reposicion")
+}
+
+model OrdenReposicionItem {
+  id                 Int    @id @default(autoincrement())
+  ordenReposicionId  Int    @map("orden_reposicion_id")
+  productoId         Int    @map("producto_id")
+  cantidadSugerida   Float  @map("cantidad_sugerida")
+  cantidadConfirmada Float? @map("cantidad_confirmada")
+  unidad             String
+  stockOrigenSnapshot  Float? @map("stock_origen_snapshot") // foto del stock al generar
+  stockDestinoSnapshot Float? @map("stock_destino_snapshot")
+  observacion        String?
+
+  ordenReposicion OrdenReposicion @relation(fields: [ordenReposicionId], references: [id], onDelete: Cascade)
+  producto        Producto        @relation(fields: [productoId], references: [id])
+
+  @@index([ordenReposicionId])
+  @@map("orden_reposicion_items")
 }

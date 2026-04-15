@@ -431,4 +431,87 @@ export const api = {
     }),
   syncSuscripcion: () =>
     request<any>('/suscripciones/sync', { method: 'POST' }),
+
+  // ── Reposición encadenada ─────────────────────────────────────────────
+  // Alertas calculadas en vivo (no se persisten hasta que se genera una orden)
+  getAlertasReposicion: () =>
+    request<{
+      total: number;
+      alertas: Array<{
+        productoId: number;
+        productoCodigo: string;
+        productoNombre: string;
+        unidad: string;
+        depositoId: number;
+        depositoCodigo: string;
+        depositoNombre: string;
+        stockActual: number;
+        stockMinimo: number;
+        stockObjetivo: number;
+        puntoReposicion: number;
+        cantidadSugerida: number;
+        fuenteParametros: 'parametro' | 'producto' | 'vacio';
+        depositoPadreId: number | null;
+        depositoPadreNombre: string | null;
+        stockEnPadre: number | null;
+        puedeReponerDesdePadre: boolean;
+        requiereCompra: boolean;
+      }>;
+      resumen: { paraTransferir: number; paraComprar: number; conStockPadreSuficiente: number };
+    }>('/reposicion/alertas'),
+
+  generarOrdenesReposicion: () =>
+    request<{
+      ordenesCreadas: number;
+      ordenes: any[];
+      paraComprar?: number;
+      mensaje?: string;
+    }>('/reposicion/generar-ordenes', { method: 'POST' }),
+
+  getOrdenesReposicion: (params?: Record<string, string>) =>
+    request<any[]>(`/reposicion${qs(params)}`),
+
+  getOrdenReposicion: (id: number) =>
+    request<any>(`/reposicion/${id}`),
+
+  confirmarOrdenReposicion: (id: number, data: {
+    asignadoAId?: number;
+    items?: Array<{ id: number; cantidadConfirmada: number; observacion?: string }>;
+    observacion?: string;
+  }) =>
+    request<any>(`/reposicion/${id}/confirmar`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  ejecutarOrdenReposicion: (id: number) =>
+    request<any>(`/reposicion/${id}/ejecutar`, { method: 'PUT' }),
+
+  cancelarOrdenReposicion: (id: number) =>
+    request<any>(`/reposicion/${id}/cancelar`, { method: 'PUT' }),
+
+  createOrdenReposicionManual: (data: {
+    depositoOrigenId: number;
+    depositoDestinoId: number;
+    items: Array<{ productoId: number; cantidad: number; unidad: string; observacion?: string }>;
+    observacion?: string;
+    asignadoAId?: number;
+  }) =>
+    request<any>('/reposicion/manual', { method: 'POST', body: JSON.stringify(data) }),
+
+  // Parámetros de reposición por producto × depósito
+  getParametrosReposicion: (params?: Record<string, string>) =>
+    request<any[]>(`/reposicion/parametros/lista${qs(params)}`),
+
+  saveParametrosReposicion: (parametros: Array<{
+    productoId: number;
+    depositoId: number;
+    stockMinimo?: number | null;
+    stockObjetivo?: number | null;
+    puntoReposicion?: number | null;
+  }>) =>
+    request<{ actualizados: number; parametros: any[] }>('/reposicion/parametros', {
+      method: 'PUT',
+      body: JSON.stringify({ parametros }),
+    }),
+
+  // Depósitos — árbol jerárquico
+  getDepositosArbol: () => request<any[]>('/depositos/arbol'),
 };

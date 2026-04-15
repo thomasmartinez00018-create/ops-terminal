@@ -34,6 +34,7 @@ import ComparadorPrecios from './pages/ComparadorPrecios';
 import Landing from './pages/Landing';
 import Suscripcion from './pages/Suscripcion';
 import VincularDispositivo from './pages/VincularDispositivo';
+import Reposicion from './pages/Reposicion';
 
 // ============================================================================
 // SessionGate — decide qué pantalla mostrar según el stage del token
@@ -93,6 +94,7 @@ function SessionGate() {
             <Route path="/depositos" element={<Depositos />} />
             <Route path="/usuarios" element={<Usuarios />} />
             <Route path="/movimientos" element={<Movimientos />} />
+            <Route path="/reposicion" element={<Reposicion />} />
             <Route path="/stock" element={<Stock />} />
             <Route path="/recetas" element={<Recetas />} />
             <Route path="/proveedores" element={<Proveedores />} />

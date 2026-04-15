@@ -7,7 +7,7 @@ import {
   ScanBarcode, ClipboardList, ClipboardCheck, AlertTriangle, BarChart3,
   Truck, Upload, Link2, FileText, DollarSign, TrendingUp, ScanLine,
   Package, Warehouse, ChefHat, Users, Settings, ListTodo,
-  Plus, Zap
+  Plus, Zap, Repeat
 } from 'lucide-react';
 
 // ── Search index ────────────────────────────────────────────
@@ -29,6 +29,7 @@ const PAGES: SearchItem[] = [
   { id: 'tareas', label: 'Tareas', group: 'General', icon: ListTodo, to: '/tareas', keywords: ['todo', 'pendientes'], type: 'page' },
   // Operaciones
   { id: 'movimientos', label: 'Movimientos', group: 'Operaciones', icon: ArrowRightLeft, to: '/movimientos', keywords: ['mov', 'transferencia', 'ingreso', 'merma', 'venta'], permiso: 'movimientos', type: 'page' },
+  { id: 'reposicion', label: 'Reposición', group: 'Operaciones', icon: Repeat, to: '/reposicion', keywords: ['reposicion', 'reponer', 'abastecer', 'transferir', 'punto', 'minimo', 'garage', 'gamuza', 'barra', 'cadena'], permiso: 'stock', type: 'page' },
   { id: 'elaboraciones', label: 'Elaboraciones', group: 'Operaciones', icon: FlaskConical, to: '/elaboraciones', keywords: ['elaborar', 'produccion', 'cocina', 'receta'], permiso: 'movimientos', type: 'page' },
   { id: 'ordenes', label: 'Órdenes de compra', group: 'Operaciones', icon: ShoppingCart, to: '/ordenes-compra', keywords: ['orden', 'compra', 'pedido', 'oc'], permiso: 'ordenes-compra', type: 'page' },
   { id: 'scanner', label: 'Control Scanner', group: 'Operaciones', icon: ScanBarcode, to: '/control-scanner', keywords: ['escanear', 'codigo', 'barras', 'conteo'], permiso: 'control-scanner', type: 'page' },
