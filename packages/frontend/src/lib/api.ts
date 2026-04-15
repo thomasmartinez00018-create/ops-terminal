@@ -46,6 +46,15 @@ export function decodeToken(): any | null {
   try { return JSON.parse(atob(token.split('.')[1])); } catch { return null; }
 }
 
+// Indica si el token actual fue emitido por un canje de device pairing code.
+// Si es así, la UI oculta opciones de "cambiar workspace", "crear workspace"
+// y "generar código de pairing" (un dispositivo bindeado no debería hacer
+// esas cosas porque expondrían datos del dueño).
+export function isPairedDevice(): boolean {
+  const p = decodeToken();
+  return Boolean(p && p.pairedDevice === true);
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
   const headers = new Headers(options.headers);
@@ -143,6 +152,20 @@ export const api = {
   // password. Se usa desde dentro de la app para "Cambiar workspace".
   downgradeToStage1: () =>
     request<CuentaLoginResponse>('/cuenta/to-stage-1', { method: 'POST' }),
+
+  // ── Device pairing — vincular un dispositivo nuevo sin compartir credenciales
+  // Admin en dispositivo autenticado → genera código de 6 dígitos (TTL 10 min)
+  pairGenerate: () =>
+    request<{ codigo: string; expiraEn: string; ttlSegundos: number }>(
+      '/cuenta/pair/generate',
+      { method: 'POST' },
+    ),
+  // Empleado en dispositivo nuevo (sin auth) → canjea código → recibe stage 2
+  pairRedeem: (codigo: string) =>
+    request<SwitchWorkspaceResponse>('/cuenta/pair/redeem', {
+      method: 'POST',
+      body: JSON.stringify({ codigo }),
+    }),
 
   // ── Auth staff (stage 2 → 3) — selector de usuario + PIN ──────────────────
   getUsuariosLogin: () => request<any[]>('/auth/usuarios'),

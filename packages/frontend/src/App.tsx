@@ -33,6 +33,7 @@ import Equivalencias from './pages/Equivalencias';
 import ComparadorPrecios from './pages/ComparadorPrecios';
 import Landing from './pages/Landing';
 import Suscripcion from './pages/Suscripcion';
+import VincularDispositivo from './pages/VincularDispositivo';
 
 // ============================================================================
 // SessionGate — decide qué pantalla mostrar según el stage del token
@@ -63,6 +64,7 @@ function SessionGate() {
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<AuthGate />} />
+          <Route path="/vincular-dispositivo" element={<VincularDispositivo />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

@@ -45,6 +45,16 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Pairing redeem es público (sin auth): necesita rate limit fuerte para que
+// nadie pueda brute-forcear los 6 dígitos. 10 intentos / 5 min / IP.
+const pairRedeemLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 10,
+  message: { error: 'Demasiados intentos. Esperá unos minutos.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 function slugify(s: string): string {
   return s
@@ -376,6 +386,12 @@ router.post('/switch', requireAnyAuth, async (req: Request, res: Response) => {
 // ============================================================================
 router.post('/workspaces', requireAnyAuth, async (req: Request, res: Response) => {
   try {
+    const tok = req.token as any;
+    // Bloqueo para dispositivos pareados — no deberían poder crear orgs
+    if (tok?.pairedDevice === true) {
+      res.status(403).json({ error: 'Este dispositivo no puede crear workspaces' });
+      return;
+    }
     const { nombre, templateId } = req.body ?? {};
     if (typeof nombre !== 'string' || nombre.trim().length < 2) {
       res.status(400).json({ error: 'Nombre del workspace requerido' });
@@ -450,6 +466,175 @@ router.get('/templates', requireAnyAuth, async (_req: Request, res: Response) =>
 });
 
 // ============================================================================
+// Device Pairing — vincular un dispositivo sin compartir credenciales
+// ----------------------------------------------------------------------------
+// Flujo:
+//   1. El admin, en su dispositivo ya autenticado (stage 2+), pide
+//      POST /pair/generate → recibe un código de 6 dígitos con TTL de 10 min.
+//   2. En el dispositivo del empleado (navegador limpio, sin auth), el
+//      empleado abre la app, hace tap en "Vincular dispositivo", ingresa el
+//      código → POST /pair/redeem devuelve un token stage 2 (pairedDevice).
+//   3. El empleado ahora ve el selector de usuarios staff (código+PIN) y
+//      entra con su cuenta de empleado sin haber visto nunca el email del
+//      dueño.
+//
+// Seguridad:
+//   - Códigos single-use, expiran a los 10 min.
+//   - Rate limit fuerte en redeem (público).
+//   - El token emitido tiene pairedDevice:true → bloquea cambiar workspace,
+//     crear workspaces, generar nuevos códigos.
+//   - Solo owner/admin (rolCuenta) puede generar códigos.
+// ============================================================================
+
+function generate6DigitCode(): string {
+  // Evita códigos que empiecen con 0 (mejor legibilidad dictada por teléfono).
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+// POST /api/cuenta/pair/generate — genera un código de 6 dígitos
+router.post('/pair/generate', requireAnyAuth, async (req: Request, res: Response) => {
+  try {
+    const token = req.token as any;
+    if (token?.kind !== 'org' && token?.kind !== 'staff') {
+      res.status(403).json({ error: 'Elegí un workspace para continuar', needsWorkspaceSelection: true });
+      return;
+    }
+    // Bloquear la generación desde un dispositivo ya bindeado — el empleado
+    // no debería poder auto-vincular más dispositivos.
+    if (token.pairedDevice === true) {
+      res.status(403).json({ error: 'Este dispositivo no puede generar códigos de vinculación' });
+      return;
+    }
+    const rolCuenta = token.rolCuenta;
+    if (rolCuenta !== 'owner' && rolCuenta !== 'admin') {
+      res.status(403).json({ error: 'Solo el dueño o un admin puede generar códigos' });
+      return;
+    }
+
+    const organizacionId = token.organizacionId as number;
+    const cuentaId = token.cuentaId as number;
+
+    await runWithoutTenant(async () => {
+      // Reintentar hasta 5 veces si hay colisión (improbable con 900k combinaciones)
+      let codigo = '';
+      for (let i = 0; i < 5; i++) {
+        codigo = generate6DigitCode();
+        const existing = await prismaRaw.devicePairingCode.findUnique({ where: { codigo } });
+        if (!existing) break;
+        if (i === 4) {
+          res.status(500).json({ error: 'No se pudo generar un código único, reintentá' });
+          return;
+        }
+      }
+
+      const expiraEn = new Date(Date.now() + 10 * 60 * 1000); // 10 min
+
+      const row = await prismaRaw.devicePairingCode.create({
+        data: {
+          codigo,
+          organizacionId,
+          creadoPorCuentaId: cuentaId,
+          expiraEn,
+        },
+      });
+
+      res.status(201).json({
+        codigo: row.codigo,
+        expiraEn: row.expiraEn.toISOString(),
+        ttlSegundos: Math.floor((row.expiraEn.getTime() - Date.now()) / 1000),
+      });
+    });
+  } catch (err: any) {
+    console.error('[cuenta/pair/generate]', err);
+    res.status(500).json({ error: 'Error al generar código' });
+  }
+});
+
+// POST /api/cuenta/pair/redeem — canjea un código por un token stage 2
+// ----------------------------------------------------------------------------
+// Ruta PÚBLICA (sin auth). El empleado entra con un navegador limpio, tipea
+// el código y recibe un token stage 2 bindeado a la org + pairedDevice:true.
+// A partir de ese momento el flujo es idéntico al normal: el empleado elige
+// su usuario staff y tipea su PIN.
+router.post('/pair/redeem', pairRedeemLimiter, async (req: Request, res: Response) => {
+  try {
+    const { codigo } = req.body ?? {};
+    if (typeof codigo !== 'string' || !/^\d{6}$/.test(codigo)) {
+      res.status(400).json({ error: 'Código inválido' });
+      return;
+    }
+
+    // IP del cliente (respeta X-Forwarded-For del trust proxy de Express)
+    const ip = (req.ip || req.socket.remoteAddress || 'unknown').slice(0, 64);
+
+    await runWithoutTenant(async () => {
+      const row = await prismaRaw.devicePairingCode.findUnique({
+        where: { codigo },
+      });
+
+      if (!row) {
+        res.status(404).json({ error: 'Código inválido o expirado' });
+        return;
+      }
+      if (row.usado) {
+        res.status(410).json({ error: 'Código ya fue utilizado' });
+        return;
+      }
+      if (row.expiraEn.getTime() < Date.now()) {
+        res.status(410).json({ error: 'Código expirado' });
+        return;
+      }
+
+      // Cargar org + creador en paralelo
+      const [org, creador] = await Promise.all([
+        prismaRaw.organizacion.findUnique({ where: { id: row.organizacionId } }),
+        prismaRaw.cuenta.findUnique({ where: { id: row.creadoPorCuentaId } }),
+      ]);
+      if (!org || !creador) {
+        res.status(500).json({ error: 'Workspace o cuenta creadora no encontrados' });
+        return;
+      }
+
+      // Marcar usado
+      await prismaRaw.devicePairingCode.update({
+        where: { id: row.id },
+        data: {
+          usado: true,
+          usadoEn: new Date(),
+          usadoDesdeIp: ip,
+        },
+      });
+
+      // Emitir token stage 2 con pairedDevice:true + rolCuenta forzado a 'staff'
+      // para que el dispositivo no tenga permisos admin a nivel cuenta.
+      const newToken = signToken({
+        kind: 'org',
+        cuentaId: creador.id,
+        email: creador.email,
+        organizacionId: row.organizacionId,
+        rolCuenta: 'staff',
+        pairedDevice: true,
+      });
+
+      res.json({
+        token: newToken,
+        workspace: {
+          id: org.id,
+          nombre: org.nombre,
+          slug: org.slug,
+          plan: org.plan,
+          estadoSuscripcion: org.estadoSuscripcion,
+          rol: 'staff',
+        },
+      });
+    });
+  } catch (err: any) {
+    console.error('[cuenta/pair/redeem]', err);
+    res.status(500).json({ error: 'Error al canjear código' });
+  }
+});
+
+// ============================================================================
 // GET /api/cuenta/me — datos de la cuenta autenticada
 // ============================================================================
 router.get('/me', requireAnyAuth, async (req: Request, res: Response) => {
@@ -487,6 +672,12 @@ router.post('/to-stage-1', requireAnyAuth, async (req: Request, res: Response) =
     const token = req.token as any;
     if (!token || !token.cuentaId || !token.email) {
       res.status(401).json({ error: 'Token inválido' });
+      return;
+    }
+    // Un dispositivo bindeado por pairing NO puede volver al selector de
+    // workspaces — el empleado vería los datos/email del dueño.
+    if (token.pairedDevice === true) {
+      res.status(403).json({ error: 'Este dispositivo está vinculado a un único workspace' });
       return;
     }
 

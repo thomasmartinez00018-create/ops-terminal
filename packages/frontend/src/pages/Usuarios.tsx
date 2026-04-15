@@ -6,9 +6,10 @@ import Select from '../components/ui/Select';
 import PageTour from '../components/PageTour';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
-import { Plus, Pencil, Trash2, ShieldCheck, QrCode, LayoutDashboard } from 'lucide-react';
+import { Plus, Pencil, Trash2, ShieldCheck, QrCode, LayoutDashboard, Link2, Copy, Check, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { DashboardConfig } from '../context/AuthContext';
+import { isPairedDevice } from '../lib/api';
 
 const ROLES = [
   { value: 'admin', label: 'Administrador' },
@@ -89,6 +90,63 @@ export default function Usuarios() {
   const [permisos, setPermisos] = useState<string[]>([]);
   const [dashConfig, setDashConfig] = useState<DashboardConfig>(emptyDashConfig);
   const [error, setError] = useState('');
+
+  // Device pairing
+  const pairingBloqueado = isPairedDevice();
+  const [pairingOpen, setPairingOpen] = useState(false);
+  const [pairingBusy, setPairingBusy] = useState(false);
+  const [pairingError, setPairingError] = useState('');
+  const [pairingCode, setPairingCode] = useState<string | null>(null);
+  const [pairingExpiraEn, setPairingExpiraEn] = useState<number>(0);
+  const [pairingTtl, setPairingTtl] = useState<number>(0);
+  const [pairingCopiado, setPairingCopiado] = useState(false);
+
+  // Countdown del código
+  useEffect(() => {
+    if (!pairingOpen || !pairingExpiraEn) return;
+    const tick = () => {
+      const left = Math.max(0, Math.floor((pairingExpiraEn - Date.now()) / 1000));
+      setPairingTtl(left);
+      if (left === 0) setPairingCode(null);
+    };
+    tick();
+    const iv = setInterval(tick, 1000);
+    return () => clearInterval(iv);
+  }, [pairingOpen, pairingExpiraEn]);
+
+  const generarPairingCode = async () => {
+    setPairingError('');
+    setPairingCode(null);
+    setPairingCopiado(false);
+    setPairingBusy(true);
+    try {
+      const res = await api.pairGenerate();
+      setPairingCode(res.codigo);
+      setPairingExpiraEn(new Date(res.expiraEn).getTime());
+    } catch (err: any) {
+      setPairingError(err?.message || 'Error al generar código');
+    } finally {
+      setPairingBusy(false);
+    }
+  };
+
+  const copiarPairingCode = async () => {
+    if (!pairingCode) return;
+    try {
+      await navigator.clipboard.writeText(pairingCode);
+      setPairingCopiado(true);
+      setTimeout(() => setPairingCopiado(false), 1500);
+    } catch {}
+  };
+
+  const abrirPairingModal = () => {
+    setPairingCode(null);
+    setPairingError('');
+    setPairingCopiado(false);
+    setPairingOpen(true);
+    // Generamos automáticamente al abrir
+    generarPairingCode();
+  };
 
   const cargar = () => {
     api.getUsuarios({ activo: 'true' }).then(setUsuarios).catch(console.error);
@@ -203,7 +261,7 @@ export default function Usuarios() {
           <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Gestión</p>
           <h1 className="text-xl font-extrabold text-foreground mt-1">Usuarios</h1>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button
             onClick={() => navigate('/acceso-red')}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary/10 border border-primary/30 text-sm font-bold text-primary hover:bg-primary/20 transition-colors"
@@ -211,6 +269,15 @@ export default function Usuarios() {
           >
             <QrCode size={15} /> QR de acceso
           </button>
+          {!pairingBloqueado && (
+            <button
+              onClick={abrirPairingModal}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-success/10 border border-success/30 text-sm font-bold text-success hover:bg-success/20 transition-colors"
+              title="Generar un código para vincular el dispositivo de un empleado sin compartir tu email/contraseña"
+            >
+              <Link2 size={15} /> Vincular dispositivo
+            </button>
+          )}
           <Button onClick={() => abrir()}>
             <Plus size={16} /> Nuevo usuario
           </Button>
@@ -462,6 +529,108 @@ export default function Usuarios() {
               Cancelar
             </Button>
           </div>
+        </div>
+      </Modal>
+
+      {/* ── Modal de Device Pairing — generar código de 6 dígitos ───────── */}
+      <Modal
+        open={pairingOpen}
+        onClose={() => setPairingOpen(false)}
+        title="Vincular un dispositivo"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 p-3 rounded-xl bg-primary/5 border border-primary/20">
+            <Link2 className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+            <div className="text-xs text-on-surface-variant leading-relaxed">
+              <p className="font-bold text-foreground mb-1">¿Cómo funciona?</p>
+              <p>
+                Generás un código de 6 dígitos. El empleado entra a la app desde su
+                celular, tap en <span className="font-bold text-primary">"Vincular dispositivo con un código"</span>,
+                ingresa los dígitos y queda bindeado al local <span className="font-bold">sin ver tu email ni contraseña</span>.
+                Después ingresa con su código+PIN propio.
+              </p>
+            </div>
+          </div>
+
+          {/* Display del código */}
+          <div className="relative">
+            <div className={`
+              rounded-2xl border-2 p-6 text-center transition-all
+              ${pairingCode
+                ? 'bg-gradient-to-br from-primary/10 to-primary/5 border-primary/40'
+                : 'bg-surface-high border-border'}
+            `}>
+              <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-[0.2em] mb-3">
+                Código de 6 dígitos
+              </p>
+              {pairingBusy && !pairingCode ? (
+                <div className="py-4">
+                  <p className="text-sm text-on-surface-variant font-semibold animate-pulse">
+                    Generando...
+                  </p>
+                </div>
+              ) : pairingCode ? (
+                <>
+                  <div
+                    className="font-mono-alt text-5xl md:text-6xl font-extrabold text-primary tracking-[0.25em] tabular-nums select-all cursor-pointer"
+                    onClick={copiarPairingCode}
+                    title="Tap para copiar"
+                  >
+                    {pairingCode}
+                  </div>
+                  <p className="text-[11px] text-on-surface-variant font-bold mt-3">
+                    {pairingTtl > 0
+                      ? <>Expira en <span className="text-primary tabular-nums">{Math.floor(pairingTtl / 60)}:{String(pairingTtl % 60).padStart(2, '0')}</span></>
+                      : <span className="text-destructive">Expirado — generá uno nuevo</span>}
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-on-surface-variant">
+                  Tocá "Generar código" para empezar
+                </p>
+              )}
+            </div>
+          </div>
+
+          {pairingError && (
+            <p className="text-xs text-destructive font-semibold text-center">
+              {pairingError}
+            </p>
+          )}
+
+          {/* Acciones */}
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              variant="secondary"
+              onClick={copiarPairingCode}
+              disabled={!pairingCode || pairingTtl === 0}
+            >
+              {pairingCopiado ? <><Check size={16} /> Copiado</> : <><Copy size={16} /> Copiar</>}
+            </Button>
+            <Button
+              onClick={generarPairingCode}
+              disabled={pairingBusy}
+            >
+              <RefreshCw size={16} className={pairingBusy ? 'animate-spin' : ''} />
+              {pairingCode ? 'Nuevo código' : 'Generar código'}
+            </Button>
+          </div>
+
+          <div className="text-[11px] text-on-surface-variant/80 leading-relaxed pt-2 border-t border-border">
+            <p>
+              <span className="font-bold text-on-surface-variant">Seguridad:</span> el código es de un solo uso,
+              expira en 10 minutos y solo funciona en un dispositivo. El empleado que lo canjee quedará
+              limitado al login staff con su PIN — no podrá cambiar workspace ni ver datos de cuenta.
+            </p>
+          </div>
+
+          <Button
+            variant="secondary"
+            onClick={() => setPairingOpen(false)}
+            className="w-full"
+          >
+            Cerrar
+          </Button>
         </div>
       </Modal>
     </div>

@@ -89,6 +89,14 @@ export interface TokenOrg {
   email: string;
   organizacionId: number;
   rolCuenta: string; // owner | admin | staff (rol en la org)
+  // Flag opcional: true si el token fue emitido por un canje de device
+  // pairing code. Si está seteado, el dispositivo NO puede:
+  //   - volver al selector de workspaces (`/to-stage-1`)
+  //   - crear workspaces adicionales
+  //   - generar nuevos códigos de pairing
+  // Es un dispositivo "bindeado" a un workspace: solo sirve para hacer
+  // staff login (stage 3) con el código+PIN propio del empleado.
+  pairedDevice?: boolean;
 }
 
 export interface TokenStaff {
@@ -100,6 +108,8 @@ export interface TokenStaff {
   uid: number;       // id del Usuario (staff) seleccionado
   codigo: string;    // código del staff
   rol: string;       // rol del staff (admin/cocina/deposito/...)
+  // Propagado desde TokenOrg si el stage 2 fue pairedDevice
+  pairedDevice?: boolean;
 }
 
 export type AnyToken = TokenCuenta | TokenOrg | TokenStaff;

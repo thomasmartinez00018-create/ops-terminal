@@ -85,7 +85,7 @@ export default function CuentaLogin({ onSwitchToSignup }: { onSwitchToSignup: ()
           </Button>
         </form>
 
-        <div className="mt-6 pt-4 border-t border-border text-center">
+        <div className="mt-6 pt-4 border-t border-border text-center space-y-2">
           <p className="text-xs text-on-surface-variant">
             ¿No tenés cuenta?{' '}
             <button
@@ -94,6 +94,15 @@ export default function CuentaLogin({ onSwitchToSignup }: { onSwitchToSignup: ()
             >
               Registrate
             </button>
+          </p>
+          <p className="text-[11px] text-on-surface-variant/80">
+            ¿Sos empleado?{' '}
+            <a
+              href="/vincular-dispositivo"
+              className="text-primary font-bold hover:underline"
+            >
+              Vinculá tu dispositivo con un código
+            </a>
           </p>
         </div>
       </div>

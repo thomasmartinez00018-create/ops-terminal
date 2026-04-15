@@ -99,6 +99,31 @@ model Miembro {
 }
 
 // ==========================================
+// DEVICE PAIRING CODES — onboarding de empleados en devices nuevos
+// ==========================================
+// El admin genera un código de 6 dígitos desde un device ya autenticado.
+// El empleado lo ingresa en su propio celular/tablet desde /vincular-dispositivo
+// y recibe un token stage 2 (org elegida, sin staff). Después loguea con
+// su PIN para subir a stage 3. Así no hay que compartir email+password.
+// El código expira a los 10 minutos y es single-use.
+// ==========================================
+model DevicePairingCode {
+  id                Int       @id @default(autoincrement())
+  codigo            String    @unique // 6 dígitos
+  organizacionId    Int       @map("organizacion_id")
+  creadoPorCuentaId Int       @map("creado_por_cuenta_id")
+  usado             Boolean   @default(false)
+  expiraEn          DateTime  @map("expira_en")
+  usadoEn           DateTime? @map("usado_en")
+  usadoDesdeIp      String?   @map("usado_desde_ip")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  @@index([codigo])
+  @@index([organizacionId])
+  @@map("device_pairing_codes")
+}
+
+// ==========================================
 // MAESTRO DE PRODUCTOS
 // ==========================================
 model Producto {
