@@ -56,7 +56,7 @@ interface SessionContextType {
   signup: (email: string, password: string, nombre: string, orgNombre?: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   selectWorkspace: (organizacionId: number) => Promise<void>;
-  createWorkspace: (nombre: string) => Promise<WorkspaceInfo>;
+  createWorkspace: (nombre: string, templateId?: string) => Promise<WorkspaceInfo>;
   backToWorkspaces: () => Promise<void>;
   logout: () => void;
   refreshWorkspaces: () => Promise<void>;
@@ -175,8 +175,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     applySession(sel.token, undefined, undefined, sel.workspace);
   }, []);
 
-  const createWorkspace = useCallback(async (nombre: string) => {
-    const ws = await api.createWorkspace(nombre);
+  const createWorkspace = useCallback(async (nombre: string, templateId?: string) => {
+    // El backend acepta templateId opcional. Si el user eligió un rubro, el
+    // workspace queda precargado con depósitos + productos del template.
+    const ws = await api.createWorkspace(nombre, templateId);
     const nextList = [...workspaces, ws];
     setWorkspaces(nextList);
     writeJSON(WORKSPACES_KEY, nextList);

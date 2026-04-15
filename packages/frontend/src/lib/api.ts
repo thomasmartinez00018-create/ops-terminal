@@ -99,6 +99,18 @@ export interface SwitchWorkspaceResponse {
   token: string;
   workspace: WorkspaceInfo;
 }
+// ── Template de rubro (onboarding de workspace nuevo) ──────────────────────
+export interface WorkspaceTemplateSummary {
+  id: string;                    // 'kiosco' | 'restaurante' | 'sushi' | ...
+  nombre: string;                // label visible
+  descripcion: string;           // 1 línea para la card
+  icono: string;                 // nombre del ícono lucide-react
+  color: string;                 // acento visual (hex)
+  totalDepositos: number;
+  totalProductos: number;
+  previewProductos: string[];    // primeros 6 productos para el preview
+  rubros: string[];              // lista de rubros únicos cubiertos
+}
 
 export const api = {
   // ── Cuenta (stage 1) — signup, login, workspaces, switch ──────────────────
@@ -114,11 +126,13 @@ export const api = {
     }),
   cuentaMe: () => request<CuentaInfo>('/cuenta/me'),
   listWorkspaces: () => request<WorkspaceInfo[]>('/cuenta/workspaces'),
-  createWorkspace: (nombre: string) =>
+  createWorkspace: (nombre: string, templateId?: string) =>
     request<WorkspaceInfo>('/cuenta/workspaces', {
       method: 'POST',
-      body: JSON.stringify({ nombre }),
+      body: JSON.stringify({ nombre, templateId: templateId ?? null }),
     }),
+  // Templates de rubro disponibles para precargar un workspace nuevo
+  listTemplates: () => request<WorkspaceTemplateSummary[]>('/cuenta/templates'),
   switchWorkspace: (organizacionId: number) =>
     request<SwitchWorkspaceResponse>('/cuenta/switch', {
       method: 'POST',

@@ -11,6 +11,11 @@ import {
   TokenCuenta,
   TokenOrg,
 } from '../lib/auth';
+import {
+  listTemplatesSummary,
+  applyTemplate,
+  getTemplateById,
+} from '../lib/workspaceTemplates';
 
 const router = Router();
 
@@ -371,10 +376,17 @@ router.post('/switch', requireAnyAuth, async (req: Request, res: Response) => {
 // ============================================================================
 router.post('/workspaces', requireAnyAuth, async (req: Request, res: Response) => {
   try {
-    const { nombre } = req.body ?? {};
+    const { nombre, templateId } = req.body ?? {};
     if (typeof nombre !== 'string' || nombre.trim().length < 2) {
       res.status(400).json({ error: 'Nombre del workspace requerido' });
       return;
+    }
+    // templateId es opcional. Si viene, validamos que exista.
+    if (templateId !== undefined && templateId !== null && templateId !== '') {
+      if (typeof templateId !== 'string' || !getTemplateById(templateId)) {
+        res.status(400).json({ error: 'Template inválido' });
+        return;
+      }
     }
     const cuentaId = (req.token as any).cuentaId;
 
@@ -393,6 +405,17 @@ router.post('/workspaces', requireAnyAuth, async (req: Request, res: Response) =
         data: { cuentaId, organizacionId: org.id, rol: 'owner' },
       });
 
+      // Aplicar template si fue especificado. Best-effort: si falla, loggeamos
+      // pero no rompemos la creación del workspace (el user ya tiene su org).
+      let templateAplicado: { depositosCreados: number; productosCreados: number } | null = null;
+      if (templateId && typeof templateId === 'string' && templateId !== 'vacio') {
+        try {
+          templateAplicado = await applyTemplate(org.id, templateId);
+        } catch (err) {
+          console.error('[cuenta/workspaces POST] applyTemplate falló:', err);
+        }
+      }
+
       res.status(201).json({
         id: org.id,
         nombre: org.nombre,
@@ -400,11 +423,29 @@ router.post('/workspaces', requireAnyAuth, async (req: Request, res: Response) =
         plan: org.plan,
         estadoSuscripcion: org.estadoSuscripcion,
         rol: 'owner',
+        templateAplicado,
       });
     });
   } catch (err: any) {
     console.error('[cuenta/workspaces POST]', err);
     res.status(500).json({ error: 'Error al crear workspace' });
+  }
+});
+
+// ============================================================================
+// GET /api/cuenta/templates — lista pública de templates de rubro
+// ----------------------------------------------------------------------------
+// Devuelve metadata (id, nombre, íconos, counts) SIN la data cruda de
+// productos/depositos. El frontend usa esto para pintar el selector visual.
+// Requiere auth (stage 1+) para no exponer públicamente a scrapers, pero NO
+// requiere org — se consulta antes de crear el workspace.
+// ============================================================================
+router.get('/templates', requireAnyAuth, async (_req: Request, res: Response) => {
+  try {
+    res.json(listTemplatesSummary());
+  } catch (err: any) {
+    console.error('[cuenta/templates GET]', err);
+    res.status(500).json({ error: 'Error al listar templates' });
   }
 });
 
