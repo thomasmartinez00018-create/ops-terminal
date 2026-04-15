@@ -302,6 +302,48 @@ router.get('/:id', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// PUT /api/alertas-precio/bulk/revisar — marca varias como revisadas
+// ---------------------------------------------------------------------------
+// IMPORTANTE: declarado ANTES que /:id/revisar porque Express matchea por
+// orden de declaración y /:id/revisar con id="bulk" se comería este path.
+// Útil cuando el usuario revisó 10 alertas de una sesión y quiere cerrarlas
+// todas de un tiro. Body: { ids: [1,2,3], observacion? }
+// ---------------------------------------------------------------------------
+router.put('/bulk/revisar', async (req: Request, res: Response) => {
+  try {
+    const usuarioId = getUsuarioId(req);
+    if (!usuarioId) {
+      res.status(401).json({ error: 'Usuario no identificado' });
+      return;
+    }
+
+    const { ids, observacion } = req.body as { ids: number[]; observacion?: string };
+    if (!Array.isArray(ids) || ids.length === 0) {
+      res.status(400).json({ error: 'ids debe ser un array no vacío' });
+      return;
+    }
+
+    const result = await prisma.alertaPrecio.updateMany({
+      where: {
+        id: { in: ids.map(Number) },
+        estado: 'pendiente',
+      },
+      data: {
+        estado: 'revisada',
+        revisadoPorId: usuarioId,
+        fechaRevision: new Date(),
+        observacion: observacion ?? undefined,
+      },
+    });
+
+    res.json({ actualizadas: result.count });
+  } catch (error) {
+    console.error('PUT /alertas-precio/bulk/revisar error:', error);
+    res.status(500).json({ error: 'Error al revisar alertas en bulk' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // PUT /api/alertas-precio/:id/revisar — marca como revisada (acepta)
 // ---------------------------------------------------------------------------
 router.put('/:id/revisar', async (req: Request, res: Response) => {
@@ -394,46 +436,6 @@ router.put('/:id/descartar', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('PUT /alertas-precio/:id/descartar error:', error);
     res.status(500).json({ error: 'Error al descartar alerta' });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// PUT /api/alertas-precio/bulk-revisar — marca varias como revisadas
-// ---------------------------------------------------------------------------
-// Útil cuando el usuario revisó 10 alertas de una sesión y quiere cerrarlas
-// todas de un tiro. Body: { ids: [1,2,3], observacion? }
-// ---------------------------------------------------------------------------
-router.put('/bulk/revisar', async (req: Request, res: Response) => {
-  try {
-    const usuarioId = getUsuarioId(req);
-    if (!usuarioId) {
-      res.status(401).json({ error: 'Usuario no identificado' });
-      return;
-    }
-
-    const { ids, observacion } = req.body as { ids: number[]; observacion?: string };
-    if (!Array.isArray(ids) || ids.length === 0) {
-      res.status(400).json({ error: 'ids debe ser un array no vacío' });
-      return;
-    }
-
-    const result = await prisma.alertaPrecio.updateMany({
-      where: {
-        id: { in: ids.map(Number) },
-        estado: 'pendiente',
-      },
-      data: {
-        estado: 'revisada',
-        revisadoPorId: usuarioId,
-        fechaRevision: new Date(),
-        observacion: observacion ?? undefined,
-      },
-    });
-
-    res.json({ actualizadas: result.count });
-  } catch (error) {
-    console.error('PUT /alertas-precio/bulk/revisar error:', error);
-    res.status(500).json({ error: 'Error al revisar alertas en bulk' });
   }
 });
 
