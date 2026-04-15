@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import {
-  Check, Crown, Zap, Building2, Sparkles, Calendar,
+  Check, Crown, Zap, Building2, Sparkles,
   CreditCard, Download, AlertTriangle, Loader2, ExternalLink,
   Pause, Play, XCircle, RefreshCw, ShieldCheck, Clock,
 } from 'lucide-react';
