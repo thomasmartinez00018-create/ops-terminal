@@ -533,17 +533,77 @@ export default function EscanerFactura() {
 
       {/* ═══ STEP: DONE ═══ */}
       {step === 'done' && resultadoFinal && (
-        <div className="text-center py-12">
-          <div className="w-16 h-16 bg-success/20 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Check size={32} className="text-success" />
+        <div className="py-8">
+          <div className="text-center mb-6">
+            <div className="w-16 h-16 bg-success/20 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Check size={32} className="text-success" />
+            </div>
+            <h2 className="text-xl font-extrabold text-foreground mb-2">{resultadoFinal.mensaje}</h2>
+            <p className="text-on-surface-variant font-medium mb-2">
+              Código: <span className="font-bold text-primary">{resultadoFinal.facturaCodigo}</span>
+            </p>
+            <p className="text-on-surface-variant text-sm">
+              {resultadoFinal.registrados} movimientos de ingreso creados
+            </p>
           </div>
-          <h2 className="text-xl font-extrabold text-foreground mb-2">{resultadoFinal.mensaje}</h2>
-          <p className="text-on-surface-variant font-medium mb-2">
-            Código: <span className="font-bold text-primary">{resultadoFinal.facturaCodigo}</span>
-          </p>
-          <p className="text-on-surface-variant text-sm mb-6">
-            {resultadoFinal.registrados} movimientos de ingreso creados
-          </p>
+
+          {/* ── Variaciones de precio detectadas ─────────────────────────── */}
+          {Array.isArray(resultadoFinal.alertasPrecio) && resultadoFinal.alertasPrecio.length > 0 && (
+            <div className="max-w-2xl mx-auto mb-6 bg-warning/5 border border-warning/30 rounded-xl p-5">
+              <div className="flex items-start gap-3 mb-4">
+                <div className="w-10 h-10 rounded-lg bg-warning/20 flex items-center justify-center shrink-0">
+                  <AlertTriangle size={20} className="text-warning" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-sm font-extrabold text-foreground uppercase tracking-wider">
+                    {resultadoFinal.alertasPrecio.length} variación{resultadoFinal.alertasPrecio.length === 1 ? '' : 'es'} de precio detectada{resultadoFinal.alertasPrecio.length === 1 ? '' : 's'}
+                  </h3>
+                  <p className="text-xs text-on-surface-variant mt-0.5">
+                    Los siguientes items cambiaron respecto a compras anteriores.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                {resultadoFinal.alertasPrecio.map((v: any, i: number) => {
+                  const esSuba = v.direccion === 'sube';
+                  const sevColor =
+                    v.severidad === 'alta' ? 'border-destructive/50 bg-destructive/5'
+                    : v.severidad === 'media' ? 'border-warning/50 bg-warning/5'
+                    : 'border-border bg-surface-high/30';
+                  return (
+                    <div
+                      key={i}
+                      className={`rounded-lg border p-3 ${sevColor}`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-foreground truncate">{v.productoNombre}</p>
+                          <p className="text-[10px] font-mono text-on-surface-variant">{v.productoCodigo}</p>
+                        </div>
+                        <div className={`text-right shrink-0 font-mono ${esSuba ? 'text-destructive' : 'text-success'}`}>
+                          <div className="text-base font-extrabold">
+                            {esSuba ? '+' : ''}{v.variacionPct.toFixed(1)}%
+                          </div>
+                          <div className="text-[10px] text-on-surface-variant">
+                            ${Number(v.precioAnterior).toLocaleString('es-AR')} → ${Number(v.precioNuevo).toLocaleString('es-AR')}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={() => navigate('/alertas-precio')}
+                className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-warning/15 hover:bg-warning/25 text-warning border border-warning/30 font-bold text-xs uppercase tracking-wider rounded-lg transition-colors"
+              >
+                Revisar en bandeja de alertas
+              </button>
+            </div>
+          )}
+
           <div className="flex gap-3 justify-center">
             <button
               onClick={reset}

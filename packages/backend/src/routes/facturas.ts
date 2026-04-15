@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import prisma from '../lib/prisma';
+import { detectarVariaciones, persistirAlertas, type VariacionDetectada } from '../lib/alertasPrecio';
 
 const router = Router();
 
@@ -343,7 +344,24 @@ router.post('/confirmar', async (req, res) => {
         movimientos.push(mov);
       }
 
-      // 4. Actualizar ultimoPrecio en ProveedorProducto si hay proveedor
+      // 4. Detectar variaciones de precio ANTES de sobrescribir ultimoPrecio.
+      // Importante: excluimos la factura recién creada para no compararla
+      // contra sí misma (ya insertó sus propios facturaItems). El snapshot
+      // del precio previo queda persistido en AlertaPrecio aunque después
+      // se actualice ProveedorProducto.ultimoPrecio.
+      const variaciones: VariacionDetectada[] = await detectarVariaciones(
+        tx,
+        proveedorId ? Number(proveedorId) : null,
+        itemsValidos.map((i: any) => ({
+          productoId: Number(i.productoId),
+          precioUnitario: Number(i.precioUnitario || 0),
+          unidad: i.unidad || 'unidad',
+        })),
+        { excluirFacturaId: factura.id },
+      );
+      const alertasIds = await persistirAlertas(tx, factura.id, variaciones);
+
+      // 5. Actualizar ultimoPrecio en ProveedorProducto si hay proveedor
       if (proveedorId) {
         for (const item of itemsValidos) {
           if (item.precioUnitario) {
@@ -355,6 +373,7 @@ router.post('/confirmar', async (req, res) => {
                 },
                 data: {
                   ultimoPrecio: Number(item.precioUnitario),
+                  fechaPrecio: fechaFinal,
                 },
               });
             } catch {
@@ -364,7 +383,7 @@ router.post('/confirmar', async (req, res) => {
         }
       }
 
-      return { factura, movimientos };
+      return { factura, movimientos, variaciones, alertasIds };
     });
 
     res.json({
@@ -373,6 +392,8 @@ router.post('/confirmar', async (req, res) => {
       facturaId: resultado.factura.id,
       registrados: resultado.movimientos.length,
       mensaje: `Factura ${resultado.factura.codigo} registrada con ${resultado.movimientos.length} ingresos`,
+      alertasPrecio: resultado.variaciones,
+      alertasPrecioIds: resultado.alertasIds,
     });
   } catch (err: any) {
     console.error('[facturas/confirmar]', err);

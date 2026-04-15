@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
+import { detectarVariaciones, persistirAlertas, type VariacionDetectada } from '../lib/alertasPrecio';
 
 const router = Router();
 
@@ -132,10 +133,56 @@ router.post('/facturas', async (req: Request, res: Response) => {
         }
       }
 
-      return fac;
+      // ── Detectar variaciones de precio + persistir alertas ──────────
+      // Se corre sobre los items válidos (con producto + precio). Excluye
+      // la factura recién creada para no compararla contra sí misma.
+      const itemsValidos = (items || []).filter(
+        (i: any) => i && i.productoId && Number(i.precioUnitario) > 0,
+      );
+      let variaciones: VariacionDetectada[] = [];
+      let alertasIds: number[] = [];
+      if (itemsValidos.length > 0) {
+        variaciones = await detectarVariaciones(
+          tx,
+          proveedorId ? Number(proveedorId) : null,
+          itemsValidos.map((i: any) => ({
+            productoId: Number(i.productoId),
+            precioUnitario: Number(i.precioUnitario),
+            unidad: i.unidad || 'unidad',
+          })),
+          { excluirFacturaId: fac.id },
+        );
+        alertasIds = await persistirAlertas(tx, fac.id, variaciones);
+
+        // Actualizar ultimoPrecio en ProveedorProducto (solo si hay proveedor)
+        if (proveedorId) {
+          for (const item of itemsValidos) {
+            try {
+              await tx.proveedorProducto.updateMany({
+                where: {
+                  proveedorId: Number(proveedorId),
+                  productoId: Number(item.productoId),
+                },
+                data: {
+                  ultimoPrecio: Number(item.precioUnitario),
+                  fechaPrecio: fecha,
+                },
+              });
+            } catch {
+              // ProveedorProducto puede no existir, está bien
+            }
+          }
+        }
+      }
+
+      return { fac, variaciones, alertasIds };
     });
 
-    res.json(factura);
+    res.json({
+      ...factura.fac,
+      alertasPrecio: factura.variaciones,
+      alertasPrecioIds: factura.alertasIds,
+    });
   } catch (error: any) {
     console.error('[contabilidad/facturas POST]', error);
     res.status(500).json({ error: error.message });

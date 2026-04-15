@@ -42,6 +42,7 @@ const TENANT_MODELS = new Set([
   'ListaPrecio',
   'StockParametro',
   'OrdenReposicion',
+  'AlertaPrecio',
 ]);
 
 const READ_OPS = new Set([

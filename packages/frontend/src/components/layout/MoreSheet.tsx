@@ -54,6 +54,7 @@ const GROUPS: SheetGroup[] = [
     label: 'Contabilidad',
     items: [
       { to: '/facturas', label: 'Facturas', icon: FileText, permiso: 'contabilidad' },
+      { to: '/alertas-precio', label: 'Alertas precio', icon: AlertTriangle, permiso: 'contabilidad' },
       { to: '/cuentas-por-pagar', label: 'Cuentas x Pagar', icon: DollarSign, permiso: 'contabilidad' },
       { to: '/reportes-costos', label: 'Costos', icon: TrendingUp, permiso: 'contabilidad' },
       { to: '/escanear-factura', label: 'Escanear fact.', icon: ScanLine, permiso: 'contabilidad' },

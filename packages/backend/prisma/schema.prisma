@@ -81,6 +81,7 @@ model Organizacion {
   listasPrecio       ListaPrecio[]
   stockParametros    StockParametro[]
   ordenesReposicion  OrdenReposicion[]
+  alertasPrecio      AlertaPrecio[]
   suscripcion        Suscripcion?
 
   @@map("organizaciones")
@@ -162,6 +163,7 @@ model Producto {
   porcionadoItems     PorcionadoItem[]
   stockParametros     StockParametro[]
   ordenReposicionItem OrdenReposicionItem[]
+  alertasPrecio       AlertaPrecio[]
 
   @@unique([organizacionId, codigo])
   @@index([organizacionId])
@@ -246,6 +248,7 @@ model Usuario {
   reposicionesCreadas    OrdenReposicion[] @relation("repoCreador")
   reposicionesAsignadas  OrdenReposicion[] @relation("repoAsignado")
   reposicionesEjecutadas OrdenReposicion[] @relation("repoEjecutor")
+  alertasPrecioRevisadas AlertaPrecio[]    @relation("alertaPrecioRevisor")
 
   @@unique([organizacionId, codigo])
   @@index([organizacionId])
@@ -323,6 +326,7 @@ model Proveedor {
   ordenesCompra      OrdenCompra[]
   facturas           Factura[]
   listasPrecio       ListaPrecio[]
+  alertasPrecio      AlertaPrecio[]
 
   @@unique([organizacionId, codigo])
   @@index([organizacionId])
@@ -661,6 +665,7 @@ model Factura {
   items        FacturaItem[]
   pagos        Pago[]
   movimientos  Movimiento[]
+  alertasPrecio AlertaPrecio[]
 
   @@unique([organizacionId, codigo])
   @@index([organizacionId])
@@ -941,4 +946,47 @@ model OrdenReposicionItem {
 
   @@index([ordenReposicionId])
   @@map("orden_reposicion_items")
+}
+
+// ==========================================
+// ALERTAS DE PRECIO — detección automática de variaciones
+// ==========================================
+// Se genera una alerta cada vez que se confirma una factura (escaneada o
+// manual) y algún item tiene un precioUnitario distinto al histórico del
+// mismo producto × proveedor. El sistema no bloquea nada — solo registra,
+// categoriza por severidad y notifica en la UI (toast post-confirm + badge
+// persistente en sidebar). El usuario la revisa y la marca como
+// 'revisada' (aceptada) o 'descartada' (error de OCR / ignorar).
+// ==========================================
+model AlertaPrecio {
+  id               Int      @id @default(autoincrement())
+  organizacionId   Int      @default(0) @map("organizacion_id")
+  productoId       Int      @map("producto_id")
+  proveedorId      Int?     @map("proveedor_id")
+  facturaId        Int?     @map("factura_id")
+  facturaItemId    Int?     @map("factura_item_id") // ref al item puntual, si está
+  precioAnterior   Float    @map("precio_anterior")
+  precioNuevo      Float    @map("precio_nuevo")
+  variacionPct     Float    @map("variacion_pct")    // signed: +15.2 = subió, -8.1 = bajó
+  severidad        String   @default("leve")          // leve | media | alta
+  direccion        String   @default("sube")          // sube | baja
+  unidad           String?
+  fuenteAnterior   String?  @map("fuente_anterior")   // "factura" | "proveedor_producto" | "lista_precio"
+  fechaAnterior    String?  @map("fecha_anterior")    // fecha del precio previo, si disponible
+  estado           String   @default("pendiente")     // pendiente | revisada | descartada
+  revisadoPorId    Int?     @map("revisado_por_id")
+  fechaRevision    DateTime? @map("fecha_revision")
+  observacion      String?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  organizacion Organizacion @relation(fields: [organizacionId], references: [id])
+  producto     Producto     @relation(fields: [productoId], references: [id])
+  proveedor    Proveedor?   @relation(fields: [proveedorId], references: [id])
+  factura      Factura?     @relation(fields: [facturaId], references: [id], onDelete: SetNull)
+  revisadoPor  Usuario?     @relation("alertaPrecioRevisor", fields: [revisadoPorId], references: [id])
+
+  @@index([organizacionId])
+  @@index([estado])
+  @@index([productoId])
+  @@map("alertas_precio")
 }

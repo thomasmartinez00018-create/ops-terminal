@@ -48,6 +48,7 @@ const PAGES: SearchItem[] = [
   { id: 'cxp', label: 'Cuentas por Pagar', group: 'Contabilidad', icon: DollarSign, to: '/cuentas-por-pagar', keywords: ['cuenta', 'pagar', 'deuda', 'vencimiento'], permiso: 'contabilidad', type: 'page' },
   { id: 'costos', label: 'Costos', group: 'Contabilidad', icon: TrendingUp, to: '/reportes-costos', keywords: ['costo', 'margen', 'rentabilidad'], permiso: 'contabilidad', type: 'page' },
   { id: 'escanear-factura', label: 'Escanear Factura', group: 'Contabilidad', icon: ScanLine, to: '/escanear-factura', keywords: ['ocr', 'escanear', 'factura', 'foto'], permiso: 'contabilidad', type: 'page' },
+  { id: 'alertas-precio', label: 'Alertas de precio', group: 'Contabilidad', icon: AlertTriangle, to: '/alertas-precio', keywords: ['alerta', 'precio', 'variacion', 'subio', 'bajo', 'cambio'], permiso: 'contabilidad', type: 'page' },
   // Config
   { id: 'productos', label: 'Productos', group: 'Configuración', icon: Package, to: '/productos', keywords: ['producto', 'articulo', 'item'], permiso: 'productos', type: 'page' },
   { id: 'depositos', label: 'Depósitos', group: 'Configuración', icon: Warehouse, to: '/depositos', keywords: ['deposito', 'almacen', 'camara', 'freezer'], permiso: 'depositos', type: 'page' },

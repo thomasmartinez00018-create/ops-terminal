@@ -108,6 +108,69 @@ export interface SwitchWorkspaceResponse {
   token: string;
   workspace: WorkspaceInfo;
 }
+// ── Alertas de precio (variaciones detectadas en facturas) ─────────────────
+// Producida por el backend cuando una factura trae un item con precio
+// distinto al del histórico (producto × proveedor). Ver
+// packages/backend/src/lib/alertasPrecio.ts.
+export interface AlertaPrecio {
+  id: number;
+  productoId: number;
+  proveedorId: number | null;
+  facturaId: number | null;
+  facturaItemId: number | null;
+  precioAnterior: number;
+  precioNuevo: number;
+  variacionPct: number;          // signed: +15.2 | -8.1
+  severidad: 'leve' | 'media' | 'alta';
+  direccion: 'sube' | 'baja';
+  unidad: string | null;
+  fuenteAnterior: 'factura' | 'proveedor_producto' | null;
+  fechaAnterior: string | null;
+  estado: 'pendiente' | 'revisada' | 'descartada';
+  revisadoPorId: number | null;
+  fechaRevision: string | null;
+  observacion: string | null;
+  createdAt: string;
+  // Relaciones que puede incluir el backend en el GET /lista y /detalle
+  producto?: { id: number; codigo: string; nombre: string; unidadCompra?: string | null };
+  proveedor?: { id: number; nombre: string } | null;
+  factura?: { id: number; numero: string; fecha: string; tipoComprobante: string } | null;
+  revisadoPor?: { id: number; nombre: string } | null;
+}
+
+// Variación detectada ANTES de persistirse. Es lo que el backend devuelve en
+// el response de /facturas/confirmar y /contabilidad/facturas para que la
+// UI muestre un modal inmediatamente después del confirm.
+export interface VariacionDetectada {
+  productoId: number;
+  productoNombre: string;
+  productoCodigo: string;
+  proveedorId: number | null;
+  precioAnterior: number;
+  precioNuevo: number;
+  variacionPct: number;
+  variacionAbs: number;
+  severidad: 'leve' | 'media' | 'alta';
+  direccion: 'sube' | 'baja';
+  unidad: string | null;
+  fuenteAnterior: 'factura' | 'proveedor_producto';
+  fechaAnterior: string | null;
+  facturaItemId: number | null;
+}
+
+// Historial de precios para el detalle de una alerta (últimas N compras)
+export interface AlertaPrecioHistorialItem {
+  facturaItemId: number;
+  facturaId: number;
+  facturaNumero: string;
+  fecha: string;
+  precio: number;
+  cantidad: number;
+  unidad: string;
+  proveedorId: number | null;
+  proveedorNombre: string | null;
+}
+
 // ── Template de rubro (onboarding de workspace nuevo) ──────────────────────
 export interface WorkspaceTemplateSummary {
   id: string;                    // 'kiosco' | 'restaurante' | 'sushi' | ...
@@ -514,4 +577,48 @@ export const api = {
 
   // Depósitos — árbol jerárquico
   getDepositosArbol: () => request<any[]>('/depositos/arbol'),
+
+  // ── Alertas de precio ─────────────────────────────────────────────────────
+  // Bandeja de variaciones detectadas al confirmar facturas. Ver
+  // packages/backend/src/routes/alertas-precio.ts
+  getAlertasPrecio: (params?: Record<string, string>) =>
+    request<{ total: number; alertas: AlertaPrecio[] }>(`/alertas-precio${qs(params)}`),
+
+  getAlertasPrecioCount: () =>
+    request<{ pendientes: number; altaPendientes: number }>('/alertas-precio/count'),
+
+  getAlertasPrecioResumen: () =>
+    request<{
+      porEstado: Record<string, number>;
+      porSeveridad: Record<string, number>;
+      porDireccion: Record<string, number>;
+      topProductos: Array<{ id?: number; codigo?: string; nombre?: string; count: number }>;
+      topProveedores: Array<{ id?: number; nombre?: string; count: number }>;
+    }>('/alertas-precio/resumen'),
+
+  getAlertaPrecio: (id: number) =>
+    request<{ alerta: AlertaPrecio; historial: AlertaPrecioHistorialItem[] }>(
+      `/alertas-precio/${id}`,
+    ),
+
+  revisarAlertaPrecio: (id: number, observacion?: string) =>
+    request<AlertaPrecio>(`/alertas-precio/${id}/revisar`, {
+      method: 'PUT',
+      body: JSON.stringify({ observacion }),
+    }),
+
+  descartarAlertaPrecio: (id: number, observacion?: string) =>
+    request<AlertaPrecio>(`/alertas-precio/${id}/descartar`, {
+      method: 'PUT',
+      body: JSON.stringify({ observacion }),
+    }),
+
+  bulkRevisarAlertasPrecio: (ids: number[], observacion?: string) =>
+    request<{ actualizadas: number }>('/alertas-precio/bulk/revisar', {
+      method: 'PUT',
+      body: JSON.stringify({ ids, observacion }),
+    }),
+
+  deleteAlertaPrecio: (id: number) =>
+    request<{ ok: boolean }>(`/alertas-precio/${id}`, { method: 'DELETE' }),
 };

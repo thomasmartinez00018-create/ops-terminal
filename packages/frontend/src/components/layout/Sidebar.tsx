@@ -1,6 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useSession } from '../../context/SessionContext';
+import { api } from '../../lib/api';
 import {
   LayoutDashboard, Package, Warehouse, Users, ArrowRightLeft,
   ClipboardList, LogOut, ChefHat, Truck, ClipboardCheck,
@@ -16,6 +17,9 @@ interface NavItem {
   icon: any;
   permiso?: string;
   adminOnly?: boolean;
+  // Key para inyectar un badge numérico en tiempo real. El Sidebar hace
+  // polling del backend y mapea por este key. Hoy soportado: 'alertasPrecio'.
+  badgeKey?: 'alertasPrecio';
 }
 
 interface NavGroup {
@@ -68,6 +72,7 @@ const navGroups: NavGroup[] = [
     label: 'Contabilidad',
     items: [
       { to: '/facturas', label: 'Facturas', icon: FileText, permiso: 'contabilidad' },
+      { to: '/alertas-precio', label: 'Alertas de precio', icon: AlertTriangle, permiso: 'contabilidad', badgeKey: 'alertasPrecio' },
       { to: '/cuentas-por-pagar', label: 'Cuentas x Pagar', icon: DollarSign, permiso: 'contabilidad' },
       { to: '/reportes-costos', label: 'Costos', icon: TrendingUp, permiso: 'contabilidad' },
       { to: '/escanear-factura', label: 'Escanear Factura', icon: ScanLine, permiso: 'contabilidad' },
@@ -98,6 +103,28 @@ export default function Sidebar({ open = false, onClose }: SidebarProps) {
   const { workspace, workspaces, backToWorkspaces } = useSession();
   const location = useLocation();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  // Badges dinámicos (polling liviano). Se refrescan cada 60s y al cambiar
+  // de ruta para reflejar al instante cuando el usuario revisa una alerta.
+  const [badges, setBadges] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    const cargarBadges = async () => {
+      try {
+        if (tienePermiso('contabilidad') || user?.rol === 'admin') {
+          const data = await api.getAlertasPrecioCount();
+          if (!cancelled) {
+            setBadges(prev => ({ ...prev, alertasPrecio: data.pendientes ?? 0 }));
+          }
+        }
+      } catch {}
+    };
+    cargarBadges();
+    const iv = setInterval(cargarBadges, 60_000);
+    return () => { cancelled = true; clearInterval(iv); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, location.pathname]);
 
   // Filtrar items según permisos
   const canSee = (item: NavItem) => {
@@ -213,17 +240,25 @@ export default function Sidebar({ open = false, onClose }: SidebarProps) {
                 }}
               >
                 <div className="space-y-0.5 py-0.5">
-                  {group.items.map(item => (
-                    <NavLink
-                      key={item.to}
-                      to={item.to}
-                      className={groupLinkClass}
-                      onClick={() => onClose?.()}
-                    >
-                      <item.icon size={15} className="opacity-70" />
-                      {item.label}
-                    </NavLink>
-                  ))}
+                  {group.items.map(item => {
+                    const badgeCount = item.badgeKey ? badges[item.badgeKey] ?? 0 : 0;
+                    return (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        className={groupLinkClass}
+                        onClick={() => onClose?.()}
+                      >
+                        <item.icon size={15} className="opacity-70" />
+                        <span className="flex-1 truncate">{item.label}</span>
+                        {badgeCount > 0 && (
+                          <span className="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full bg-destructive text-destructive-foreground text-[10px] font-extrabold">
+                            {badgeCount > 99 ? '99+' : badgeCount}
+                          </span>
+                        )}
+                      </NavLink>
+                    );
+                  })}
                 </div>
               </div>
             </div>
