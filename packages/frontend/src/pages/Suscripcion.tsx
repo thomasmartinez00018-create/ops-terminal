@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -92,7 +92,8 @@ export default function Suscripcion() {
   const [loading, setLoading] = useState(true);
   const [subscribing, setSubscribing] = useState<string | null>(null);
   const [facturaMode, setFacturaMode] = useState<'mensual' | 'anual'>('mensual');
-  const [tab, setTab] = useState<'plan' | 'pagos' | 'upgrade'>('plan');
+  const [tab, setTab] = useState<'plan' | 'pagos' | 'upgrade'>('upgrade');
+  const didInitTab = useRef(false);
 
   const loadAll = async () => {
     setLoading(true);
@@ -113,6 +114,20 @@ export default function Suscripcion() {
   };
 
   useEffect(() => { loadAll(); }, []);
+
+  // Primer render: elegir el tab inicial correcto según el estado.
+  // - Con plan ACTIVO → "Mi plan" (info del plan actual)
+  // - Sin plan / en trial → "Elegir plan" (para que vea los precios primero)
+  // Solo se ejecuta una vez para no interferir con la navegación manual del user.
+  useEffect(() => {
+    if (!actual || didInitTab.current) return;
+    didInitTab.current = true;
+    if (actual.estado === 'active' && actual.planCatalogo) {
+      setTab('plan');
+    } else {
+      setTab('upgrade');
+    }
+  }, [actual]);
 
   // Si volvemos del checkout de MP con ?mp_return=1, forzar sync
   useEffect(() => {

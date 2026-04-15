@@ -1024,7 +1024,7 @@ function LandingPricing() {
   return (
     <div className="mt-14 lg:mt-20">
       {/* ── Toggle mensual / anual ────────────────────────── */}
-      <div className="flex items-center justify-center mb-12">
+      <div className="flex items-center justify-center mb-16 lg:mb-20">
         <div className="relative inline-flex items-center gap-1 p-1 rounded-full border border-primary/25 bg-surface/60 backdrop-blur">
           <button
             onClick={() => setFrecuencia('mensual')}
@@ -1062,7 +1062,8 @@ function LandingPricing() {
       </div>
 
       {/* ── Grid de planes ───────────────────────────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 lg:gap-6">
+      {/* pt-6 le da aire al badge "Más elegido" que sobresale por -top-3 */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 lg:gap-6 pt-6">
         {PRICING_PLANS.map((plan) => {
           const Icon = plan.icon;
           const precio = frecuencia === 'mensual' ? plan.priceMensual : plan.priceAnual;
@@ -1073,12 +1074,14 @@ function LandingPricing() {
             <div
               key={plan.id}
               className={`relative p-8 lg:p-10 mock-window transition-transform hover:-translate-y-1 ${
-                plan.destacado ? 'md:-my-4 md:py-12 ring-1 ring-primary/40' : ''
+                plan.destacado
+                  ? 'ring-2 ring-primary/50 shadow-[0_0_60px_-15px_rgba(212,175,55,0.45)]'
+                  : ''
               }`}
             >
-              {/* Badge destacado */}
+              {/* Badge destacado — queda adentro del pt-6 del grid, no tapa nada */}
               {plan.destacado && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-primary text-background font-mono-alt text-[9px] uppercase tracking-[0.2em] font-bold">
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-primary text-background font-mono-alt text-[9px] uppercase tracking-[0.2em] font-bold whitespace-nowrap shadow-lg shadow-primary/20">
                   ★ Más elegido
                 </div>
               )}
