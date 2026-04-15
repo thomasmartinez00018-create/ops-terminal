@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
-import Select from '../components/ui/Select';
+import SearchableSelect from '../components/ui/SearchableSelect';
 import PageTour from '../components/PageTour';
 import DrawerModal from '../components/ui/DrawerModal';
 import { Plus, Pencil, Trash2, Truck, Package, Phone, Mail, FileText } from 'lucide-react';
@@ -486,13 +486,13 @@ export default function Proveedores() {
         title={editMapId ? 'Editar producto' : 'Agregar producto'}
       >
         <div className="space-y-3">
-          <Select
+          <SearchableSelect
             label="Producto"
             id="map-producto"
             value={mapForm.productoId}
-            onChange={e => setMapForm({ ...mapForm, productoId: e.target.value })}
+            onChange={v => setMapForm({ ...mapForm, productoId: v })}
             options={productos.map(p => ({ value: p.id.toString(), label: `${p.codigo} - ${p.nombre}` }))}
-            placeholder="Seleccionar producto..."
+            placeholder="Buscar producto..."
           />
           <div className="grid grid-cols-2 gap-3">
             <Input

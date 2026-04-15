@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { Camera, Upload, Loader2, Check, AlertTriangle, Trash2, ScanLine, ChevronLeft, FileText } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import SearchableSelect from '../components/ui/SearchableSelect';
 
 interface FacturaItem {
   index: number;
@@ -60,7 +61,7 @@ export default function EscanerFactura() {
   const [error, setError] = useState<string | null>(null);
 
   // Datos para confirmar
-  const [proveedorId, setProveedorId] = useState<number | string>('');
+  const [proveedorId, setProveedorId] = useState<string>('');
   const [depositoId, setDepositoId] = useState<number | string>('');
   const [proveedores, setProveedores] = useState<any[]>([]);
   const [depositos, setDepositos] = useState<any[]>([]);
@@ -105,7 +106,7 @@ export default function EscanerFactura() {
       setResult(data);
       setItems(data.items || []);
       if (data.factura?.proveedorMatch) {
-        setProveedorId(data.factura.proveedorMatch.id);
+        setProveedorId(String(data.factura.proveedorMatch.id));
       }
       // Pre-fill contabilidad fields from AI
       if (data.factura?.tipoComprobante) setTipoComprobante(data.factura.tipoComprobante);
@@ -155,7 +156,7 @@ export default function EscanerFactura() {
           precioUnitario: i.precioUnitario,
           alicuotaIva: i.alicuotaIva || 0,
         })),
-        proveedorId: proveedorId || null,
+        proveedorId: proveedorId ? Number(proveedorId) : null,
         depositoDestinoId: Number(depositoId),
         usuarioId: user!.id,
         fecha: result?.factura?.fecha || undefined,
@@ -388,19 +389,13 @@ export default function EscanerFactura() {
 
           {/* Proveedor y deposito */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider block mb-1">Proveedor</label>
-              <select
-                value={proveedorId}
-                onChange={(e) => setProveedorId(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-lg bg-surface-high border-0 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-              >
-                <option value="">— Sin proveedor —</option>
-                {proveedores.map(p => (
-                  <option key={p.id} value={p.id}>{p.nombre}</option>
-                ))}
-              </select>
-            </div>
+            <SearchableSelect
+              label="Proveedor"
+              value={proveedorId}
+              onChange={setProveedorId}
+              options={proveedores.map(p => ({ value: String(p.id), label: p.nombre }))}
+              placeholder="Buscar proveedor..."
+            />
             <div>
               <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider block mb-1">Depósito destino *</label>
               <select
@@ -446,16 +441,12 @@ export default function EscanerFactura() {
                 <div className="grid grid-cols-5 gap-2 text-xs">
                   <div>
                     <label className="text-on-surface-variant font-medium">Producto</label>
-                    <select
-                      value={item.productoId || ''}
-                      onChange={(e) => asignarProducto(idx, Number(e.target.value))}
-                      className="w-full bg-surface-high border-0 rounded-lg px-2 py-1.5 text-xs font-semibold mt-0.5 focus:outline-none focus:ring-2 focus:ring-primary/50"
-                    >
-                      <option value="">— Asignar —</option>
-                      {productos.map(p => (
-                        <option key={p.id} value={p.id}>{p.nombre}</option>
-                      ))}
-                    </select>
+                    <SearchableSelect
+                      value={item.productoId ? String(item.productoId) : ''}
+                      onChange={(v) => v && asignarProducto(idx, Number(v))}
+                      options={productos.map(p => ({ value: String(p.id), label: `${p.codigo} - ${p.nombre}` }))}
+                      placeholder="Buscar producto..."
+                    />
                   </div>
                   <div>
                     <label className="text-on-surface-variant font-medium">Cantidad</label>

@@ -570,10 +570,13 @@ export default function OrdenesCompra() {
         <div className="space-y-4">
           {error && <p className="text-sm text-destructive font-semibold">{error}</p>}
 
-          <Select label="Proveedor" value={form.proveedorId} onChange={e => setForm({ ...form, proveedorId: e.target.value })}>
-            <option value="">Seleccionar...</option>
-            {proveedores.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-          </Select>
+          <SearchableSelect
+            label="Proveedor"
+            value={form.proveedorId}
+            onChange={v => setForm({ ...form, proveedorId: v })}
+            options={proveedores.map(p => ({ value: String(p.id), label: p.nombre }))}
+            placeholder="Buscar proveedor..."
+          />
 
           <Select label="Responsable" value={form.responsableId} onChange={e => setForm({ ...form, responsableId: e.target.value })}>
             <option value="">Seleccionar...</option>
