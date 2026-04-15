@@ -32,6 +32,7 @@ import ImportarLista from './pages/ImportarLista';
 import Equivalencias from './pages/Equivalencias';
 import ComparadorPrecios from './pages/ComparadorPrecios';
 import Landing from './pages/Landing';
+import Suscripcion from './pages/Suscripcion';
 
 // ============================================================================
 // SessionGate — decide qué pantalla mostrar según el stage del token
@@ -110,6 +111,7 @@ function SessionGate() {
             <Route path="/importar-lista" element={<ImportarLista />} />
             <Route path="/equivalencias" element={<Equivalencias />} />
             <Route path="/comparador" element={<ComparadorPrecios />} />
+            <Route path="/suscripcion" element={<Suscripcion />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

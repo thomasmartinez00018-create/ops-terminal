@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Package, Warehouse, Users, ArrowRightLeft,
   ClipboardList, LogOut, ChefHat, Truck, ClipboardCheck,
   Upload, BarChart3, Link2, ShoppingCart, ScanBarcode, AlertTriangle, ScanLine, ListTodo, FlaskConical,
-  FileText, DollarSign, TrendingUp, Settings, ChevronDown
+  FileText, DollarSign, TrendingUp, Settings, ChevronDown, Crown
 } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 
@@ -80,6 +80,7 @@ const navGroups: NavGroup[] = [
       { to: '/depositos', label: 'Depósitos', icon: Warehouse, permiso: 'depositos' },
       { to: '/recetas', label: 'Recetas', icon: ChefHat, permiso: 'recetas' },
       { to: '/usuarios', label: 'Usuarios', icon: Users, adminOnly: true },
+      { to: '/suscripcion', label: 'Suscripción', icon: Crown, adminOnly: true },
       { to: '/configuracion', label: 'Ajustes', icon: Settings, adminOnly: true },
     ],
   },

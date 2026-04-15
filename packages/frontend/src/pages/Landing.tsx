@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   ArrowUpRight, Boxes, ChefHat, Scan, FileText,
   Sparkles, ShoppingCart, LineChart, Warehouse, Download,
-  Monitor, Globe,
+  Monitor, Globe, Check, Zap, Crown, Building2,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────
@@ -70,6 +70,7 @@ export default function Landing() {
           <a href="#pilares" className="hover:text-primary transition-colors">Pilares</a>
           <a href="#casos" className="hover:text-primary transition-colors">Casos</a>
           <a href="#features" className="hover:text-primary transition-colors">Features</a>
+          <a href="#precios" className="hover:text-primary transition-colors">Precios</a>
           <a href="#descargar" className="hover:text-primary transition-colors">Descargar</a>
         </div>
 
@@ -310,6 +311,25 @@ export default function Landing() {
               </div>
             );
           })}
+        </div>
+      </section>
+
+      {/* ── PRECIOS ───────────────────────────────────────────── */}
+      <section id="precios" className="relative border-t border-primary/15 py-28 lg:py-40 overflow-hidden">
+        {/* bg huge number */}
+        <div className="absolute top-20 right-[-4rem] font-display italic text-[14rem] lg:text-[18rem] leading-none text-primary/[0.035] select-none pointer-events-none">
+          05
+        </div>
+
+        <div className="max-w-[1400px] mx-auto px-6 lg:px-12 relative">
+          <SectionHeader
+            kicker="// Pricing"
+            title={<>Un plan por cada<br /><span className="italic text-gold-gradient">tamaño de operación.</span></>}
+            subtitle="14 días de prueba gratis con todas las features de Pro. Sin tarjeta para arrancar. Cancelás cuando quieras."
+          />
+
+          {/* ── Toggle mensual / anual (CSS-only via details) no, mejor con state; lo embebemos ── */}
+          <LandingPricing />
         </div>
       </section>
 
@@ -906,6 +926,271 @@ function IAMock() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Landing Pricing — tabla de planes con toggle mensual/anual
+// ─────────────────────────────────────────────────────────────
+// Los valores están hardcodeados acá para que el landing no
+// dependa de la API (es público y cacheable). Deben mantenerse
+// en sync con packages/backend/src/lib/planes.ts.
+// ─────────────────────────────────────────────────────────────
+
+type PricingPlan = {
+  id: string;
+  icon: typeof Zap;
+  name: string;
+  tagline: string;
+  priceMensual: number;
+  priceAnual: number;
+  destacado?: boolean;
+  features: string[];
+};
+
+const PRICING_PLANS: PricingPlan[] = [
+  {
+    id: 'starter',
+    icon: Zap,
+    name: 'Starter',
+    tagline: 'Para el bar de barrio que recién arranca a ordenarse.',
+    priceMensual: 19990,
+    priceAnual: 199900,
+    features: [
+      '1 local · 2 depósitos',
+      'Hasta 5 usuarios',
+      'Stock en tiempo real',
+      'Recetas & escandallo básico',
+      'Movimientos & mermas',
+      'Dashboard operativo',
+      'Web + .exe Windows',
+      'Soporte por email',
+    ],
+  },
+  {
+    id: 'pro',
+    icon: Crown,
+    name: 'Pro',
+    tagline: 'El plan que la mayoría necesita. Full features.',
+    priceMensual: 39990,
+    priceAnual: 399900,
+    destacado: true,
+    features: [
+      '1 local · depósitos ilimitados',
+      'Usuarios ilimitados',
+      'Todo lo de Starter +',
+      'Escaneo de facturas con IA',
+      'Comparador de precios',
+      'Cuentas por pagar',
+      'Control con scanner',
+      'Órdenes de compra',
+      'Reportes de costos avanzados',
+      'Soporte prioritario por WhatsApp',
+    ],
+  },
+  {
+    id: 'multi',
+    icon: Building2,
+    name: 'Multi-local',
+    tagline: 'Para el dueño con 2 a 5 locales y un depósito central.',
+    priceMensual: 89990,
+    priceAnual: 899900,
+    features: [
+      'Hasta 5 locales',
+      'Depósitos y usuarios ilimitados',
+      'Todo lo de Pro +',
+      'Consolidación multi-local',
+      'Roles granulares por local',
+      'Reportes cruzados',
+      'Onboarding 1-a-1',
+      'Soporte dedicado',
+    ],
+  },
+];
+
+function formatARS(v: number) {
+  return new Intl.NumberFormat('es-AR', {
+    style: 'currency',
+    currency: 'ARS',
+    maximumFractionDigits: 0,
+  }).format(v);
+}
+
+function LandingPricing() {
+  const navigate = useNavigate();
+  const [frecuencia, setFrecuencia] = useState<'mensual' | 'anual'>('mensual');
+
+  return (
+    <div className="mt-14 lg:mt-20">
+      {/* ── Toggle mensual / anual ────────────────────────── */}
+      <div className="flex items-center justify-center mb-12">
+        <div className="relative inline-flex items-center gap-1 p-1 rounded-full border border-primary/25 bg-surface/60 backdrop-blur">
+          <button
+            onClick={() => setFrecuencia('mensual')}
+            className={`relative z-10 px-5 py-2 rounded-full font-mono-alt text-[10px] uppercase tracking-[0.2em] transition-colors ${
+              frecuencia === 'mensual' ? 'text-background' : 'text-on-surface-variant hover:text-foreground'
+            }`}
+          >
+            Mensual
+          </button>
+          <button
+            onClick={() => setFrecuencia('anual')}
+            className={`relative z-10 px-5 py-2 rounded-full font-mono-alt text-[10px] uppercase tracking-[0.2em] transition-colors flex items-center gap-2 ${
+              frecuencia === 'anual' ? 'text-background' : 'text-on-surface-variant hover:text-foreground'
+            }`}
+          >
+            Anual
+            <span
+              className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                frecuencia === 'anual'
+                  ? 'bg-background/20 text-background'
+                  : 'bg-primary/15 text-primary'
+              }`}
+            >
+              -17%
+            </span>
+          </button>
+          <div
+            className="absolute top-1 bottom-1 rounded-full bg-primary transition-all duration-300 ease-out"
+            style={{
+              left: frecuencia === 'mensual' ? '4px' : '50%',
+              width: 'calc(50% - 4px)',
+            }}
+          />
+        </div>
+      </div>
+
+      {/* ── Grid de planes ───────────────────────────────── */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 lg:gap-6">
+        {PRICING_PLANS.map((plan) => {
+          const Icon = plan.icon;
+          const precio = frecuencia === 'mensual' ? plan.priceMensual : plan.priceAnual;
+          const precioEquivalente =
+            frecuencia === 'anual' ? Math.round(plan.priceAnual / 12) : null;
+
+          return (
+            <div
+              key={plan.id}
+              className={`relative p-8 lg:p-10 mock-window transition-transform hover:-translate-y-1 ${
+                plan.destacado ? 'md:-my-4 md:py-12 ring-1 ring-primary/40' : ''
+              }`}
+            >
+              {/* Badge destacado */}
+              {plan.destacado && (
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-primary text-background font-mono-alt text-[9px] uppercase tracking-[0.2em] font-bold">
+                  ★ Más elegido
+                </div>
+              )}
+
+              {/* Header */}
+              <div className="mb-6">
+                <div className="flex items-center gap-3 mb-5">
+                  <div className={plan.destacado ? 'text-primary' : 'text-on-surface-variant'}>
+                    <Icon size={22} strokeWidth={1.5} />
+                  </div>
+                  <span className="font-mono-alt text-[10px] text-primary tracking-[0.2em] uppercase">
+                    Plan · {plan.name}
+                  </span>
+                </div>
+                <h3 className="font-display italic text-4xl lg:text-5xl leading-[0.95] mb-3 tracking-tight">
+                  {plan.name}
+                </h3>
+                <p className="text-on-surface-variant text-[13px] leading-relaxed min-h-[40px]">
+                  {plan.tagline}
+                </p>
+              </div>
+
+              <div className="hairline mb-6"></div>
+
+              {/* Precio */}
+              <div className="mb-8">
+                <div className="flex items-baseline gap-2">
+                  <span
+                    className={`font-display text-5xl lg:text-[3.5rem] leading-none tracking-tight ${
+                      plan.destacado ? 'text-gold-gradient' : 'text-foreground'
+                    }`}
+                  >
+                    {formatARS(precio)}
+                  </span>
+                </div>
+                <div className="font-mono-alt text-[10px] text-on-surface-variant uppercase tracking-[0.15em] mt-2">
+                  {frecuencia === 'mensual' ? 'Por mes · IVA incluido' : 'Por año · IVA incluido'}
+                </div>
+                {precioEquivalente && (
+                  <div className="font-mono-alt text-[10px] text-primary mt-1">
+                    ≈ {formatARS(precioEquivalente)} / mes
+                  </div>
+                )}
+              </div>
+
+              {/* CTA */}
+              <button
+                onClick={() => navigate('/login')}
+                className={`w-full px-5 py-3.5 rounded-md font-bold text-sm flex items-center justify-center gap-2 mb-8 ${
+                  plan.destacado
+                    ? 'cta-primary'
+                    : 'border border-primary/30 text-foreground hover:bg-primary/10 hover:border-primary/60 transition-colors'
+                }`}
+              >
+                Empezar prueba gratis
+                <ArrowUpRight size={15} />
+              </button>
+
+              {/* Features */}
+              <ul className="space-y-3">
+                {plan.features.map((f, i) => (
+                  <li key={i} className="flex items-start gap-3 text-[13px]">
+                    <Check
+                      size={14}
+                      className={`mt-0.5 shrink-0 ${
+                        plan.destacado ? 'text-primary' : 'text-on-surface-variant'
+                      }`}
+                      strokeWidth={2.5}
+                    />
+                    <span className="text-foreground leading-snug">{f}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Footnotes ─────────────────────────────────────── */}
+      <div className="mt-14 grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="glass rounded-lg p-5">
+          <div className="font-mono-alt text-[10px] text-primary uppercase tracking-[0.2em] mb-2">
+            // Prueba gratis
+          </div>
+          <div className="text-[13px] text-foreground leading-relaxed">
+            <span className="font-bold">14 días con todas las features de Pro.</span> Sin tarjeta.
+            Cancelás cuando quieras.
+          </div>
+        </div>
+        <div className="glass rounded-lg p-5">
+          <div className="font-mono-alt text-[10px] text-primary uppercase tracking-[0.2em] mb-2">
+            // Pagos
+          </div>
+          <div className="text-[13px] text-foreground leading-relaxed">
+            Cobrado a través de <span className="font-bold">Mercado Pago</span>. Tarjeta, débito o
+            débito automático.
+          </div>
+        </div>
+        <div className="glass rounded-lg p-5">
+          <div className="font-mono-alt text-[10px] text-primary uppercase tracking-[0.2em] mb-2">
+            // Sin letra chica
+          </div>
+          <div className="text-[13px] text-foreground leading-relaxed">
+            Cambiás de plan cuando querés. Sin costos de setup. Sin contratos anuales ocultos.
+          </div>
+        </div>
+      </div>
+
+      {/* Disclaimer */}
+      <p className="mt-10 text-center font-mono-alt text-[10px] text-on-surface-variant uppercase tracking-[0.2em]">
+        Precios en pesos argentinos · IVA incluido · Facturación electrónica próximamente
+      </p>
     </div>
   );
 }

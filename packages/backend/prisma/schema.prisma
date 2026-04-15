@@ -39,37 +39,47 @@ model Organizacion {
   id                   Int       @id @default(autoincrement())
   nombre               String
   slug                 String    @unique
-  // Billing / suscripción — stub para Stripe. No hay integración real todavía,
-  // pero los campos existen para cuando la agreguemos.
-  plan                 String    @default("trial") // trial | free | starter | pro | business
-  estadoSuscripcion    String    @default("trialing") @map("estado_suscripcion") // trialing | active | past_due | canceled | unpaid
+  // ── Billing "hot path" ────────────────────────────────────────────────
+  // Estos tres campos son los que lee requireSuscripcionActiva en cada
+  // request. Son una proyección denormalizada de Suscripcion para evitar
+  // un JOIN en el middleware. Los webhooks de Mercado Pago mantienen
+  // ambas tablas sincronizadas.
+  plan                 String    @default("trial") // trial | basico | pro | pro_anual | enterprise
+  estadoSuscripcion    String    @default("trialing") @map("estado_suscripcion") // trialing | active | past_due | paused | canceled | unpaid
   trialHasta           DateTime? @map("trial_hasta")
+  // Legacy — se dejan por retrocompat de migrations anteriores. No se usan.
   stripeCustomerId     String?   @map("stripe_customer_id")
   stripeSubscriptionId String?   @map("stripe_subscription_id")
   // Límites por plan (copia del plan al crear para evitar lookups)
   limiteUsuarios       Int       @default(999) @map("limite_usuarios")
   limiteProductos      Int       @default(99999) @map("limite_productos")
   limiteDepositos      Int       @default(99) @map("limite_depositos")
+  // Datos fiscales para facturación electrónica ARCA (WSFEv1)
+  razonSocial          String?   @map("razon_social")
+  cuit                 String?
+  condicionIva         String?   @map("condicion_iva") // responsable_inscripto | monotributo | exento
+  domicilioFiscal      String?   @map("domicilio_fiscal")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  miembros            Miembro[]
-  productos           Producto[]
-  depositos           Deposito[]
-  usuarios            Usuario[]
-  movimientos         Movimiento[]
-  proveedores         Proveedor[]
-  proveedorProductos  ProveedorProducto[]
-  recetas             Receta[]
-  elaboraciones       ElaboracionLote[]
-  inventarios         Inventario[]
-  ordenesCompra       OrdenCompra[]
-  recepciones         Recepcion[]
-  tareas              Tarea[]
-  facturas            Factura[]
-  pagos               Pago[]
-  porcionados         Porcionado[]
-  listasPrecio        ListaPrecio[]
+  miembros           Miembro[]
+  productos          Producto[]
+  depositos          Deposito[]
+  usuarios           Usuario[]
+  movimientos        Movimiento[]
+  proveedores        Proveedor[]
+  proveedorProductos ProveedorProducto[]
+  recetas            Receta[]
+  elaboraciones      ElaboracionLote[]
+  inventarios        Inventario[]
+  ordenesCompra      OrdenCompra[]
+  recepciones        Recepcion[]
+  tareas             Tarea[]
+  facturas           Factura[]
+  pagos              Pago[]
+  porcionados        Porcionado[]
+  listasPrecio       ListaPrecio[]
+  suscripcion        Suscripcion?
 
   @@map("organizaciones")
 }
@@ -96,11 +106,11 @@ model Producto {
   organizacionId    Int      @default(0) @map("organizacion_id")
   codigo            String
   nombre            String
-  rubro             String   // Verduras, Carnes, Lacteos, Bebidas, etc.
-  subrubro          String?  // Sub-categoría opcional: Chardonnay, Malbec, etc.
-  tipo              String   // crudo, elaborado, semielaborado, insumo
-  unidadCompra      String   @map("unidad_compra")  // kg, lt, unidad, caja
-  unidadUso         String   @map("unidad_uso")     // kg, lt, unidad, porcion
+  rubro             String // Verduras, Carnes, Lacteos, Bebidas, etc.
+  subrubro          String? // Sub-categoría opcional: Chardonnay, Malbec, etc.
+  tipo              String // crudo, elaborado, semielaborado, insumo
+  unidadCompra      String   @map("unidad_compra") // kg, lt, unidad, caja
+  unidadUso         String   @map("unidad_uso") // kg, lt, unidad, porcion
   factorConversion  Float    @default(1) @map("factor_conversion")
   codigoBarras      String?  @map("codigo_barras")
   depositoDefectoId Int?     @map("deposito_defecto_id")
@@ -110,19 +120,19 @@ model Producto {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  organizacion        Organizacion         @relation(fields: [organizacionId], references: [id])
-  depositoDefecto     Deposito?            @relation(fields: [depositoDefectoId], references: [id])
-  movimientos         Movimiento[]
-  proveedorProductos  ProveedorProducto[]
-  recetaIngredientes  RecetaIngrediente[]
-  inventarioDetalles  InventarioDetalle[]
-  ordenCompraItems    OrdenCompraItem[]
-  recepcionItems      RecepcionItem[]
-  recetasResultado    Receta[]             @relation("recetaProducto")
-  elaboraciones       ElaboracionLote[]    @relation("elaborProducto")
-  facturaItems        FacturaItem[]
-  porcionadosOrigen   Porcionado[]         @relation("porcionadoOrigen")
-  porcionadoItems     PorcionadoItem[]
+  organizacion       Organizacion        @relation(fields: [organizacionId], references: [id])
+  depositoDefecto    Deposito?           @relation(fields: [depositoDefectoId], references: [id])
+  movimientos        Movimiento[]
+  proveedorProductos ProveedorProducto[]
+  recetaIngredientes RecetaIngrediente[]
+  inventarioDetalles InventarioDetalle[]
+  ordenCompraItems   OrdenCompraItem[]
+  recepcionItems     RecepcionItem[]
+  recetasResultado   Receta[]            @relation("recetaProducto")
+  elaboraciones      ElaboracionLote[]   @relation("elaborProducto")
+  facturaItems       FacturaItem[]
+  porcionadosOrigen  Porcionado[]        @relation("porcionadoOrigen")
+  porcionadoItems    PorcionadoItem[]
 
   @@unique([organizacionId, codigo])
   @@index([organizacionId])
@@ -140,16 +150,16 @@ model Deposito {
   tipo           String? // almacen, cocina, barra, freezer, camara, seco
   activo         Boolean @default(true)
 
-  organizacion         Organizacion      @relation(fields: [organizacionId], references: [id])
-  productos            Producto[]
-  movimientosOrigen    Movimiento[]      @relation("depositoOrigen")
-  movimientosDestino   Movimiento[]      @relation("depositoDestino")
-  inventarios          Inventario[]
-  ordenesCompra        OrdenCompra[]     @relation("ocDeposito")
-  usuariosDefecto      Usuario[]         @relation("usuarioDepositoDefecto")
-  elaboraciones        ElaboracionLote[] @relation("elaborDeposito")
-  porcionadosOrigen    Porcionado[]      @relation("porcionadoDepOrigen")
-  porcionadoItemsDep   PorcionadoItem[]  @relation("porcionadoItemDep")
+  organizacion       Organizacion      @relation(fields: [organizacionId], references: [id])
+  productos          Producto[]
+  movimientosOrigen  Movimiento[]      @relation("depositoOrigen")
+  movimientosDestino Movimiento[]      @relation("depositoDestino")
+  inventarios        Inventario[]
+  ordenesCompra      OrdenCompra[]     @relation("ocDeposito")
+  usuariosDefecto    Usuario[]         @relation("usuarioDepositoDefecto")
+  elaboraciones      ElaboracionLote[] @relation("elaborDeposito")
+  porcionadosOrigen  Porcionado[]      @relation("porcionadoDepOrigen")
+  porcionadoItemsDep PorcionadoItem[]  @relation("porcionadoItemDep")
 
   @@unique([organizacionId, codigo])
   @@index([organizacionId])
@@ -168,7 +178,7 @@ model Usuario {
   organizacionId Int     @default(0) @map("organizacion_id")
   codigo         String
   nombre         String
-  rol            String  // admin, cocina, deposito, barra, compras
+  rol            String // admin, cocina, deposito, barra, compras
   pin            String?
   activo         Boolean @default(true)
   permisos       String  @default("[]") // JSON array de claves de secciones habilitadas
@@ -177,19 +187,19 @@ model Usuario {
   depositoDefectoId Int?      @map("deposito_defecto_id")
   depositoDefecto   Deposito? @relation("usuarioDepositoDefecto", fields: [depositoDefectoId], references: [id])
 
-  organizacion             Organizacion      @relation(fields: [organizacionId], references: [id])
-  movimientos              Movimiento[]      @relation("movUsuario")
-  movimientosResponsable   Movimiento[]      @relation("movResponsable")
-  inventarios              Inventario[]
-  ordenesCreadas           OrdenCompra[]     @relation("ocCreador")
-  ordenesAsignadas         OrdenCompra[]     @relation("ocResponsable")
-  recepciones              Recepcion[]       @relation("recepcionUsuario")
-  tareasCreadas            Tarea[]           @relation("tareasCreadas")
-  tareasAsignadas          Tarea[]           @relation("tareasAsignadas")
-  elaboraciones            ElaboracionLote[] @relation("elaborUsuario")
-  porcionados              Porcionado[]      @relation("porcionadoUsuario")
-  facturasCreadas          Factura[]         @relation("facturaCreador")
-  pagosCreados             Pago[]            @relation("pagoCreador")
+  organizacion           Organizacion      @relation(fields: [organizacionId], references: [id])
+  movimientos            Movimiento[]      @relation("movUsuario")
+  movimientosResponsable Movimiento[]      @relation("movResponsable")
+  inventarios            Inventario[]
+  ordenesCreadas         OrdenCompra[]     @relation("ocCreador")
+  ordenesAsignadas       OrdenCompra[]     @relation("ocResponsable")
+  recepciones            Recepcion[]       @relation("recepcionUsuario")
+  tareasCreadas          Tarea[]           @relation("tareasCreadas")
+  tareasAsignadas        Tarea[]           @relation("tareasAsignadas")
+  elaboraciones          ElaboracionLote[] @relation("elaborUsuario")
+  porcionados            Porcionado[]      @relation("porcionadoUsuario")
+  facturasCreadas        Factura[]         @relation("facturaCreador")
+  pagosCreados           Pago[]            @relation("pagoCreador")
 
   @@unique([organizacionId, codigo])
   @@index([organizacionId])
@@ -202,10 +212,10 @@ model Usuario {
 model Movimiento {
   id                Int      @id @default(autoincrement())
   organizacionId    Int      @default(0) @map("organizacion_id")
-  fecha             String   // YYYY-MM-DD
-  hora              String   // HH:mm
+  fecha             String // YYYY-MM-DD
+  hora              String // HH:mm
   usuarioId         Int      @map("usuario_id")
-  tipo              String   // ingreso, elaboracion, merma, transferencia, ajuste, conteo, consumo_interno, devolucion
+  tipo              String // ingreso, elaboracion, merma, transferencia, ajuste, conteo, consumo_interno, devolucion
   depositoOrigenId  Int?     @map("deposito_origen_id")
   depositoDestinoId Int?     @map("deposito_destino_id")
   productoId        Int      @map("producto_id")
@@ -224,17 +234,17 @@ model Movimiento {
   porcionadoId      Int?     @map("porcionado_id")
   createdAt         DateTime @default(now()) @map("created_at")
 
-  organizacion     Organizacion     @relation(fields: [organizacionId], references: [id])
-  usuario          Usuario          @relation("movUsuario", fields: [usuarioId], references: [id])
-  responsable      Usuario?         @relation("movResponsable", fields: [responsableId], references: [id])
-  depositoOrigen   Deposito?        @relation("depositoOrigen", fields: [depositoOrigenId], references: [id])
-  depositoDestino  Deposito?        @relation("depositoDestino", fields: [depositoDestinoId], references: [id])
-  producto         Producto         @relation(fields: [productoId], references: [id])
-  proveedor        Proveedor?       @relation(fields: [proveedorId], references: [id])
-  recepcion        Recepcion?       @relation(fields: [recepcionId], references: [id])
-  elaboracionLote  ElaboracionLote? @relation(fields: [elaboracionLoteId], references: [id])
-  factura          Factura?         @relation(fields: [facturaId], references: [id])
-  porcionado       Porcionado?      @relation(fields: [porcionadoId], references: [id])
+  organizacion    Organizacion     @relation(fields: [organizacionId], references: [id])
+  usuario         Usuario          @relation("movUsuario", fields: [usuarioId], references: [id])
+  responsable     Usuario?         @relation("movResponsable", fields: [responsableId], references: [id])
+  depositoOrigen  Deposito?        @relation("depositoOrigen", fields: [depositoOrigenId], references: [id])
+  depositoDestino Deposito?        @relation("depositoDestino", fields: [depositoDestinoId], references: [id])
+  producto        Producto         @relation(fields: [productoId], references: [id])
+  proveedor       Proveedor?       @relation(fields: [proveedorId], references: [id])
+  recepcion       Recepcion?       @relation(fields: [recepcionId], references: [id])
+  elaboracionLote ElaboracionLote? @relation(fields: [elaboracionLoteId], references: [id])
+  factura         Factura?         @relation(fields: [facturaId], references: [id])
+  porcionado      Porcionado?      @relation(fields: [porcionadoId], references: [id])
 
   @@index([organizacionId])
   @@index([organizacionId, fecha])
@@ -255,10 +265,10 @@ model Proveedor {
   rubro          String?
   activo         Boolean @default(true)
 
-  descuentoPct     Float   @default(0)  @map("descuento_pct")
+  descuentoPct     Float   @default(0) @map("descuento_pct")
   aplicaIva        Boolean @default(false) @map("aplica_iva")
   aplicaPercepcion Boolean @default(false) @map("aplica_percepcion")
-  impuestoInterno  Float   @default(0)  @map("impuesto_interno")
+  impuestoInterno  Float   @default(0) @map("impuesto_interno")
   whatsapp         String?
 
   organizacion       Organizacion        @relation(fields: [organizacionId], references: [id])
@@ -328,12 +338,12 @@ model Receta {
 // (child de Receta — no necesita organizacion_id, se filtra por parent)
 // ==========================================
 model RecetaIngrediente {
-  id             Int    @id @default(autoincrement())
-  recetaId       Int    @map("receta_id")
-  productoId     Int    @map("producto_id")
-  cantidad       Float
-  unidad         String
-  mermaEsperada  Float  @default(0) @map("merma_esperada") // porcentaje
+  id            Int    @id @default(autoincrement())
+  recetaId      Int    @map("receta_id")
+  productoId    Int    @map("producto_id")
+  cantidad      Float
+  unidad        String
+  mermaEsperada Float  @default(0) @map("merma_esperada") // porcentaje
 
   receta   Receta   @relation(fields: [recetaId], references: [id], onDelete: Cascade)
   producto Producto @relation(fields: [productoId], references: [id])
@@ -352,7 +362,7 @@ model ElaboracionLote {
   hora                String
   usuarioId           Int      @map("usuario_id")
   recetaId            Int?     @map("receta_id")
-  sector              String?  // pizzeria, cocina, pasteleria, pastas
+  sector              String? // pizzeria, cocina, pasteleria, pastas
   productoResultadoId Int      @map("producto_resultado_id")
   cantidadProducida   Float    @map("cantidad_producida")
   unidadProducida     String   @map("unidad_producida")
@@ -379,20 +389,20 @@ model ElaboracionLote {
 // Toma un producto elaborado (ej: masa) y lo divide en N sub-productos
 // (ej: bollo grande, bollo chico, bollo individual) con peso por unidad.
 model Porcionado {
-  id                  Int      @id @default(autoincrement())
-  organizacionId      Int      @default(0) @map("organizacion_id")
-  codigo              String   // POR-001
-  fecha               String
-  hora                String
-  usuarioId           Int      @map("usuario_id")
-  elaboracionLoteId   Int?     @map("elaboracion_lote_id") // vínculo opcional a la elaboración origen
-  productoOrigenId    Int      @map("producto_origen_id")  // producto que se porciona (ej: masa)
-  cantidadOrigen      Float    @map("cantidad_origen")     // cantidad total de entrada
-  unidadOrigen        String   @map("unidad_origen")       // kg, lt, etc.
-  depositoOrigenId    Int?     @map("deposito_origen_id")
-  merma               Float    @default(0)                 // desperdicio durante porcionado
-  observacion         String?
-  createdAt           DateTime @default(now()) @map("created_at")
+  id                Int      @id @default(autoincrement())
+  organizacionId    Int      @default(0) @map("organizacion_id")
+  codigo            String // POR-001
+  fecha             String
+  hora              String
+  usuarioId         Int      @map("usuario_id")
+  elaboracionLoteId Int?     @map("elaboracion_lote_id") // vínculo opcional a la elaboración origen
+  productoOrigenId  Int      @map("producto_origen_id") // producto que se porciona (ej: masa)
+  cantidadOrigen    Float    @map("cantidad_origen") // cantidad total de entrada
+  unidadOrigen      String   @map("unidad_origen") // kg, lt, etc.
+  depositoOrigenId  Int?     @map("deposito_origen_id")
+  merma             Float    @default(0) // desperdicio durante porcionado
+  observacion       String?
+  createdAt         DateTime @default(now()) @map("created_at")
 
   organizacion    Organizacion     @relation(fields: [organizacionId], references: [id])
   usuario         Usuario          @relation("porcionadoUsuario", fields: [usuarioId], references: [id])
@@ -411,9 +421,9 @@ model PorcionadoItem {
   id                Int    @id @default(autoincrement())
   porcionadoId      Int    @map("porcionado_id")
   productoId        Int    @map("producto_id")
-  cantidad          Float                               // cuántas unidades salen
-  pesoUnidad        Float  @map("peso_unidad")          // peso por unidad (ej: 0.3 kg por bollo)
-  unidad            String                              // unidad del producto (kg, unidad, etc.)
+  cantidad          Float // cuántas unidades salen
+  pesoUnidad        Float  @map("peso_unidad") // peso por unidad (ej: 0.3 kg por bollo)
+  unidad            String // unidad del producto (kg, unidad, etc.)
   depositoDestinoId Int?   @map("deposito_destino_id")
 
   porcionado      Porcionado @relation(fields: [porcionadoId], references: [id], onDelete: Cascade)
@@ -429,7 +439,7 @@ model PorcionadoItem {
 model Inventario {
   id             Int      @id @default(autoincrement())
   organizacionId Int      @default(0) @map("organizacion_id")
-  fecha          String   // YYYY-MM-DD
+  fecha          String // YYYY-MM-DD
   usuarioId      Int      @map("usuario_id")
   depositoId     Int      @map("deposito_id")
   estado         String   @default("abierto") // abierto, cerrado
@@ -446,11 +456,11 @@ model Inventario {
 }
 
 model InventarioDetalle {
-  id             Int    @id @default(autoincrement())
-  inventarioId   Int    @map("inventario_id")
-  productoId     Int    @map("producto_id")
-  cantidadFisica Float  @map("cantidad_fisica")
-  stockTeorico   Float? @map("stock_teorico")
+  id             Int     @id @default(autoincrement())
+  inventarioId   Int     @map("inventario_id")
+  productoId     Int     @map("producto_id")
+  cantidadFisica Float   @map("cantidad_fisica")
+  stockTeorico   Float?  @map("stock_teorico")
   diferencia     Float? // fisica - teorica
   observacion    String?
 
@@ -466,8 +476,8 @@ model InventarioDetalle {
 model OrdenCompra {
   id                Int      @id @default(autoincrement())
   organizacionId    Int      @default(0) @map("organizacion_id")
-  codigo            String   // OC-001 (único dentro de la org)
-  fecha             String   // YYYY-MM-DD
+  codigo            String // OC-001 (único dentro de la org)
+  fecha             String // YYYY-MM-DD
   estado            String   @default("pendiente") // pendiente, parcial, recibida, cancelada
   proveedorId       Int      @map("proveedor_id")
   creadoPorId       Int      @map("creado_por_id")
@@ -532,7 +542,7 @@ model RecepcionItem {
   id               Int     @id @default(autoincrement())
   recepcionId      Int     @map("recepcion_id")
   productoId       Int     @map("producto_id")
-  cantidadPedida   Float?  @map("cantidad_pedida")   // copia de la OC al momento de recibir
+  cantidadPedida   Float?  @map("cantidad_pedida") // copia de la OC al momento de recibir
   cantidadRecibida Float   @map("cantidad_recibida")
   unidad           String
   costoUnitario    Float?  @map("costo_unitario")
@@ -558,12 +568,12 @@ model Tarea {
   tipo           String    @default("general") // general, recibir_mercaderia, inventario, limpieza, prep, cierre
   estado         String    @default("pendiente") // pendiente, en_progreso, completada, cancelada
   prioridad      String    @default("normal") // baja, normal, alta, urgente
-  fecha          String    // YYYY-MM-DD — para cuándo
+  fecha          String // YYYY-MM-DD — para cuándo
   horaLimite     String?   @map("hora_limite") // HH:mm — hora límite opcional
   creadoPorId    Int       @map("creado_por_id")
   asignadoAId    Int       @map("asignado_a_id")
   completadaAt   DateTime? @map("completada_at")
-  observacion    String?   // nota al completar
+  observacion    String? // nota al completar
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
@@ -579,24 +589,24 @@ model Tarea {
 // FACTURAS RECIBIDAS (contabilidad)
 // ==========================================
 model Factura {
-  id               Int       @id @default(autoincrement())
-  organizacionId   Int       @default(0) @map("organizacion_id")
-  codigo           String    // FAC-001 auto (único dentro de la org)
-  tipoComprobante  String    @map("tipo_comprobante")        // "A","B","C","ticket","remito"
-  numero           String                                     // nro original del proveedor
-  fecha            String                                     // YYYY-MM-DD fecha de emisión
-  fechaVencimiento String?   @map("fecha_vencimiento")        // YYYY-MM-DD fecha de pago
-  proveedorId      Int       @map("proveedor_id")
-  ordenCompraId    Int?      @map("orden_compra_id")
-  subtotal         Float     @default(0)
-  iva              Float     @default(0)
-  total            Float     @default(0)
-  estado           String    @default("pendiente")            // pendiente|parcial|pagada|anulada
-  imagenBase64     String?   @map("imagen_base64")
+  id               Int      @id @default(autoincrement())
+  organizacionId   Int      @default(0) @map("organizacion_id")
+  codigo           String // FAC-001 auto (único dentro de la org)
+  tipoComprobante  String   @map("tipo_comprobante") // "A","B","C","ticket","remito"
+  numero           String // nro original del proveedor
+  fecha            String // YYYY-MM-DD fecha de emisión
+  fechaVencimiento String?  @map("fecha_vencimiento") // YYYY-MM-DD fecha de pago
+  proveedorId      Int      @map("proveedor_id")
+  ordenCompraId    Int?     @map("orden_compra_id")
+  subtotal         Float    @default(0)
+  iva              Float    @default(0)
+  total            Float    @default(0)
+  estado           String   @default("pendiente") // pendiente|parcial|pagada|anulada
+  imagenBase64     String?  @map("imagen_base64")
   observacion      String?
-  creadoPorId      Int       @map("creado_por_id")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
+  creadoPorId      Int      @map("creado_por_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   organizacion Organizacion  @relation(fields: [organizacionId], references: [id])
   proveedor    Proveedor     @relation(fields: [proveedorId], references: [id])
@@ -619,7 +629,7 @@ model FacturaItem {
   cantidad       Float
   unidad         String
   precioUnitario Float  @map("precio_unitario")
-  alicuotaIva    Float  @default(21) @map("alicuota_iva")  // 0, 10.5, 21, 27
+  alicuotaIva    Float  @default(21) @map("alicuota_iva") // 0, 10.5, 21, 27
   subtotal       Float  @default(0)
   iva            Float  @default(0)
 
@@ -636,9 +646,9 @@ model Pago {
   id             Int      @id @default(autoincrement())
   organizacionId Int      @default(0) @map("organizacion_id")
   facturaId      Int      @map("factura_id")
-  fecha          String                                      // YYYY-MM-DD
+  fecha          String // YYYY-MM-DD
   monto          Float
-  medioPago      String   @map("medio_pago")                 // efectivo|transferencia|cheque|debito|credito
+  medioPago      String   @map("medio_pago") // efectivo|transferencia|cheque|debito|credito
   referencia     String?
   observacion    String?
   creadoPorId    Int      @map("creado_por_id")
@@ -656,17 +666,17 @@ model Pago {
 // LISTAS DE PRECIOS (importación de proveedores)
 // ==========================================
 model ListaPrecio {
-  id              Int      @id @default(autoincrement())
-  organizacionId  Int      @default(0) @map("organizacion_id")
-  codigo          String   // LP-001 auto
-  proveedorId     Int      @map("proveedor_id")
-  fecha           String   // YYYY-MM-DD
-  archivoOrigen   String?  @map("archivo_origen")
-  estado          String   @default("pendiente") // pendiente|procesada|archivada
-  createdAt       DateTime @default(now()) @map("created_at")
+  id             Int      @id @default(autoincrement())
+  organizacionId Int      @default(0) @map("organizacion_id")
+  codigo         String // LP-001 auto
+  proveedorId    Int      @map("proveedor_id")
+  fecha          String // YYYY-MM-DD
+  archivoOrigen  String?  @map("archivo_origen")
+  estado         String   @default("pendiente") // pendiente|procesada|archivada
+  createdAt      DateTime @default(now()) @map("created_at")
 
-  organizacion Organizacion     @relation(fields: [organizacionId], references: [id])
-  proveedor    Proveedor        @relation(fields: [proveedorId], references: [id])
+  organizacion Organizacion      @relation(fields: [organizacionId], references: [id])
+  proveedor    Proveedor         @relation(fields: [proveedorId], references: [id])
   items        ListaPrecioItem[]
 
   @@unique([organizacionId, codigo])
@@ -675,24 +685,108 @@ model ListaPrecio {
 }
 
 model ListaPrecioItem {
-  id                    Int      @id @default(autoincrement())
-  listaPrecioId         Int      @map("lista_precio_id")
-  productoOriginal      String   @map("producto_original")
-  presentacionOriginal  String?  @map("presentacion_original")
-  tipoCompra            String   @default("UNIDAD") @map("tipo_compra") // UNIDAD|CAJA
-  unidadesPorCaja       Int      @default(1) @map("unidades_por_caja")
-  cantidadPorUnidad     Float?   @map("cantidad_por_unidad")
-  unidadMedida          String?  @map("unidad_medida")
-  precioInformado       Float    @map("precio_informado")
-  precioPorUnidad       Float?   @map("precio_por_unidad")
-  precioPorMedidaBase   Float?   @map("precio_por_medida_base")
-  moneda                String   @default("ARS")
-  proveedorProductoId   Int?     @map("proveedor_producto_id")
-  estadoMatch           String   @default("PENDIENTE") @map("estado_match") // PENDIENTE|OK
-  activo                Boolean  @default(true)
+  id                   Int     @id @default(autoincrement())
+  listaPrecioId        Int     @map("lista_precio_id")
+  productoOriginal     String  @map("producto_original")
+  presentacionOriginal String? @map("presentacion_original")
+  tipoCompra           String  @default("UNIDAD") @map("tipo_compra") // UNIDAD|CAJA
+  unidadesPorCaja      Int     @default(1) @map("unidades_por_caja")
+  cantidadPorUnidad    Float?  @map("cantidad_por_unidad")
+  unidadMedida         String? @map("unidad_medida")
+  precioInformado      Float   @map("precio_informado")
+  precioPorUnidad      Float?  @map("precio_por_unidad")
+  precioPorMedidaBase  Float?  @map("precio_por_medida_base")
+  moneda               String  @default("ARS")
+  proveedorProductoId  Int?    @map("proveedor_producto_id")
+  estadoMatch          String  @default("PENDIENTE") @map("estado_match") // PENDIENTE|OK
+  activo               Boolean @default(true)
 
   listaPrecio       ListaPrecio        @relation(fields: [listaPrecioId], references: [id], onDelete: Cascade)
   proveedorProducto ProveedorProducto? @relation(fields: [proveedorProductoId], references: [id])
 
   @@map("lista_precio_items")
+}
+
+// ============================================================================
+// SUSCRIPCIONES / BILLING
+// ============================================================================
+// Una Suscripcion por organización (relación 1:1 opcional). Contiene los
+// datos específicos del proveedor de pago (Mercado Pago hoy, Stripe en el
+// futuro), el ciclo de facturación y metadata de trial. Los campos
+// "hot path" (plan, estado, trialHasta) se replican en Organizacion para
+// que el middleware de request no tenga que hacer JOIN.
+// ============================================================================
+model Suscripcion {
+  id             Int    @id @default(autoincrement())
+  organizacionId Int    @unique @map("organizacion_id")
+  proveedor      String @default("mercadopago") // mercadopago | stripe
+  plan           String // basico | pro | pro_anual | enterprise
+  estado         String // trial | active | past_due | paused | cancelled | expired
+  precioMensual  Float  @default(0) @map("precio_mensual") // ARS
+  moneda         String @default("ARS")
+  frecuencia     String @default("mensual") // mensual | anual
+
+  // Mercado Pago — Preapproval Plan API
+  mpPreapprovalPlanId String? @map("mp_preapproval_plan_id") // plan template creado en MP
+  mpPreapprovalId     String? @map("mp_preapproval_id") // subscripción concreta del usuario
+  mpPayerId           String? @map("mp_payer_id") // ID del payer en MP
+  mpPayerEmail        String? @map("mp_payer_email")
+  mpInitPoint         String? @map("mp_init_point") // URL de checkout para autorizar
+
+  // Ciclo de vida
+  trialInicio         DateTime? @map("trial_inicio")
+  trialFin            DateTime? @map("trial_fin")
+  periodoActualInicio DateTime? @map("periodo_actual_inicio")
+  periodoActualFin    DateTime? @map("periodo_actual_fin")
+  proximoCobroEn      DateTime? @map("proximo_cobro_en")
+  canceladaEn         DateTime? @map("cancelada_en")
+  motivoCancelacion   String?   @map("motivo_cancelacion")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organizacion Organizacion      @relation(fields: [organizacionId], references: [id], onDelete: Cascade)
+  pagos        PagoSuscripcion[]
+
+  @@index([mpPreapprovalId])
+  @@map("suscripciones")
+}
+
+// ============================================================================
+// PAGOS DE SUSCRIPCIÓN (historial de cobros)
+// ============================================================================
+// Un registro por cada intento de cobro que hace Mercado Pago contra la
+// tarjeta asociada al preapproval. El webhook crea/actualiza filas acá.
+// El campo `facturado` + `cae` permiten trackear qué pagos ya emitieron
+// factura electrónica via ARCA (integración futura).
+// ============================================================================
+model PagoSuscripcion {
+  id            Int       @id @default(autoincrement())
+  suscripcionId Int       @map("suscripcion_id")
+  mpPaymentId   String?   @unique @map("mp_payment_id") // payment ID de MP
+  monto         Float
+  moneda        String    @default("ARS")
+  estado        String // pending | approved | rejected | refunded | cancelled | in_process
+  metodoPago    String?   @map("metodo_pago") // credit_card | debit_card | ticket | account_money
+  ultimos4      String?   @map("ultimos_4") // últimos 4 de la tarjeta, para mostrar en UI
+  marca         String? // visa | master | amex
+  referencia    String? // external_reference
+  fechaPago     DateTime? @map("fecha_pago")
+  periodoDesde  DateTime? @map("periodo_desde")
+  periodoHasta  DateTime? @map("periodo_hasta")
+
+  // Facturación electrónica ARCA (futuro)
+  facturado     Boolean   @default(false)
+  cae           String? // CAE devuelto por ARCA
+  caeVence      DateTime? @map("cae_vence")
+  facturaNumero String?   @map("factura_numero") // nro de comprobante emitido
+  facturaPdfUrl String?   @map("factura_pdf_url")
+
+  rawPayload String? // JSON raw del webhook (debug)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  suscripcion Suscripcion @relation(fields: [suscripcionId], references: [id], onDelete: Cascade)
+
+  @@index([suscripcionId])
+  @@map("pagos_suscripcion")
 }

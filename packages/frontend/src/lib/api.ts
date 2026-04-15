@@ -370,4 +370,28 @@ export const api = {
   getEvolucion: (productoId: number, params?: Record<string, string>) =>
     request<any[]>(`/comparador/evolucion/${productoId}${qs(params)}`),
   getProveedoresImpuestos: () => request<any[]>('/comparador/proveedores-impuestos'),
+
+  // ── Suscripciones / Billing (Mercado Pago) ────────────────────────────
+  getPlanesPublicos: () =>
+    request<{ mensuales: any[]; anuales: any[] }>('/planes'),
+  getSuscripcionActual: () =>
+    request<any>('/suscripciones/actual'),
+  getSuscripcionPagos: () =>
+    request<{ pagos: any[] }>('/suscripciones/pagos'),
+  subscribePlan: (plan: string, payerEmail: string) =>
+    request<{ initPoint: string; preapprovalId: string; plan: string }>(
+      '/suscripciones/subscribe',
+      { method: 'POST', body: JSON.stringify({ plan, payerEmail }) },
+    ),
+  pauseSuscripcion: () =>
+    request<any>('/suscripciones/pause', { method: 'POST' }),
+  resumeSuscripcion: () =>
+    request<any>('/suscripciones/resume', { method: 'POST' }),
+  cancelSuscripcion: (motivo?: string) =>
+    request<any>('/suscripciones/cancel', {
+      method: 'POST',
+      body: JSON.stringify({ motivo }),
+    }),
+  syncSuscripcion: () =>
+    request<any>('/suscripciones/sync', { method: 'POST' }),
 };

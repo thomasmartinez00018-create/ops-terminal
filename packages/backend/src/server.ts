@@ -29,6 +29,9 @@ import aiChatRouter from './routes/aiChat';
 import porcionadoRouter from './routes/porcionado';
 import listasPrecioRouter from './routes/listas-precio';
 import comparadorRouter from './routes/comparador';
+import suscripcionesRouter from './routes/suscripciones';
+import webhooksRouter from './routes/webhooks';
+import { listPlanesMensuales, listPlanesAnuales } from './lib/planes';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -92,6 +95,23 @@ app.get('/api/ping', (_req, res) => {
   res.json({ ok: true, ts: Date.now() });
 });
 
+// ── Endpoints públicos de catálogo (pricing para la landing) ────────────────
+// La landing lista los planes antes del signup, así que el catálogo vive
+// bajo un endpoint público. No toca DB — es lectura de constantes.
+app.get('/api/planes', (_req, res) => {
+  res.json({
+    mensuales: listPlanesMensuales(),
+    anuales: listPlanesAnuales(),
+  });
+});
+
+// ── Webhooks de Mercado Pago ─────────────────────────────────────────────────
+// Endpoint público (no requiere JWT). MP manda notificaciones acá con
+// eventos de payment y preapproval. El router responde 200 OK rápido y
+// procesa de forma asíncrona. Va ANTES del tenantMiddleware porque no
+// tiene contexto de org — el router lo extrae del preapproval.
+app.use('/api/webhooks', webhooksRouter);
+
 // ── Multi-tenant context ────────────────────────────────────────────────────
 // Corre GLOBALMENTE antes de cualquier ruta de negocio. Si el request trae un
 // token de stage 2 o 3, abre un AsyncLocalStorage con { organizacionId, ... }
@@ -139,6 +159,17 @@ businessApi.use('/comparador', comparadorRouter);
 businessApi.use('/config', configRouter);
 businessApi.use('/ai', aiChatRouter);
 app.use('/api', businessApi);
+
+// ── Suscripciones — montadas con requireStaff pero SIN requireSuscripcionActiva
+// ─────────────────────────────────────────────────────────────────────────────
+// Esto es fundamental: si el trial expiró, el middleware de suscripción tira
+// 402 en TODO /api/*. Pero el usuario tiene que poder entrar a /suscripcion
+// a pagar justamente para desbloquear. Por eso las rutas de suscripciones van
+// bajo requireStaff SOLO (saltan el gate de billing).
+const billingApi = express.Router();
+billingApi.use(requireStaff);
+billingApi.use('/suscripciones', suscripcionesRouter);
+app.use('/api', billingApi);
 
 // ── En producción: servir frontend compilado (opcional) ─────────────────────
 // Si SERVE_FRONTEND=true, el mismo backend sirve el /dist del frontend.
