@@ -3,7 +3,8 @@ import { api } from '../lib/api';
 import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';
 import Modal from '../components/ui/Modal';
-import { Upload, FileText, Trash2, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import MatchListaIAModal from '../components/MatchListaIAModal';
+import { Upload, FileText, Trash2, CheckCircle, AlertCircle, Loader2, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export default function ImportarLista() {
@@ -25,6 +26,27 @@ export default function ImportarLista() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLista, setDetailLista] = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+
+  // Match IA modal — usado desde la grilla por fila y auto-gatillado después
+  // de importar una lista. Centraliza el flujo match-ai → review → apply sin
+  // forzar al usuario a navegar a /equivalencias.
+  const [matchOpen, setMatchOpen] = useState(false);
+  const [matchLista, setMatchLista] = useState<{
+    id: number;
+    codigo?: string;
+    proveedorNombre?: string;
+    pendientes?: number;
+  } | null>(null);
+
+  const abrirMatchIA = (lista: any) => {
+    setMatchLista({
+      id: lista.id,
+      codigo: lista.codigo,
+      proveedorNombre: lista.proveedor?.nombre,
+      pendientes: lista.stats?.pendientes ?? lista.items?.length ?? 0,
+    });
+    setMatchOpen(true);
+  };
 
   useEffect(() => {
     cargar();
@@ -139,8 +161,13 @@ export default function ImportarLista() {
                     <FileText className="w-4 h-4 inline" />
                   </button>
                   {(l.stats?.pendientes || 0) > 0 && (
-                    <button onClick={() => navigate('/equivalencias')} className="text-amber-400 hover:text-amber-300 text-xs font-medium">
-                      Matchear
+                    <button
+                      onClick={() => abrirMatchIA(l)}
+                      className="inline-flex items-center gap-1 text-primary hover:text-primary/80 text-xs font-bold"
+                      title="Vincular pendientes con IA"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      Vincular IA
                     </button>
                   )}
                   <button onClick={() => eliminar(l.id)} className="text-zinc-400 hover:text-red-400" title="Eliminar">
@@ -161,13 +188,45 @@ export default function ImportarLista() {
               <CheckCircle className="w-5 h-5 text-green-400 mt-0.5" />
               <div>
                 <p className="text-green-300 font-medium">Lista {importResult.codigo} importada</p>
-                <p className="text-sm text-zinc-400 mt-1">{importResult.items?.length || 0} productos extraidos del archivo</p>
+                <p className="text-sm text-zinc-400 mt-1">{importResult.items?.length || 0} productos extraídos del archivo</p>
               </div>
             </div>
-            <div className="flex gap-2">
-              <Button variant="ghost" onClick={() => { setWizardOpen(false); setImportResult(null); }}>Cerrar</Button>
-              <Button onClick={() => { setWizardOpen(false); setImportResult(null); navigate('/equivalencias'); }}>
-                Ir a Equivalencias
+
+            {/* CTA principal: vincular con IA en la misma página. No queremos
+                que el usuario vea el éxito, cierre el modal y se vaya al
+                Comparador pensando que terminó — los items todavía están en
+                estadoMatch='PENDIENTE' y el Comparador los va a ignorar. */}
+            <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 flex items-start gap-3">
+              <Sparkles className="w-5 h-5 text-primary mt-0.5 shrink-0" />
+              <div className="text-sm">
+                <p className="font-bold text-foreground">Último paso: vincular con tu catálogo</p>
+                <p className="text-xs text-on-surface-variant mt-1 leading-relaxed">
+                  Los productos importados todavía no están vinculados a los productos
+                  de tu sistema. Sin este paso no van a aparecer en el Comparador.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end">
+              <Button variant="ghost" onClick={() => { setWizardOpen(false); setImportResult(null); }}>
+                Cerrar
+              </Button>
+              <Button
+                onClick={() => {
+                  // Abrir el modal de match-ai con la lista recién importada.
+                  // Capturamos los datos ANTES de limpiar importResult.
+                  abrirMatchIA({
+                    id: importResult.id,
+                    codigo: importResult.codigo,
+                    proveedor: importResult.proveedor,
+                    stats: { pendientes: importResult.items?.length || 0 },
+                  });
+                  setWizardOpen(false);
+                  setImportResult(null);
+                }}
+              >
+                <Sparkles className="w-4 h-4" />
+                Vincular con IA
               </Button>
             </div>
           </div>
@@ -218,6 +277,21 @@ export default function ImportarLista() {
           </div>
         )}
       </Modal>
+
+      {/* Match IA modal — flujo completo match-ai → review → apply */}
+      <MatchListaIAModal
+        open={matchOpen}
+        onClose={() => setMatchOpen(false)}
+        listaId={matchLista?.id ?? null}
+        listaInfo={{
+          codigo: matchLista?.codigo,
+          proveedorNombre: matchLista?.proveedorNombre,
+          pendientes: matchLista?.pendientes,
+        }}
+        onSuccess={() => { cargar(); }}
+        showComparadorCTA
+        onGoComparador={() => navigate('/comparador')}
+      />
 
       {/* Detail modal */}
       <Modal open={detailOpen} onClose={() => setDetailOpen(false)} title={`Detalle: ${detailLista?.codigo || ''}`} size="xl">

@@ -1,11 +1,13 @@
 import { useEffect, useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { buildWALink, buildOrderMessage } from '../lib/whatsapp';
 import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';
 import Input from '../components/ui/Input';
 import SearchableSelect from '../components/ui/SearchableSelect';
-import { BarChart3, TrendingUp, ShoppingCart, Send, Loader2, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import MatchListaIAModal from '../components/MatchListaIAModal';
+import { BarChart3, TrendingUp, ShoppingCart, Send, Loader2, ArrowUpRight, ArrowDownRight, Sparkles, Upload, AlertTriangle } from 'lucide-react';
 
 function defaultDesde() {
   const d = new Date(); d.setDate(d.getDate() - 90);
@@ -15,10 +17,36 @@ const todayStr = () => new Date().toISOString().split('T')[0];
 const fmt = (n: number | null) => n != null ? `$${n.toLocaleString('es-AR', { maximumFractionDigits: 2 })}` : '-';
 
 export default function ComparadorPrecios() {
+  const navigate = useNavigate();
   const [data, setData] = useState<any[]>([]);
   const [proveedoresImp, setProveedoresImp] = useState<any[]>([]);
   const [productos, setProductos] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Listas con items pendientes — usado para el empty state que le dice al
+  // usuario "importaste pero falta vincular". Cargado en paralelo con la
+  // comparativa para no agregar latencia.
+  const [listasPendientes, setListasPendientes] = useState<any[]>([]);
+  const [totalListas, setTotalListas] = useState(0);
+
+  // Modal match-ia
+  const [matchOpen, setMatchOpen] = useState(false);
+  const [matchLista, setMatchLista] = useState<{
+    id: number;
+    codigo?: string;
+    proveedorNombre?: string;
+    pendientes?: number;
+  } | null>(null);
+
+  const abrirMatchIA = (lista: any) => {
+    setMatchLista({
+      id: lista.id,
+      codigo: lista.codigo,
+      proveedorNombre: lista.proveedor?.nombre,
+      pendientes: lista.stats?.pendientes,
+    });
+    setMatchOpen(true);
+  };
 
   // Filters
   const [desde, setDesde] = useState(defaultDesde());
@@ -45,14 +73,24 @@ export default function ComparadorPrecios() {
   const cargar = async () => {
     setLoading(true);
     try {
-      const [d, pi, p] = await Promise.all([
+      const [d, pi, p, listas] = await Promise.all([
         api.getComparativa({ desde, hasta }),
         api.getProveedoresImpuestos(),
         api.getProductos({ activo: 'true' }),
+        api.getListasPrecio().catch(() => [] as any[]),
       ]);
       setData(d);
       setProveedoresImp(pi);
       setProductos(p);
+      setTotalListas(Array.isArray(listas) ? listas.length : 0);
+      // Filtramos listas con pendientes > 0 para el empty state del "importaste
+      // pero no vinculaste" — ordenadas por cantidad descendente para poner
+      // primero las que más desbloquean el Comparador.
+      setListasPendientes(
+        (Array.isArray(listas) ? listas : [])
+          .filter((l: any) => (l.stats?.pendientes ?? 0) > 0)
+          .sort((a: any, b: any) => (b.stats?.pendientes ?? 0) - (a.stats?.pendientes ?? 0))
+      );
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -222,6 +260,83 @@ export default function ComparadorPrecios() {
       </div>
 
       {loading && <div className="text-center py-8"><Loader2 className="w-6 h-6 animate-spin text-zinc-400 inline" /></div>}
+
+      {/* ═══ Banner de listas pendientes de vincular ═══
+          Caso crítico: el usuario importó una lista pero todos los items
+          quedaron en estadoMatch='PENDIENTE' porque el auto-match exacto por
+          nombre no encontró coincidencias. El Comparador filtra por OK → 0
+          resultados. Sin este banner, "muere ahí" como dijo el cliente. */}
+      {!loading && data.length === 0 && listasPendientes.length > 0 && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-5 space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="shrink-0 w-10 h-10 rounded-full bg-amber-500/15 flex items-center justify-center">
+              <AlertTriangle className="w-5 h-5 text-amber-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-foreground">
+                Tenés {listasPendientes.reduce((sum, l) => sum + (l.stats?.pendientes ?? 0), 0)} productos importados sin vincular
+              </p>
+              <p className="text-xs text-on-surface-variant mt-1 leading-relaxed max-w-2xl">
+                Los productos que importaste todavía no están vinculados a tu catálogo, por
+                eso el Comparador no los muestra. Vinculá con IA y en un minuto van a aparecer
+                acá con precios comparables entre proveedores.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {listasPendientes.map((l) => (
+              <div
+                key={l.id}
+                className="flex items-center justify-between gap-3 p-3 rounded-lg bg-surface border border-border"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-foreground truncate">
+                    {l.proveedor?.nombre || 'Proveedor desconocido'}
+                    <span className="ml-2 text-[10px] font-bold text-primary uppercase tracking-widest">
+                      {l.codigo}
+                    </span>
+                  </p>
+                  <p className="text-xs text-on-surface-variant mt-0.5">
+                    <strong className="text-amber-400">{l.stats?.pendientes ?? 0}</strong>{' '}
+                    pendientes
+                    {l.stats?.ok > 0 && (
+                      <span className="text-on-surface-variant/60">
+                        {' '}· {l.stats.ok} ya vinculados
+                      </span>
+                    )}
+                    <span className="text-on-surface-variant/60"> · importada {l.fecha}</span>
+                  </p>
+                </div>
+                <Button size="sm" onClick={() => abrirMatchIA(l)}>
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Vincular con IA
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Empty state cuando no hay NINGUNA lista todavía */}
+      {!loading && data.length === 0 && listasPendientes.length === 0 && totalListas === 0 && (
+        <div className="rounded-xl border border-border bg-surface p-10 text-center space-y-4">
+          <div className="inline-flex w-14 h-14 rounded-full bg-primary/10 items-center justify-center">
+            <Upload className="w-6 h-6 text-primary" />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-foreground">Todavía no hay listas de precios</p>
+            <p className="text-xs text-on-surface-variant mt-1 max-w-md mx-auto">
+              Subí una lista de algún proveedor (PDF o Excel) y la IA extrae los
+              precios automáticamente para comparar entre proveedores.
+            </p>
+          </div>
+          <Button onClick={() => navigate('/importar-lista')}>
+            <Upload className="w-4 h-4" />
+            Importar primera lista
+          </Button>
+        </div>
+      )}
 
       {/* TAB: Ultima */}
       {!loading && tab === 'ultima' && (
@@ -418,6 +533,21 @@ export default function ComparadorPrecios() {
           )}
         </div>
       )}
+
+      {/* Match IA modal — disparado desde el banner de pendientes. Al aplicar
+          los vínculos, refrescamos la comparativa para que los productos
+          aparezcan inmediatamente en la tabla sin necesidad de recargar. */}
+      <MatchListaIAModal
+        open={matchOpen}
+        onClose={() => setMatchOpen(false)}
+        listaId={matchLista?.id ?? null}
+        listaInfo={{
+          codigo: matchLista?.codigo,
+          proveedorNombre: matchLista?.proveedorNombre,
+          pendientes: matchLista?.pendientes,
+        }}
+        onSuccess={() => { cargar(); }}
+      />
     </div>
   );
 }
