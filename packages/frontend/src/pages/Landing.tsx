@@ -1073,19 +1073,23 @@ function LandingPricing() {
           return (
             <div
               key={plan.id}
-              className={`relative p-8 lg:p-10 mock-window transition-transform hover:-translate-y-1 ${
-                plan.destacado
-                  ? 'ring-2 ring-primary/50 shadow-[0_0_60px_-15px_rgba(212,175,55,0.45)]'
-                  : ''
-              }`}
+              className="relative transition-transform hover:-translate-y-1"
             >
-              {/* Badge destacado — queda adentro del pt-6 del grid, no tapa nada */}
+              {/* Badge destacado — va por FUERA del mock-window porque este
+                  tiene overflow:hidden en index.css y cortaba el badge. */}
               {plan.destacado && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-primary text-background font-mono-alt text-[9px] uppercase tracking-[0.2em] font-bold whitespace-nowrap shadow-lg shadow-primary/20">
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full bg-primary text-background font-mono-alt text-[9px] uppercase tracking-[0.2em] font-bold whitespace-nowrap shadow-lg shadow-primary/30">
                   ★ Más elegido
                 </div>
               )}
 
+              <div
+                className={`p-8 lg:p-10 mock-window h-full ${
+                  plan.destacado
+                    ? 'ring-2 ring-primary/50 shadow-[0_0_60px_-15px_rgba(212,175,55,0.45)]'
+                    : ''
+                }`}
+              >
               {/* Header */}
               <div className="mb-6">
                 <div className="flex items-center gap-3 mb-5">
@@ -1155,6 +1159,7 @@ function LandingPricing() {
                   </li>
                 ))}
               </ul>
+              </div>
             </div>
           );
         })}
