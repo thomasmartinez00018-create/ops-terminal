@@ -48,6 +48,7 @@ const PERMISOS_POR_ROL: Record<string, string[]> = {
 const DASHBOARD_TIPOS = [
   { value: 'auto', label: 'Automático (según rol)' },
   { value: 'admin', label: 'Panel completo (admin)' },
+  { value: 'dueno', label: 'Panel del dueño (ejecutivo)' },
   { value: 'simple', label: 'Panel simple (cocina/barra)' },
   { value: 'deposito', label: 'Panel de depósito' },
 ];
@@ -58,6 +59,16 @@ const DASHBOARD_WIDGETS_ADMIN = [
   { key: 'alertas', label: 'Alertas (OC + Discrepancias)' },
   { key: 'kpis', label: 'KPIs (tarjetas de métricas)' },
   { key: 'equipo-hoy', label: 'Actividad del equipo hoy' },
+  { key: 'ultimos-movimientos', label: 'Últimos movimientos' },
+];
+
+// Widgets para el "panel del dueño" — vista ejecutiva, no técnica.
+const DASHBOARD_WIDGETS_DUENO = [
+  { key: 'alertas', label: 'Alertas (precio + discrepancias)' },
+  { key: 'pulso', label: 'Pulso del negocio (4 KPIs)' },
+  { key: 'cuentas', label: 'Deuda con proveedores (top 5)' },
+  { key: 'equipo-hoy', label: 'Equipo hoy' },
+  { key: 'shortcuts', label: 'Accesos a reportes' },
   { key: 'ultimos-movimientos', label: 'Últimos movimientos' },
 ];
 
@@ -457,6 +468,36 @@ export default function Usuarios() {
                           type="checkbox"
                           checked={isDashItemOn(w.key, 'widgets')}
                           onChange={() => toggleDashItem(w.key, 'widgets', DASHBOARD_WIDGETS_ADMIN)}
+                          className="accent-[#D4AF37] w-3.5 h-3.5"
+                        />
+                        <span className="text-xs font-semibold">{w.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Widgets del panel dueño */}
+              {dashConfig.tipo === 'dueno' && (
+                <div>
+                  <p className="text-[10px] font-bold text-primary/80 uppercase tracking-wider mb-1">
+                    Vista ejecutiva — sin operativa
+                  </p>
+                  <p className="text-[10px] text-on-surface-variant mb-2 leading-relaxed">
+                    El usuario ve solo métricas, alertas y reportes. Se ocultan productos,
+                    depósitos, recetas, usuarios y configuración en el menú.
+                  </p>
+                  <div className="grid grid-cols-2 gap-1">
+                    {DASHBOARD_WIDGETS_DUENO.map(w => (
+                      <label key={w.key} className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors ${
+                        isDashItemOn(w.key, 'widgets')
+                          ? 'bg-primary/10 text-foreground'
+                          : 'text-on-surface-variant hover:bg-surface'
+                      }`}>
+                        <input
+                          type="checkbox"
+                          checked={isDashItemOn(w.key, 'widgets')}
+                          onChange={() => toggleDashItem(w.key, 'widgets', DASHBOARD_WIDGETS_DUENO)}
                           className="accent-[#D4AF37] w-3.5 h-3.5"
                         />
                         <span className="text-xs font-semibold">{w.label}</span>

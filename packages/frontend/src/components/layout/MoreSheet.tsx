@@ -81,7 +81,16 @@ interface Props {
 export default function MoreSheet({ open, onClose }: Props) {
   const { user, tienePermiso } = useAuth();
 
+  // El perfil "dueño" solo ve lo ejecutivo — nada de CRUD ni configuración.
+  const esDueno = user?.configuracion?.tipo === 'dueno';
+  const duenoAllowList = new Set<string>([
+    '/tareas', '/stock', '/reportes', '/reportes-costos',
+    '/alertas-precio', '/cuentas-por-pagar', '/comparador',
+    '/facturas', '/discrepancias',
+  ]);
+
   const canSee = (item: SheetItem) => {
+    if (esDueno && !duenoAllowList.has(item.to)) return false;
     if (item.adminOnly) return user?.rol === 'admin';
     if (!item.permiso) return true;
     return tienePermiso(item.permiso);

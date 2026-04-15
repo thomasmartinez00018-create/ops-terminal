@@ -3,8 +3,8 @@ import { api, setToken, getToken, AUTH_ERROR_EVENT } from '../lib/api';
 import { useSession } from './SessionContext';
 
 export interface DashboardConfig {
-  tipo?: 'auto' | 'admin' | 'simple' | 'deposito';
-  widgets?: string[];   // para tipo='admin': qué secciones mostrar
+  tipo?: 'auto' | 'admin' | 'simple' | 'deposito' | 'dueno';
+  widgets?: string[];   // para tipo='admin'|'dueno': qué secciones mostrar
   acciones?: string[];  // para tipo='simple'|'deposito': qué botones mostrar
 }
 

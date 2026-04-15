@@ -126,8 +126,25 @@ export default function Sidebar({ open = false, onClose }: SidebarProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, location.pathname]);
 
+  // El perfil "dueño" es un dashboard ejecutivo: esconde todo lo operativo/CRUD
+  // y deja solo lo que un owner no-técnico usa para monitorear el negocio.
+  const esDueno = user?.configuracion?.tipo === 'dueno';
+  const duenoAllowList = new Set<string>([
+    '/',                  // Dashboard
+    '/tareas',            // Tareas propias
+    '/stock',             // Ver stock (solo lectura visual)
+    '/reportes',          // Reportes operativos
+    '/reportes-costos',   // Costos/márgenes
+    '/alertas-precio',    // Alertas de variación
+    '/cuentas-por-pagar', // Qué debe a proveedores
+    '/comparador',        // Comparador de precios
+    '/facturas',          // Facturas (lectura)
+    '/discrepancias',     // Discrepancias de inventario
+  ]);
+
   // Filtrar items según permisos
   const canSee = (item: NavItem) => {
+    if (esDueno && !duenoAllowList.has(item.to)) return false;
     if (item.adminOnly) return user?.rol === 'admin';
     if (!item.permiso) return true;
     return tienePermiso(item.permiso);

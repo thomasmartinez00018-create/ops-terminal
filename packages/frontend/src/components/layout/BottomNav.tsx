@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
   LayoutDashboard, ShoppingCart, ScanBarcode, ArrowRightLeft,
-  ClipboardList, Grid3X3
+  ClipboardList, Grid3X3, DollarSign, BarChart3
 } from 'lucide-react';
 import MoreSheet from './MoreSheet';
 
@@ -36,13 +36,22 @@ const TABS_POR_ROL: Record<string, { to: string; label: string; icon: any }[]> =
   ],
 };
 
+// El perfil "dueño" no es un rol — es un override por configuración. Tiene su
+// propia barra optimizada para monitoreo ejecutivo (sin registrar movimientos).
+const TABS_DUENO = [
+  { to: '/', label: 'Inicio', icon: LayoutDashboard },
+  { to: '/cuentas-por-pagar', label: 'Pagos', icon: DollarSign },
+  { to: '/reportes-costos', label: 'Costos', icon: BarChart3 },
+];
+
 export default function BottomNav() {
   const { user } = useAuth();
   const [moreOpen, setMoreOpen] = useState(false);
 
   if (!user) return null;
 
-  const tabs = TABS_POR_ROL[user.rol] || TABS_POR_ROL['admin'];
+  const esDueno = user.configuracion?.tipo === 'dueno';
+  const tabs = esDueno ? TABS_DUENO : (TABS_POR_ROL[user.rol] || TABS_POR_ROL['admin']);
 
   return (
     <>

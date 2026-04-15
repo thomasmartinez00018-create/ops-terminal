@@ -9,7 +9,7 @@ import {
   TrendingDown, TrendingUp, ClipboardCheck, Activity,
   ShoppingCart, ScanBarcode, Bell, ChevronRight, Plus,
   Utensils, Wine, ClipboardList, Users, ArrowUpRight, ArrowDownRight, Minus,
-  ScanLine
+  ScanLine, DollarSign, LineChart, Receipt, Eye, Flame
 } from 'lucide-react';
 
 const tipoBadge: Record<string, 'success' | 'info' | 'danger' | 'warning' | 'default'> = {
@@ -369,6 +369,301 @@ function EquipoHoyList({ equipo, movimientos }: { equipo: any[]; movimientos: an
   );
 }
 
+// ─── Dashboard dueño — vista ejecutiva, no operativa ────────────────────────
+// Pensado para el dueño del restaurante que NO carga datos, solo quiere ver
+// cómo va el negocio: pulso, alertas, plata a pagar, actividad del equipo y
+// accesos a reportes. Deliberadamente NO tiene botones de "registrar" para
+// no confundir con el flujo operativo — si el dueño quiere cargar algo igual
+// puede, pero desde el sidebar (sigue siendo rol admin).
+function DashboardDueno() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [stats, setStats] = useState<any>(null);
+  const [cxp, setCxp] = useState<any>(null);
+  const [alertasPrecio, setAlertasPrecio] = useState<{ pendientes: number; altaPendientes: number } | null>(null);
+  const [discrepancias, setDiscrepancias] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.all([
+      api.getDashboardStats().catch(() => null),
+      api.getCuentasPorPagar().catch(() => null),
+      api.getAlertasPrecioCount().catch(() => null),
+      api.getDiscrepancias().catch(() => []),
+    ]).then(([s, c, ap, d]) => {
+      setStats(s);
+      setCxp(c);
+      setAlertasPrecio(ap);
+      setDiscrepancias(d || []);
+    }).finally(() => setLoading(false));
+  }, []);
+
+  if (loading || !stats) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-on-surface-variant font-semibold">Cargando dashboard...</p>
+      </div>
+    );
+  }
+
+  const widgets = user?.configuracion?.widgets;
+  const showWidget = (key: string) => !widgets || widgets.includes(key);
+
+  const discGraves = discrepancias.filter((d: any) => d.color === 'rojo').length;
+  const alertasTotal = (alertasPrecio?.pendientes ?? 0) + discGraves;
+
+  // Formato de plata argentino con miles
+  const fmt$ = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
+
+  // Top 5 proveedores con más saldo a pagar
+  const topDeuda = Array.isArray(cxp?.proveedores)
+    ? [...cxp.proveedores]
+        .filter((p: any) => (p.saldoPendiente || 0) > 0)
+        .sort((a: any, b: any) => (b.saldoPendiente || 0) - (a.saldoPendiente || 0))
+        .slice(0, 5)
+    : [];
+
+  return (
+    <div>
+      {/* ── Header ──────────────────────────────────────────────────────── */}
+      <div className="mb-6">
+        <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Panel del dueño</p>
+        <h1 className="text-xl font-extrabold text-foreground mt-1">Hola, {user?.nombre}</h1>
+        <p className="text-xs text-on-surface-variant mt-0.5">Cómo va el negocio, de un vistazo.</p>
+      </div>
+
+      {/* ── Alertas unificadas (arriba de todo, porque acá querés mirar) ── */}
+      {showWidget('alertas') && alertasTotal > 0 && (
+        <div className="space-y-2 mb-6">
+          {(alertasPrecio?.pendientes ?? 0) > 0 && (
+            <button
+              onClick={() => navigate('/alertas-precio')}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-warning/30 bg-warning/5 hover:bg-warning/10 transition-colors text-left"
+            >
+              <div className="w-10 h-10 rounded-full bg-warning/20 flex items-center justify-center shrink-0">
+                <Flame size={18} className="text-warning" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-foreground">
+                  {alertasPrecio!.pendientes} variación{alertasPrecio!.pendientes > 1 ? 'es' : ''} de precio para revisar
+                </p>
+                <p className="text-xs text-on-surface-variant">
+                  {alertasPrecio!.altaPendientes > 0 ? `${alertasPrecio!.altaPendientes} urgentes — ` : ''}
+                  un proveedor subió más de lo normal
+                </p>
+              </div>
+              <ChevronRight size={14} className="text-warning" />
+            </button>
+          )}
+          {discGraves > 0 && (
+            <button
+              onClick={() => navigate('/discrepancias')}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-destructive/30 bg-destructive/5 hover:bg-destructive/10 transition-colors text-left"
+            >
+              <div className="w-10 h-10 rounded-full bg-destructive/20 flex items-center justify-center shrink-0">
+                <AlertTriangle size={18} className="text-destructive" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-foreground">
+                  {discGraves} depósito{discGraves > 1 ? 's' : ''} con discrepancias graves
+                </p>
+                <p className="text-xs text-on-surface-variant">Faltante real vs lo que registró el equipo</p>
+              </div>
+              <ChevronRight size={14} className="text-destructive" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── Pulso del negocio — 4 KPIs grandes, clickables ──────────────── */}
+      {showWidget('pulso') && (
+        <div className="grid grid-cols-2 gap-3 mb-6 stagger-children">
+          <button
+            onClick={() => navigate('/reportes-costos')}
+            className="glass card-glow rounded-2xl p-5 text-left hover:bg-surface-high/50 active:scale-[0.98] transition-all"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="p-2.5 rounded-xl bg-primary/10">
+                <DollarSign size={18} className="text-primary" />
+              </div>
+              <TrendBadge current={stats.ingresosDelMes} previous={stats.ingresosMesAnt} />
+            </div>
+            <p className="text-2xl font-extrabold text-foreground">{stats.ingresosDelMes}</p>
+            <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mt-0.5">Ingresos del mes</p>
+            <p className="text-[9px] text-on-surface-variant/70 mt-0.5">vs mes anterior</p>
+          </button>
+
+          <button
+            onClick={() => navigate('/reportes')}
+            className="glass card-glow rounded-2xl p-5 text-left hover:bg-surface-high/50 active:scale-[0.98] transition-all"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="p-2.5 rounded-xl bg-destructive/10">
+                <TrendingDown size={18} className="text-destructive" />
+              </div>
+              <div className="[&_.text-success]:text-destructive [&_.text-destructive]:text-success">
+                <TrendBadge current={stats.mermasDelMes} previous={stats.mermasMesAnt} />
+              </div>
+            </div>
+            <p className="text-2xl font-extrabold text-destructive">{stats.mermasDelMes}</p>
+            <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mt-0.5">Mermas del mes</p>
+            <p className="text-[9px] text-on-surface-variant/70 mt-0.5">plata que se pierde</p>
+          </button>
+
+          <button
+            onClick={() => navigate('/stock?filter=bajoMinimo')}
+            className="glass card-glow rounded-2xl p-5 text-left hover:bg-surface-high/50 active:scale-[0.98] transition-all"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className={`p-2.5 rounded-xl ${stats.bajosDeMinimo > 0 ? 'bg-warning/10' : 'bg-success/10'}`}>
+                <AlertTriangle size={18} className={stats.bajosDeMinimo > 0 ? 'text-warning' : 'text-success'} />
+              </div>
+            </div>
+            <p className={`text-2xl font-extrabold ${stats.bajosDeMinimo > 0 ? 'text-warning' : 'text-success'}`}>
+              {stats.bajosDeMinimo}
+            </p>
+            <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mt-0.5">Bajo mínimo</p>
+            <p className="text-[9px] text-on-surface-variant/70 mt-0.5">hay que reponer</p>
+          </button>
+
+          <button
+            onClick={() => navigate('/cuentas-por-pagar')}
+            className="glass card-glow rounded-2xl p-5 text-left hover:bg-surface-high/50 active:scale-[0.98] transition-all"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="p-2.5 rounded-xl bg-blue-500/10">
+                <Receipt size={18} className="text-blue-400" />
+              </div>
+            </div>
+            <p className="text-2xl font-extrabold text-foreground">
+              {cxp?.totalPendiente != null ? fmt$(cxp.totalPendiente) : '—'}
+            </p>
+            <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mt-0.5">A pagar</p>
+            <p className="text-[9px] text-on-surface-variant/70 mt-0.5">total a proveedores</p>
+          </button>
+        </div>
+      )}
+
+      {/* ── Deuda con proveedores (top 5) ───────────────────────────────── */}
+      {showWidget('cuentas') && topDeuda.length > 0 && (
+        <div className="bg-surface rounded-xl border border-border mb-6">
+          <div className="p-4 border-b border-border flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Receipt size={14} className="text-primary" />
+              <h2 className="text-xs font-extrabold text-foreground uppercase tracking-widest">Proveedores por pagar</h2>
+            </div>
+            <button onClick={() => navigate('/cuentas-por-pagar')} className="text-[10px] text-primary font-bold uppercase tracking-wider hover:text-primary/80">
+              Ver todos
+            </button>
+          </div>
+          <div className="divide-y divide-border">
+            {topDeuda.map((p: any) => (
+              <button
+                key={p.proveedorId || p.id}
+                onClick={() => navigate('/cuentas-por-pagar')}
+                className="w-full px-4 py-3 flex items-center justify-between hover:bg-surface-high/50 transition-colors text-left"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-foreground truncate">{p.nombre}</p>
+                  <p className="text-[10px] text-on-surface-variant">
+                    {p.facturasPendientes || 0} factura{(p.facturasPendientes || 0) !== 1 ? 's' : ''} pendiente{(p.facturasPendientes || 0) !== 1 ? 's' : ''}
+                  </p>
+                </div>
+                <p className="text-sm font-extrabold text-foreground shrink-0 ml-3">
+                  {fmt$(p.saldoPendiente || 0)}
+                </p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Equipo hoy ──────────────────────────────────────────────────── */}
+      {showWidget('equipo-hoy') && (
+        <div className="bg-surface rounded-xl border border-border mb-6">
+          <div className="p-4 border-b border-border flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Users size={14} className="text-primary" />
+              <h2 className="text-xs font-extrabold text-foreground uppercase tracking-widest">Equipo hoy</h2>
+            </div>
+            <button onClick={() => navigate('/movimientos')} className="text-[10px] text-primary font-bold uppercase tracking-wider hover:text-primary/80">
+              Ver movimientos
+            </button>
+          </div>
+          {(!stats.actividadEquipo || stats.actividadEquipo.length === 0) ? (
+            <div className="p-6 text-center">
+              <p className="text-sm text-on-surface-variant font-medium">Nadie registró movimientos hoy todavía</p>
+            </div>
+          ) : (
+            <EquipoHoyList equipo={stats.actividadEquipo} movimientos={stats.ultimosMovimientos || []} />
+          )}
+        </div>
+      )}
+
+      {/* ── Accesos rápidos a reportes ─────────────────────────────────── */}
+      {showWidget('shortcuts') && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+          <button
+            onClick={() => navigate('/reportes')}
+            className="glass rounded-2xl p-5 text-left hover:scale-[1.02] active:scale-[0.98] transition-all border border-primary/20"
+          >
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center mb-3">
+              <LineChart size={20} className="text-primary" />
+            </div>
+            <p className="text-sm font-extrabold text-foreground">Reportes del mes</p>
+            <p className="text-xs text-on-surface-variant mt-0.5">Movimientos, mermas, tendencias</p>
+          </button>
+
+          <button
+            onClick={() => navigate('/reportes-costos')}
+            className="glass rounded-2xl p-5 text-left hover:scale-[1.02] active:scale-[0.98] transition-all border border-success/20"
+          >
+            <div className="w-10 h-10 rounded-xl bg-success/10 flex items-center justify-center mb-3">
+              <DollarSign size={20} className="text-success" />
+            </div>
+            <p className="text-sm font-extrabold text-foreground">Costos y márgenes</p>
+            <p className="text-xs text-on-surface-variant mt-0.5">Qué te está costando</p>
+          </button>
+
+          <button
+            onClick={() => navigate('/comparador')}
+            className="glass rounded-2xl p-5 text-left hover:scale-[1.02] active:scale-[0.98] transition-all border border-blue-500/20"
+          >
+            <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center mb-3">
+              <Eye size={20} className="text-blue-400" />
+            </div>
+            <p className="text-sm font-extrabold text-foreground">Comparar precios</p>
+            <p className="text-xs text-on-surface-variant mt-0.5">Proveedor más barato por ítem</p>
+          </button>
+        </div>
+      )}
+
+      {/* ── Últimos movimientos — opcional, al final ───────────────────── */}
+      {showWidget('ultimos-movimientos') && stats.ultimosMovimientos && stats.ultimosMovimientos.length > 0 && (
+        <div className="bg-surface rounded-xl border border-border">
+          <div className="p-4 border-b border-border">
+            <h2 className="text-xs font-extrabold text-foreground uppercase tracking-widest">Últimos movimientos</h2>
+          </div>
+          <div className="divide-y divide-border">
+            {stats.ultimosMovimientos.slice(0, 8).map((mov: any) => (
+              <div key={mov.id} className="px-4 py-3 flex items-center justify-between">
+                <div className="flex items-center gap-3 min-w-0">
+                  <Badge variant={tipoBadge[mov.tipo]}>{tipoLabels[mov.tipo] || mov.tipo}</Badge>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-foreground truncate">{mov.producto?.nombre}</p>
+                    <p className="text-xs text-on-surface-variant">{mov.cantidad} {mov.unidad} · {mov.hora || mov.fecha}</p>
+                  </div>
+                </div>
+                <p className="text-[10px] text-on-surface-variant shrink-0 ml-3">{mov.usuario?.nombre}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DashboardAdmin() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -586,6 +881,7 @@ export default function Dashboard() {
   if (tipoOverride && tipoOverride !== 'auto') {
     if (tipoOverride === 'simple') return <DashboardSimple rol={user.rol} />;
     if (tipoOverride === 'deposito') return <DashboardDeposito />;
+    if (tipoOverride === 'dueno') return <DashboardDueno />;
     return <DashboardAdmin />;
   }
 
