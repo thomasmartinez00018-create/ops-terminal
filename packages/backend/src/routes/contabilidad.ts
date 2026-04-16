@@ -493,6 +493,87 @@ router.get('/cogs', async (req: Request, res: Response) => {
   }
 });
 
+// ── GET /api/contabilidad/cogs/detalle ─────────────────────────────────────
+// Detalle de COGS para UN rubro específico en un rango. Devuelve los
+// productos consumidos con cantidad y costo total, ordenados desc.
+router.get('/cogs/detalle', async (req: Request, res: Response) => {
+  try {
+    const { rubro, desde, hasta } = req.query;
+    if (!rubro) {
+      res.status(400).json({ error: 'rubro es requerido' });
+      return;
+    }
+    const where: any = { tipo: 'ingreso' };
+    if (desde || hasta) {
+      where.fecha = {};
+      if (desde) where.fecha.gte = desde;
+      if (hasta) where.fecha.lte = hasta;
+    }
+
+    const movimientos = await prisma.movimiento.findMany({
+      where,
+      include: {
+        producto: { select: { id: true, codigo: true, nombre: true, rubro: true, unidadCompra: true } },
+        proveedor: { select: { nombre: true } },
+      },
+    });
+
+    // Filtrar por rubro y agrupar por producto
+    const porProducto: Record<number, {
+      productoId: number;
+      codigo: string;
+      nombre: string;
+      unidad: string;
+      cantidad: number;
+      costoTotal: number;
+      cantMovimientos: number;
+      proveedores: Set<string>;
+    }> = {};
+
+    for (const m of movimientos) {
+      if (!m.producto || m.producto.rubro !== rubro) continue;
+      const pid = m.producto.id;
+      if (!porProducto[pid]) {
+        porProducto[pid] = {
+          productoId: pid,
+          codigo: m.producto.codigo,
+          nombre: m.producto.nombre,
+          unidad: m.producto.unidadCompra,
+          cantidad: 0,
+          costoTotal: 0,
+          cantMovimientos: 0,
+          proveedores: new Set(),
+        };
+      }
+      porProducto[pid].cantidad += m.cantidad;
+      porProducto[pid].costoTotal += (m.costoUnitario || 0) * m.cantidad;
+      porProducto[pid].cantMovimientos += 1;
+      if (m.proveedor?.nombre) porProducto[pid].proveedores.add(m.proveedor.nombre);
+    }
+
+    const productos = Object.values(porProducto)
+      .map(p => ({
+        productoId: p.productoId,
+        codigo: p.codigo,
+        nombre: p.nombre,
+        unidad: p.unidad,
+        cantidad: Math.round(p.cantidad * 100) / 100,
+        costoTotal: Math.round(p.costoTotal * 100) / 100,
+        costoPromedio: p.cantidad > 0 ? Math.round((p.costoTotal / p.cantidad) * 100) / 100 : 0,
+        cantMovimientos: p.cantMovimientos,
+        proveedores: Array.from(p.proveedores),
+      }))
+      .sort((a, b) => b.costoTotal - a.costoTotal);
+
+    const costoTotalRubro = productos.reduce((s, p) => s + p.costoTotal, 0);
+
+    res.json({ rubro, costoTotal: costoTotalRubro, productos });
+  } catch (error: any) {
+    console.error('[contabilidad/cogs/detalle]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ── GET /api/contabilidad/historial-precios/:productoId ────────────────────
 router.get('/historial-precios/:productoId', async (req: Request, res: Response) => {
   try {

@@ -47,6 +47,8 @@ export default function Facturas() {
   const [filtroProveedor, setFiltroProveedor] = useState(searchParams.get('proveedorId') || '');
   const [filtroEstado, setFiltroEstado] = useState(searchParams.get('estado') || '');
   const [filtroTipo, setFiltroTipo] = useState('');
+  const [filtroDesde, setFiltroDesde] = useState(searchParams.get('desde') || '');
+  const [filtroHasta, setFiltroHasta] = useState(searchParams.get('hasta') || '');
   const [buscar, setBuscar] = useState('');
 
   // Modal detalle
@@ -70,13 +72,15 @@ export default function Facturas() {
       if (filtroProveedor) params.proveedorId = filtroProveedor;
       if (filtroEstado) params.estado = filtroEstado;
       if (filtroTipo) params.tipo = filtroTipo;
+      if (filtroDesde) params.desde = filtroDesde;
+      if (filtroHasta) params.hasta = filtroHasta;
       const data = await api.getFacturas(params);
       setFacturas(data);
     } catch { }
     setLoading(false);
   };
 
-  useEffect(() => { cargar(); }, [filtroProveedor, filtroEstado, filtroTipo]);
+  useEffect(() => { cargar(); }, [filtroProveedor, filtroEstado, filtroTipo, filtroDesde, filtroHasta]);
   useEffect(() => {
     api.getProveedores().then(setProveedores).catch(() => {});
   }, []);
@@ -179,8 +183,8 @@ export default function Facturas() {
         </div>
       </div>
 
-      {/* Filtros */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+      {/* Filtros — primera fila: búsqueda + selects */}
+      <div className="flex flex-col sm:flex-row gap-3 mb-3">
         <div className="relative flex-1">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" />
           <input
@@ -213,6 +217,69 @@ export default function Facturas() {
           <option value="ticket">Ticket</option>
           <option value="remito">Remito</option>
         </select>
+      </div>
+
+      {/* Filtros — segunda fila: rango de fechas + atajos */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Desde</label>
+          <input
+            type="date"
+            value={filtroDesde}
+            onChange={e => setFiltroDesde(e.target.value)}
+            className="px-3 py-2 rounded-lg bg-surface-high border-0 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Hasta</label>
+          <input
+            type="date"
+            value={filtroHasta}
+            onChange={e => setFiltroHasta(e.target.value)}
+            className="px-3 py-2 rounded-lg bg-surface-high border-0 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+          />
+        </div>
+        {/* Atajos — un click pone un rango típico */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {[
+            { label: 'Hoy', dias: 0 },
+            { label: '7 días', dias: 7 },
+            { label: '30 días', dias: 30 },
+            { label: 'Este mes', mes: true },
+          ].map(preset => (
+            <button
+              key={preset.label}
+              onClick={() => {
+                const hoy = new Date();
+                const hasta = hoy.toISOString().split('T')[0];
+                let desde: string;
+                if (preset.mes) {
+                  const d = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+                  desde = d.toISOString().split('T')[0];
+                } else if (preset.dias === 0) {
+                  desde = hasta;
+                } else {
+                  const d = new Date(hoy);
+                  d.setDate(d.getDate() - (preset.dias || 0));
+                  desde = d.toISOString().split('T')[0];
+                }
+                setFiltroDesde(desde);
+                setFiltroHasta(hasta);
+              }}
+              className="text-[10px] font-bold px-2.5 py-1.5 rounded-lg bg-surface-high text-on-surface-variant hover:text-primary hover:bg-primary/10 uppercase tracking-wider transition-colors"
+            >
+              {preset.label}
+            </button>
+          ))}
+          {(filtroDesde || filtroHasta) && (
+            <button
+              onClick={() => { setFiltroDesde(''); setFiltroHasta(''); }}
+              className="text-[10px] font-bold px-2.5 py-1.5 rounded-lg text-destructive hover:bg-destructive/10 uppercase tracking-wider transition-colors"
+            >
+              Limpiar
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Tabla */}

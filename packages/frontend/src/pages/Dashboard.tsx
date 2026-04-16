@@ -23,6 +23,47 @@ const tipoLabels: Record<string, string> = {
   consumo_interno: 'Consumo int.', devolucion: 'Devolución',
 };
 
+// ─── Toggle admin ↔ dueño (vista ejecutiva) ─────────────────────────────────
+// El admin puede "verse" como dueño sin crear otro usuario — útil para mostrar
+// a clientes no técnicos cómo se ve su panel sin romper su propia sesión.
+function VistaToggleDueno({ hacia }: { hacia: 'dueno' | 'admin' }) {
+  const { user, refreshUser } = useAuth();
+  const [busy, setBusy] = useState(false);
+
+  if (!user || user.rol !== 'admin') return null;
+
+  const activar = async () => {
+    setBusy(true);
+    try {
+      const nuevaConfig = hacia === 'dueno'
+        ? { ...(user.configuracion || {}), tipo: 'dueno' as const }
+        : { ...(user.configuracion || {}), tipo: 'admin' as const };
+      await api.updateUsuario(user.id, { configuracion: nuevaConfig });
+      await refreshUser();
+    } catch (e) {
+      console.error('[VistaToggleDueno]', e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button
+      onClick={activar}
+      disabled={busy}
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold transition-all border ${
+        hacia === 'dueno'
+          ? 'bg-surface-high text-on-surface-variant border-border hover:bg-primary/10 hover:text-primary hover:border-primary/30'
+          : 'bg-primary/10 text-primary border-primary/30 hover:bg-primary/20'
+      } ${busy ? 'opacity-50' : ''}`}
+      title={hacia === 'dueno' ? 'Ver el panel que verían tus dueños' : 'Volver a tu vista admin'}
+    >
+      <Eye size={12} />
+      {hacia === 'dueno' ? 'Vista dueño' : 'Volver a admin'}
+    </button>
+  );
+}
+
 // ─── Banner de tareas pendientes (para TODOS los roles) ─────────────────────
 function MisTareasPendientes() {
   const { user } = useAuth();
@@ -426,10 +467,13 @@ function DashboardDueno() {
   return (
     <div>
       {/* ── Header ──────────────────────────────────────────────────────── */}
-      <div className="mb-6">
-        <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Panel del dueño</p>
-        <h1 className="text-xl font-extrabold text-foreground mt-1">Hola, {user?.nombre}</h1>
-        <p className="text-xs text-on-surface-variant mt-0.5">Cómo va el negocio, de un vistazo.</p>
+      <div className="mb-6 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Panel del dueño</p>
+          <h1 className="text-xl font-extrabold text-foreground mt-1">Hola, {user?.nombre}</h1>
+          <p className="text-xs text-on-surface-variant mt-0.5">Cómo va el negocio, de un vistazo.</p>
+        </div>
+        <VistaToggleDueno hacia="admin" />
       </div>
 
       {/* ── Alertas unificadas (arriba de todo, porque acá querés mirar) ── */}
@@ -748,17 +792,20 @@ function DashboardAdmin() {
 
   return (
     <div>
-      <div className="mb-6 flex items-start justify-between">
+      <div className="mb-6 flex items-start justify-between gap-3">
         <div>
           <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Dashboard</p>
           <h1 className="text-xl font-extrabold text-foreground mt-1">Hola, {user?.nombre}</h1>
         </div>
-        <button
-          onClick={() => setQuickOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary/10 border border-primary/30 text-primary font-bold text-sm hover:bg-primary/20 transition-colors"
-        >
-          <Plus size={16} /> Registrar
-        </button>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <VistaToggleDueno hacia="dueno" />
+          <button
+            onClick={() => setQuickOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary/10 border border-primary/30 text-primary font-bold text-sm hover:bg-primary/20 transition-colors"
+          >
+            <Plus size={16} /> Registrar
+          </button>
+        </div>
       </div>
 
       {/* ── Tareas + responsabilidades pendientes (unificado) ─────────── */}

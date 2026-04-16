@@ -255,6 +255,13 @@ export const api = {
     request<any>(`/productos/${id}`, { method: 'DELETE' }),
   getSubrubros: (rubro?: string) =>
     request<string[]>(`/productos/subrubros/lista${rubro ? `?rubro=${encodeURIComponent(rubro)}` : ''}`),
+  getRubrosConConteo: () =>
+    request<{ rubro: string; cantProductos: number }[]>(`/productos/rubros/con-conteo`),
+  renameRubro: (rubroViejo: string, rubroNuevo: string) =>
+    request<{ actualizados: number; rubroViejo: string; rubroNuevo: string }>(
+      `/productos/rubros/rename`,
+      { method: 'PUT', body: JSON.stringify({ rubroViejo, rubroNuevo }) }
+    ),
 
   // Depósitos
   getDepositos: (params?: Record<string, string>) => request<any[]>(`/depositos${qs(params)}`),
@@ -431,6 +438,8 @@ export const api = {
   getCuentasPorPagar: () => request<any>('/contabilidad/cuentas-por-pagar'),
   getSaldoProveedor: (proveedorId: number) => request<any>(`/contabilidad/saldo-proveedor/${proveedorId}`),
   getCogs: (params?: Record<string, string>) => request<any>(`/contabilidad/cogs${qs(params)}`),
+  getCogsDetalle: (params: { rubro: string; desde?: string; hasta?: string }) =>
+    request<any>(`/contabilidad/cogs/detalle${qs(params as any)}`),
   getHistorialPrecios: (productoId: number) => request<any[]>(`/contabilidad/historial-precios/${productoId}`),
 
   // Listas de Precio

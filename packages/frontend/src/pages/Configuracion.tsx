@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { Trash2, AlertTriangle, RefreshCw, ShieldAlert, Package, Warehouse, Users, Truck, ChefHat, ArrowRightLeft, ClipboardCheck, ShoppingCart, ListTodo, FlaskConical, FileText, DollarSign } from 'lucide-react';
+import { Trash2, AlertTriangle, RefreshCw, ShieldAlert, Package, Warehouse, Users, Truck, ChefHat, ArrowRightLeft, ClipboardCheck, ShoppingCart, ListTodo, FlaskConical, FileText, DollarSign, Tag, Edit2, Check, X } from 'lucide-react';
 
 interface Stats {
   maestros: { productos: number; depositos: number; usuarios: number; proveedores: number; recetas: number };
@@ -31,6 +31,53 @@ export default function Configuracion() {
   const [confirmTot, setConfirmTot] = useState('');
   const [loadingTot, setLoadingTot] = useState(false);
   const [showConfirmTot, setShowConfirmTot] = useState(false);
+
+  // Rubros CRUD
+  const [rubros, setRubros] = useState<{ rubro: string; cantProductos: number }[]>([]);
+  const [loadingRubros, setLoadingRubros] = useState(false);
+  const [editandoRubro, setEditandoRubro] = useState<string | null>(null);
+  const [draftRubro, setDraftRubro] = useState('');
+  const [renombrando, setRenombrando] = useState(false);
+
+  const cargarRubros = async () => {
+    setLoadingRubros(true);
+    try {
+      const data = await api.getRubrosConConteo();
+      setRubros(data);
+    } catch { }
+    setLoadingRubros(false);
+  };
+
+  useEffect(() => { cargarRubros(); }, []);
+
+  const iniciarEdicion = (rubro: string) => {
+    setEditandoRubro(rubro);
+    setDraftRubro(rubro);
+  };
+
+  const cancelarEdicion = () => {
+    setEditandoRubro(null);
+    setDraftRubro('');
+  };
+
+  const confirmarRename = async (rubroViejo: string) => {
+    const nuevo = draftRubro.trim();
+    if (!nuevo || nuevo === rubroViejo) {
+      cancelarEdicion();
+      return;
+    }
+    setRenombrando(true);
+    try {
+      const r = await api.renameRubro(rubroViejo, nuevo);
+      addToast(`Rubro renombrado en ${r.actualizados} producto${r.actualizados === 1 ? '' : 's'}`);
+      cancelarEdicion();
+      cargarRubros();
+      cargarStats();
+    } catch (e: any) {
+      addToast(e?.message || 'Error al renombrar rubro', 'error');
+    }
+    setRenombrando(false);
+  };
 
   const cargarStats = async () => {
     setLoadingStats(true);
@@ -148,6 +195,94 @@ export default function Configuracion() {
                 <StatCard label="Elaboraciones" value={stats.operativos.elaboraciones} icon={FlaskConical} to="/elaboraciones" />
               </div>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* RUBROS */}
+      <div className="bg-surface border border-border rounded-xl p-5 mb-6">
+        <div className="flex items-start gap-3 mb-4">
+          <div className="p-2 rounded-lg bg-primary/10 shrink-0 mt-0.5">
+            <Tag size={18} className="text-primary" />
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm font-extrabold text-foreground">Rubros de productos</h2>
+              <button
+                onClick={cargarRubros}
+                className="p-1.5 rounded-lg text-on-surface-variant hover:text-foreground hover:bg-surface-high transition-colors"
+                title="Refrescar"
+              >
+                <RefreshCw size={14} />
+              </button>
+            </div>
+            <p className="text-xs text-on-surface-variant mt-1">
+              Los rubros se crean al cargar productos. Acá podés renombrarlos — el cambio se aplica en todos los productos que lo usan.
+            </p>
+          </div>
+        </div>
+
+        {loadingRubros ? (
+          <p className="text-sm text-on-surface-variant">Cargando rubros...</p>
+        ) : rubros.length === 0 ? (
+          <p className="text-sm text-on-surface-variant italic">
+            Todavía no hay rubros. Creá un producto y asignale uno para empezar.
+          </p>
+        ) : (
+          <div className="divide-y divide-border/50">
+            {rubros.map(({ rubro, cantProductos }) => {
+              const enEdicion = editandoRubro === rubro;
+              return (
+                <div key={rubro} className="flex items-center gap-2 py-2">
+                  {enEdicion ? (
+                    <>
+                      <input
+                        type="text"
+                        value={draftRubro}
+                        onChange={e => setDraftRubro(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') confirmarRename(rubro);
+                          if (e.key === 'Escape') cancelarEdicion();
+                        }}
+                        autoFocus
+                        disabled={renombrando}
+                        className="flex-1 min-w-0 px-3 py-1.5 rounded-lg bg-surface-high border-0 text-sm font-bold text-foreground placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      />
+                      <button
+                        onClick={() => confirmarRename(rubro)}
+                        disabled={renombrando || !draftRubro.trim() || draftRubro.trim() === rubro}
+                        className="p-1.5 rounded-lg bg-primary/20 text-primary hover:bg-primary/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        title="Confirmar"
+                      >
+                        <Check size={14} />
+                      </button>
+                      <button
+                        onClick={cancelarEdicion}
+                        disabled={renombrando}
+                        className="p-1.5 rounded-lg text-on-surface-variant hover:text-foreground hover:bg-surface-high transition-colors disabled:opacity-30"
+                        title="Cancelar"
+                      >
+                        <X size={14} />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="flex-1 min-w-0 text-sm font-bold text-foreground truncate">{rubro}</span>
+                      <span className="text-xs font-semibold text-on-surface-variant tabular-nums px-2 py-0.5 rounded-md bg-surface-high">
+                        {cantProductos} {cantProductos === 1 ? 'producto' : 'productos'}
+                      </span>
+                      <button
+                        onClick={() => iniciarEdicion(rubro)}
+                        className="p-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-high transition-colors"
+                        title="Renombrar"
+                      >
+                        <Edit2 size={14} />
+                      </button>
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

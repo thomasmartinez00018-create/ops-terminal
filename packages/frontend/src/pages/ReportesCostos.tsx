@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import ExportMenu from '../components/ui/ExportMenu';
+import Modal from '../components/ui/Modal';
 import type { ExportConfig } from '../lib/exportUtils';
 import { formatCurrency } from '../lib/exportUtils';
-import { BarChart3, TrendingUp, Search } from 'lucide-react';
+import { BarChart3, TrendingUp, Search, ChevronRight, X } from 'lucide-react';
 
 export default function ReportesCostos() {
   const [tab, setTab] = useState<'cogs' | 'precios'>('cogs');
@@ -16,6 +17,11 @@ export default function ReportesCostos() {
   });
   const [cogsHasta, setCogsHasta] = useState(() => new Date().toISOString().split('T')[0]);
   const [cogsLoading, setCogsLoading] = useState(false);
+
+  // Drill-down por rubro
+  const [rubroAbierto, setRubroAbierto] = useState<string | null>(null);
+  const [detalleRubro, setDetalleRubro] = useState<any>(null);
+  const [detalleLoading, setDetalleLoading] = useState(false);
 
   // Historial precios
   const [productos, setProductos] = useState<any[]>([]);
@@ -41,6 +47,19 @@ export default function ReportesCostos() {
   };
 
   useEffect(() => { cargarCogs(); }, [cogsDesde, cogsHasta]);
+
+  const abrirDetalleRubro = async (rubro: string) => {
+    setRubroAbierto(rubro);
+    setDetalleLoading(true);
+    setDetalleRubro(null);
+    try {
+      const data = await api.getCogsDetalle({ rubro, desde: cogsDesde, hasta: cogsHasta });
+      setDetalleRubro(data);
+    } catch {
+      setDetalleRubro({ rubro, productos: [], costoTotal: 0 });
+    }
+    setDetalleLoading(false);
+  };
 
   const cargarHistorial = async (pid: string) => {
     setProductoId(pid);
@@ -138,8 +157,13 @@ export default function ReportesCostos() {
                 <p className="text-3xl font-extrabold text-foreground mt-1">{formatMoney(cogsData.costoTotal)}</p>
               </div>
 
-              {/* Rubros table */}
+              {/* Rubros table — clickeable, abre drill-down */}
               <div className="bg-surface rounded-xl border border-border overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-border bg-surface-high/30">
+                  <p className="text-[10px] font-bold text-primary uppercase tracking-widest">
+                    Tocá un rubro para ver los productos
+                  </p>
+                </div>
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border">
@@ -148,12 +172,17 @@ export default function ReportesCostos() {
                       <th className="text-right p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">% del total</th>
                       <th className="text-right p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden sm:table-cell">Items</th>
                       <th className="p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden md:table-cell w-48"></th>
+                      <th className="p-3 w-8"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
                     {cogsData.rubros.map((r: any) => (
-                      <tr key={r.rubro} className="hover:bg-surface-high/50 transition-colors">
-                        <td className="p-3 font-semibold text-foreground">{r.rubro}</td>
+                      <tr
+                        key={r.rubro}
+                        onClick={() => abrirDetalleRubro(r.rubro)}
+                        className="hover:bg-primary/5 active:bg-primary/10 transition-colors cursor-pointer group"
+                      >
+                        <td className="p-3 font-semibold text-foreground group-hover:text-primary transition-colors">{r.rubro}</td>
                         <td className="p-3 text-right font-bold text-foreground">{formatMoney(r.costoTotal)}</td>
                         <td className="p-3 text-right font-semibold text-primary">{r.porcentaje.toFixed(1)}%</td>
                         <td className="p-3 text-right text-on-surface-variant hidden sm:table-cell">{r.cantItems}</td>
@@ -165,11 +194,14 @@ export default function ReportesCostos() {
                             />
                           </div>
                         </td>
+                        <td className="p-3 text-right">
+                          <ChevronRight size={14} className="text-on-surface-variant group-hover:text-primary group-hover:translate-x-0.5 transition-all inline" />
+                        </td>
                       </tr>
                     ))}
                     {cogsData.rubros.length === 0 && (
                       <tr>
-                        <td colSpan={5} className="p-8 text-center text-on-surface-variant font-medium">
+                        <td colSpan={6} className="p-8 text-center text-on-surface-variant font-medium">
                           No hay datos de costos para este período
                         </td>
                       </tr>
@@ -181,6 +213,84 @@ export default function ReportesCostos() {
           )}
         </div>
       )}
+
+      {/* ── Modal drill-down de rubro ─────────────────────────────────────── */}
+      <Modal
+        open={!!rubroAbierto}
+        onClose={() => { setRubroAbierto(null); setDetalleRubro(null); }}
+        title={rubroAbierto ? `Rubro: ${rubroAbierto}` : ''}
+      >
+        <div className="space-y-3">
+          <p className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider">
+            {cogsDesde} al {cogsHasta}
+          </p>
+
+          {detalleLoading ? (
+            <p className="text-center text-on-surface-variant py-8 font-medium">Cargando detalle...</p>
+          ) : detalleRubro && detalleRubro.productos.length > 0 ? (
+            <>
+              <div className="bg-primary/5 border border-primary/20 rounded-xl p-3">
+                <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Costo total del rubro</p>
+                <p className="text-2xl font-extrabold text-primary mt-0.5">{formatMoney(detalleRubro.costoTotal)}</p>
+                <p className="text-[11px] text-on-surface-variant mt-0.5">
+                  {detalleRubro.productos.length} producto{detalleRubro.productos.length !== 1 ? 's' : ''}
+                </p>
+              </div>
+
+              <div className="bg-surface border border-border rounded-xl overflow-hidden max-h-[50vh] overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-surface z-10">
+                    <tr className="border-b border-border">
+                      <th className="text-left p-2.5 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Producto</th>
+                      <th className="text-right p-2.5 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Cantidad</th>
+                      <th className="text-right p-2.5 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Costo</th>
+                      <th className="text-right p-2.5 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden sm:table-cell">Prom/un</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {detalleRubro.productos.map((p: any) => (
+                      <tr key={p.productoId} className="hover:bg-surface-high/50 transition-colors">
+                        <td className="p-2.5">
+                          <p className="font-semibold text-foreground text-sm">{p.nombre}</p>
+                          <p className="font-mono text-[10px] text-on-surface-variant">{p.codigo}</p>
+                          {p.proveedores.length > 0 && (
+                            <p className="text-[10px] text-on-surface-variant mt-0.5 truncate max-w-[200px]">
+                              {p.proveedores.slice(0, 2).join(', ')}
+                              {p.proveedores.length > 2 && ` +${p.proveedores.length - 2}`}
+                            </p>
+                          )}
+                        </td>
+                        <td className="p-2.5 text-right font-semibold text-foreground whitespace-nowrap">
+                          {p.cantidad} {p.unidad}
+                        </td>
+                        <td className="p-2.5 text-right font-bold text-foreground whitespace-nowrap">
+                          {formatMoney(p.costoTotal)}
+                        </td>
+                        <td className="p-2.5 text-right text-on-surface-variant hidden sm:table-cell whitespace-nowrap">
+                          {formatMoney(p.costoPromedio)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <p className="text-center text-on-surface-variant py-8 font-medium">
+              No hay productos para este rubro en el período seleccionado
+            </p>
+          )}
+
+          <div className="flex justify-end pt-2">
+            <button
+              onClick={() => { setRubroAbierto(null); setDetalleRubro(null); }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface-high text-sm font-bold text-on-surface-variant hover:text-foreground hover:bg-surface-high/80 transition-colors"
+            >
+              <X size={14} /> Cerrar
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* TAB: Historial de Precios */}
       {tab === 'precios' && (

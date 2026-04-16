@@ -25,6 +25,9 @@ interface AuthContextType {
   login: (token: string, user: User) => void;
   logout: () => void;
   tienePermiso: (clave: string) => boolean;
+  /** Refetch /me y actualiza user en estado + localStorage. Usar después
+   *  de mutar la propia configuración (ej: cambiar tipo de dashboard). */
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -113,8 +116,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return user.permisos?.includes(clave) ?? false;
   };
 
+  const refreshUser = async () => {
+    try {
+      const u = await api.me();
+      const userData: User = {
+        id: u.id,
+        codigo: u.codigo,
+        nombre: u.nombre,
+        rol: u.rol,
+        permisos: u.permisos || [],
+        configuracion: u.configuracion ?? null,
+        depositoDefectoId: u.depositoDefectoId ?? null,
+        depositoDefectoNombre: u.depositoDefectoNombre ?? null,
+      };
+      setUser(userData);
+      localStorage.setItem('user', JSON.stringify(userData));
+    } catch {
+      // Si falla, no tumbamos el estado actual — el listener global de 401
+      // ya maneja el caso de token inválido.
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, tienePermiso }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, tienePermiso, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

@@ -106,6 +106,50 @@ router.get('/rubros/lista', async (_req: Request, res: Response) => {
   }
 });
 
+// GET /api/productos/rubros/con-conteo - Rubros con cantidad de productos
+router.get('/rubros/con-conteo', async (_req: Request, res: Response) => {
+  try {
+    const rubros = await prisma.producto.groupBy({
+      by: ['rubro'],
+      _count: { _all: true },
+      where: { activo: true },
+      orderBy: { rubro: 'asc' },
+    });
+    res.json(rubros.map(r => ({ rubro: r.rubro, cantProductos: r._count._all })));
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener rubros con conteo' });
+  }
+});
+
+// PUT /api/productos/rubros/rename - Renombrar un rubro en todos los productos
+// Body: { rubroViejo: string, rubroNuevo: string }
+router.put('/rubros/rename', async (req: Request, res: Response) => {
+  try {
+    const { rubroViejo, rubroNuevo } = req.body;
+    if (!rubroViejo || !rubroNuevo) {
+      res.status(400).json({ error: 'rubroViejo y rubroNuevo son requeridos' });
+      return;
+    }
+    const nuevo = String(rubroNuevo).trim();
+    if (!nuevo) {
+      res.status(400).json({ error: 'El rubro nuevo no puede estar vacío' });
+      return;
+    }
+    if (nuevo === rubroViejo) {
+      res.json({ actualizados: 0 });
+      return;
+    }
+    const result = await prisma.producto.updateMany({
+      where: { rubro: String(rubroViejo) },
+      data: { rubro: nuevo },
+    });
+    res.json({ actualizados: result.count, rubroViejo, rubroNuevo: nuevo });
+  } catch (error: any) {
+    console.error('[productos/rubros/rename]', error);
+    res.status(500).json({ error: 'Error al renombrar rubro' });
+  }
+});
+
 // GET /api/productos/subrubros/lista?rubro=Vinos - Sub-rubros únicos por rubro
 router.get('/subrubros/lista', async (req: Request, res: Response) => {
   try {

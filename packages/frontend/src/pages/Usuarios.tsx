@@ -111,6 +111,9 @@ export default function Usuarios() {
   const [pairingExpiraEn, setPairingExpiraEn] = useState<number>(0);
   const [pairingTtl, setPairingTtl] = useState<number>(0);
   const [pairingCopiado, setPairingCopiado] = useState(false);
+  // Contexto del pairing: si viene de crear un usuario, guardamos su nombre
+  // para adaptar el copy del modal ("compartile este código a Juan").
+  const [pairingParaUsuario, setPairingParaUsuario] = useState<{ nombre: string; codigo: string } | null>(null);
 
   // Countdown del código
   useEffect(() => {
@@ -154,6 +157,7 @@ export default function Usuarios() {
     setPairingCode(null);
     setPairingError('');
     setPairingCopiado(false);
+    setPairingParaUsuario(null); // Modal standalone — sin contexto de usuario
     setPairingOpen(true);
     // Generamos automáticamente al abrir
     generarPairingCode();
@@ -217,6 +221,11 @@ export default function Usuarios() {
       const data: any = { ...form, permisos: JSON.stringify(permisos), configuracion: confToSave };
       if (!data.pin) delete data.pin;
       data.depositoDefectoId = data.depositoDefectoId ? parseInt(data.depositoDefectoId) : null;
+
+      const esCreacion = !editId;
+      const esNoAdmin = form.rol !== 'admin';
+      const nombreUsuario = form.nombre;
+
       if (editId) {
         await api.updateUsuario(editId, data);
       } else {
@@ -224,6 +233,24 @@ export default function Usuarios() {
       }
       setModalOpen(false);
       cargar();
+
+      // Al crear un empleado no-admin, encadenamos el flujo de pairing para
+      // que el admin no tenga que ir a buscar el botón después. Sin esto,
+      // el usuario queda creado pero sin forma obvia de darle acceso.
+      if (esCreacion && esNoAdmin && !pairingBloqueado) {
+        setPairingCode(null);
+        setPairingError('');
+        setPairingCopiado(false);
+        setPairingParaUsuario({ nombre: nombreUsuario, codigo: form.codigo });
+        setPairingOpen(true);
+        try {
+          const res = await api.pairGenerate();
+          setPairingCode(res.codigo);
+          setPairingExpiraEn(new Date(res.expiraEn).getTime());
+        } catch (err: any) {
+          setPairingError(err?.message || 'Error al generar código');
+        }
+      }
     } catch (e: any) {
       setError(e.message);
     }
@@ -576,20 +603,37 @@ export default function Usuarios() {
       {/* ── Modal de Device Pairing — generar código de 6 dígitos ───────── */}
       <Modal
         open={pairingOpen}
-        onClose={() => setPairingOpen(false)}
-        title="Vincular un dispositivo"
+        onClose={() => { setPairingOpen(false); setPairingParaUsuario(null); }}
+        title={pairingParaUsuario
+          ? `Compartí el acceso con ${pairingParaUsuario.nombre}`
+          : 'Vincular un dispositivo'}
       >
         <div className="space-y-4">
           <div className="flex items-start gap-3 p-3 rounded-xl bg-primary/5 border border-primary/20">
             <Link2 className="w-5 h-5 text-primary shrink-0 mt-0.5" />
             <div className="text-xs text-on-surface-variant leading-relaxed">
-              <p className="font-bold text-foreground mb-1">¿Cómo funciona?</p>
-              <p>
-                Generás un código de 6 dígitos. El empleado entra a la app desde su
-                celular, tap en <span className="font-bold text-primary">"Vincular dispositivo con un código"</span>,
-                ingresa los dígitos y queda bindeado al local <span className="font-bold">sin ver tu email ni contraseña</span>.
-                Después ingresa con su código+PIN propio.
-              </p>
+              {pairingParaUsuario ? (
+                <>
+                  <p className="font-bold text-foreground mb-1">Paso siguiente</p>
+                  <p>
+                    Ya creaste a <span className="font-bold text-primary">{pairingParaUsuario.nombre}</span>
+                    {' '}(código <span className="font-mono font-bold">{pairingParaUsuario.codigo}</span>).
+                    Compartile el código de abajo por WhatsApp. Al abrir la app,
+                    toca <span className="font-bold text-primary">"Vincular dispositivo con un código"</span>,
+                    ingresa los 6 dígitos y queda vinculado al local sin ver tu email.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="font-bold text-foreground mb-1">¿Cómo funciona?</p>
+                  <p>
+                    Generás un código de 6 dígitos. El empleado entra a la app desde su
+                    celular, tap en <span className="font-bold text-primary">"Vincular dispositivo con un código"</span>,
+                    ingresa los dígitos y queda bindeado al local <span className="font-bold">sin ver tu email ni contraseña</span>.
+                    Después ingresa con su código+PIN propio.
+                  </p>
+                </>
+              )}
             </div>
           </div>
 
