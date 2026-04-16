@@ -207,13 +207,27 @@ router.get('/:id/costo', async (req: Request, res: Response) => {
           select: { costoUnitario: true }
         });
 
-        const costoUnitario = ultimoIngreso?.costoUnitario ?? 0;
-        const costoTotal = Number(ing.cantidad) * (1 + Number(ing.mermaEsperada) / 100) * Number(costoUnitario);
+        const costoUnitario = Number(ultimoIngreso?.costoUnitario ?? 0);
+        const cantidadNeta = Number(ing.cantidad);
+        const mermaPct = Number(ing.mermaEsperada) || 0;
+        // Factor de desperdicio (estándar gastronómico):
+        // Si merma = %desperdicio sobre peso BRUTO, entonces:
+        //   factor = 1 / (1 - merma/100)  ≡  (merma / (100 - merma)) + 1
+        // Clamp: merma ∈ [0, 99) para evitar div/0.
+        const mermaSafe = Math.min(Math.max(mermaPct, 0), 99);
+        const factor = mermaSafe > 0 ? 1 / (1 - mermaSafe / 100) : 1;
+        const cantidadBruta = cantidadNeta * factor;
+        const costoTotal = cantidadBruta * costoUnitario;
 
         return {
-          producto: ing.producto,
-          cantidad: ing.cantidad,
+          productoId: ing.productoId,
+          codigo: ing.producto?.codigo ?? '',
+          nombre: ing.producto?.nombre ?? '',
+          cantidad: cantidadNeta,
           unidad: ing.unidad,
+          mermaEsperada: mermaPct,
+          factor,
+          cantidadBruta,
           costoUnitario,
           costoTotal
         };
@@ -224,6 +238,9 @@ router.get('/:id/costo', async (req: Request, res: Response) => {
     const costoPorPorcion = receta.porciones > 0 ? costoTotal / receta.porciones : 0;
 
     res.json({
+      nombre: receta.nombre,
+      codigo: receta.codigo,
+      porciones: receta.porciones,
       costoTotal,
       costoPorPorcion,
       ingredientes: ingredientesConCosto

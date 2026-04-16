@@ -31,6 +31,39 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/productos/ultimos-costos?ids=1,2,3
+// Devuelve último costo de compra por producto. Uso en formulario de recetas (preview live).
+router.get('/ultimos-costos', async (req: Request, res: Response) => {
+  try {
+    const idsParam = (req.query.ids as string) || '';
+    const ids = idsParam
+      .split(',')
+      .map(s => parseInt(s.trim()))
+      .filter(n => !isNaN(n));
+    if (ids.length === 0) {
+      res.json({});
+      return;
+    }
+    // Para cada producto, traer el último ingreso
+    const results: Record<number, { costoUnitario: number; fecha: string }> = {};
+    await Promise.all(
+      ids.map(async (id) => {
+        const mov = await prisma.movimiento.findFirst({
+          where: { productoId: id, tipo: 'ingreso' },
+          orderBy: [{ fecha: 'desc' }, { hora: 'desc' }],
+          select: { costoUnitario: true, fecha: true }
+        });
+        if (mov && mov.costoUnitario != null) {
+          results[id] = { costoUnitario: Number(mov.costoUnitario), fecha: mov.fecha };
+        }
+      })
+    );
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener últimos costos' });
+  }
+});
+
 // GET /api/productos/:id
 router.get('/:id', async (req: Request, res: Response) => {
   try {

@@ -262,6 +262,12 @@ export const api = {
       `/productos/rubros/rename`,
       { method: 'PUT', body: JSON.stringify({ rubroViejo, rubroNuevo }) }
     ),
+  getUltimosCostos: (ids: number[]) =>
+    ids.length === 0
+      ? Promise.resolve({} as Record<number, { costoUnitario: number; fecha: string }>)
+      : request<Record<number, { costoUnitario: number; fecha: string }>>(
+          `/productos/ultimos-costos?ids=${ids.join(',')}`
+        ),
 
   // Depósitos
   getDepositos: (params?: Record<string, string>) => request<any[]>(`/depositos${qs(params)}`),

@@ -10,6 +10,7 @@ import Badge from '../components/ui/Badge';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import PageTour from '../components/PageTour';
 import { Plus, FlaskConical, X, Wand2, ArrowRight, ArrowLeft, Package, Scissors } from 'lucide-react';
+import { factorDesperdicio } from '../lib/merma';
 
 interface IngredienteRow {
   productoId: number | null;
@@ -111,7 +112,7 @@ export default function Elaboraciones() {
 
     const newIngredientes: IngredienteRow[] = receta.ingredientes.map((ing: any) => ({
       productoId: ing.productoId,
-      cantidad: +(Number(ing.cantidad) * ratio * (1 + Number(ing.mermaEsperada) / 100)).toFixed(3),
+      cantidad: +(Number(ing.cantidad) * ratio * factorDesperdicio(Number(ing.mermaEsperada))).toFixed(3),
       unidad: ing.unidad,
       depositoOrigenId: null,
     }));
@@ -135,7 +136,7 @@ export default function Elaboraciones() {
         const ratio = newCant / receta.cantidadProducida;
         const newIngredientes = receta.ingredientes.map((ing: any) => ({
           productoId: ing.productoId,
-          cantidad: +(Number(ing.cantidad) * ratio * (1 + Number(ing.mermaEsperada) / 100)).toFixed(3),
+          cantidad: +(Number(ing.cantidad) * ratio * factorDesperdicio(Number(ing.mermaEsperada))).toFixed(3),
           unidad: ing.unidad,
           depositoOrigenId: (form.ingredientes.find(fi => fi.productoId === ing.productoId)?.depositoOrigenId) ?? null,
         }));

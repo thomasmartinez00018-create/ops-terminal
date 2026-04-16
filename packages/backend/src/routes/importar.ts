@@ -130,11 +130,14 @@ router.post('/csv', async (req: Request, res: Response) => {
 
           // Create a movement for each ingredient in the recipe
           for (const ing of receta.ingredientes) {
+            // Factor de desperdicio estándar gastronómico: 1 / (1 - merma/100)
+            const mermaSafe = Math.min(Math.max(Number(ing.mermaEsperada) || 0, 0), 99);
+            const factor = mermaSafe > 0 ? 1 / (1 - mermaSafe / 100) : 1;
             await prisma.movimiento.create({
               data: {
                 tipo: 'consumo_interno',
                 productoId: ing.productoId,
-                cantidad: ing.cantidad * cantidadVendida * (1 + ing.mermaEsperada / 100),
+                cantidad: ing.cantidad * cantidadVendida * factor,
                 unidad: ing.unidad,
                 fecha,
                 hora,
