@@ -296,9 +296,43 @@ export default function Proveedores() {
                 <h2 className="text-base font-extrabold text-foreground">{selectedProveedor.nombre}</h2>
               </div>
             </div>
-            <Button size="sm" onClick={() => abrirMap()}>
-              <Plus size={14} /> Agregar producto
-            </Button>
+            <div className="flex items-center gap-2">
+              <ExportMenu
+                size="sm"
+                disabled={proveedorProductos.length === 0}
+                getConfig={() => {
+                  const rows = proveedorProductos.map(pp => {
+                    const prod = productos.find(p => p.id === pp.productoId);
+                    return [
+                      prod?.codigo || `#${pp.productoId}`,
+                      prod?.nombre || '',
+                      pp.nombreProveedor || '',
+                      pp.codigoProveedor || '',
+                      pp.unidadProveedor || '',
+                      pp.factorConversion ?? 1,
+                      pp.ultimoPrecio ?? 0,
+                      pp.fechaPrecio || '',
+                    ];
+                  });
+                  return {
+                    title: `Lista de precios — ${selectedProveedor.nombre}`,
+                    filename: `lista-precios-${selectedProveedor.nombre.toLowerCase().replace(/\s+/g, '-')}-${todayStr()}`,
+                    headers: ['Código', 'Producto', 'Nombre prov.', 'Código prov.', 'Unidad prov.', 'Factor', 'Último precio', 'Fecha'],
+                    rows,
+                    summary: [
+                      { label: 'Proveedor', value: selectedProveedor.nombre },
+                      { label: 'Productos', value: proveedorProductos.length },
+                      { label: 'Generado', value: new Date().toLocaleDateString('es-AR') },
+                    ],
+                    currencyColumns: [6],
+                    numberColumns: [5],
+                  } as ExportConfig;
+                }}
+              />
+              <Button size="sm" onClick={() => abrirMap()}>
+                <Plus size={14} /> Agregar producto
+              </Button>
+            </div>
           </div>
 
           <div className="bg-surface rounded-xl border border-border overflow-hidden">

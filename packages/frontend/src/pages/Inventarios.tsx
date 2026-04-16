@@ -8,7 +8,7 @@ import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
-import { Plus, ClipboardCheck, Lock, Trash2, AlertTriangle, ScanBarcode, X } from 'lucide-react';
+import { Plus, ClipboardCheck, Lock, Trash2, AlertTriangle, ScanBarcode, X, Minus, Zap, Delete, Check, Hash } from 'lucide-react';
 
 interface DetalleRow {
   productoId: number;
@@ -46,12 +46,17 @@ export default function Inventarios() {
 
   // ─── Scanner state ───
   const [scannerMode, setScannerMode] = useState(false);
+  const [modoRapido, setModoRapido] = useState(true); // true: cada escaneo suma +1 automático (ideal para BT en iPhone)
   const [scanBuffer, setScanBuffer] = useState('');
   const [scannedRow, setScannedRow] = useState<DetalleRow | null>(null);
   const [scanQty, setScanQty] = useState('');
-  const [scanFeedback, setScanFeedback] = useState<{ nombre: string; found: boolean } | null>(null);
+  const [scanFeedback, setScanFeedback] = useState<{ nombre: string; found: boolean; cantidadAcumulada?: number } | null>(null);
   const scanInputRef = useRef<HTMLInputElement>(null);
   const scanQtyRef = useRef<HTMLInputElement>(null);
+
+  // ─── Numpad on-screen (para editar cantidad sin teclado BT) ───
+  const [numpadRow, setNumpadRow] = useState<DetalleRow | null>(null);
+  const [numpadValue, setNumpadValue] = useState('');
 
   // ─── Load depositos once ───
   useEffect(() => {
@@ -131,16 +136,58 @@ export default function Inventarios() {
       if (prod) {
         const row = detalles.find(d => d.productoId === prod.id);
         if (row) {
-          setScannedRow(row);
-          setScanQty('');
-          setScanFeedback({ nombre: prod.nombre, found: true });
-          setTimeout(() => scanQtyRef.current?.focus(), 80);
+          if (modoRapido) {
+            // Suma +1 automático sin abrir input de cantidad.
+            // Perfecto para lector BT en iPhone: no depende del teclado virtual.
+            const nuevaCant = (row.cantidadFisica ?? 0) + 1;
+            guardarDetalle(row.productoId, String(nuevaCant));
+            setScanFeedback({ nombre: prod.nombre, found: true, cantidadAcumulada: nuevaCant });
+            setTimeout(() => setScanFeedback(null), 1800);
+            setTimeout(() => scanInputRef.current?.focus(), 30);
+          } else {
+            setScannedRow(row);
+            setScanQty('');
+            setScanFeedback({ nombre: prod.nombre, found: true });
+            setTimeout(() => scanQtyRef.current?.focus(), 80);
+          }
         }
       } else {
         setScanFeedback({ nombre: barcode, found: false });
         setTimeout(() => setScanFeedback(null), 3000);
       }
     }
+  };
+
+  // Incrementa/decrementa la cantidad física de una fila sin depender del teclado.
+  const ajustarCantidad = (row: DetalleRow, delta: number) => {
+    const actual = row.cantidadFisica ?? 0;
+    const nueva = Math.max(0, actual + delta);
+    guardarDetalle(row.productoId, String(nueva));
+  };
+
+  // ─── Numpad on-screen ───
+  const abrirNumpad = (row: DetalleRow) => {
+    setNumpadRow(row);
+    setNumpadValue(row.cantidadFisica != null ? String(row.cantidadFisica) : '');
+  };
+  const numpadPress = (key: string) => {
+    if (key === 'back') {
+      setNumpadValue(v => v.slice(0, -1));
+    } else if (key === 'clear') {
+      setNumpadValue('');
+    } else if (key === '.') {
+      if (!numpadValue.includes('.')) setNumpadValue(v => (v === '' ? '0.' : v + '.'));
+    } else {
+      setNumpadValue(v => (v === '0' ? key : v + key));
+    }
+  };
+  const numpadConfirmar = () => {
+    if (!numpadRow) return;
+    const val = numpadValue.trim();
+    if (val === '' || val === '.') { setNumpadRow(null); return; }
+    guardarDetalle(numpadRow.productoId, val);
+    setNumpadRow(null);
+    setNumpadValue('');
   };
 
   const handleScanQtyKey = async (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -330,7 +377,7 @@ export default function Inventarios() {
         {/* Scanner mode toggle + capture input */}
         {isOpen && (
           <div className="mb-4 space-y-2">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={() => { setScannerMode(v => !v); setScannedRow(null); setScanFeedback(null); }}
                 className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition-all border ${
@@ -340,12 +387,33 @@ export default function Inventarios() {
                 }`}
               >
                 <ScanBarcode size={15} />
-                {scannerMode ? 'Scanner ON — apuntá y escaneá' : 'Activar scanner de barras'}
+                {scannerMode ? 'Scanner ON' : 'Activar scanner de barras'}
               </button>
+              {scannerMode && (
+                <button
+                  onClick={() => { setModoRapido(v => !v); setScannedRow(null); }}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition-all border ${
+                    modoRapido
+                      ? 'bg-success/15 text-success border-success/30'
+                      : 'bg-surface-high text-on-surface-variant border-border hover:text-foreground'
+                  }`}
+                  title={modoRapido ? 'Cada escaneo suma +1' : 'Cada escaneo pregunta la cantidad'}
+                >
+                  <Zap size={14} />
+                  {modoRapido ? 'Modo rápido (+1)' : 'Modo manual (cantidad)'}
+                </button>
+              )}
             </div>
 
             {scannerMode && (
               <div className="glass rounded-xl border border-primary/20 p-4 space-y-3">
+                {/* Info del modo activo */}
+                <p className="text-[11px] text-on-surface-variant leading-relaxed">
+                  {modoRapido
+                    ? 'Cada escaneo suma +1 al producto. Escaneá varias veces el mismo item para acumular. Ideal con lector Bluetooth.'
+                    : 'Cada escaneo pide la cantidad. Escribí el número y Enter para guardar.'}
+                </p>
+
                 {/* Hidden barcode capture */}
                 <div className="relative">
                   <ScanBarcode size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-primary pointer-events-none" />
@@ -355,22 +423,34 @@ export default function Inventarios() {
                     value={scanBuffer}
                     onChange={e => setScanBuffer(e.target.value)}
                     onKeyDown={handleScanKey}
-                    onBlur={() => { if (!scannedRow) setTimeout(() => scanInputRef.current?.focus(), 100); }}
+                    onBlur={() => { if (!scannedRow && !numpadRow) setTimeout(() => scanInputRef.current?.focus(), 100); }}
                     placeholder="Apuntá el lector acá..."
                     className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-primary/5 border border-primary/30 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 placeholder:text-on-surface-variant/40"
                   />
                 </div>
 
-                {/* Feedback + qty input after scan */}
+                {/* Feedback tras escaneo */}
                 {scanFeedback && !scannedRow && (
                   <div className={`px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-2 ${
                     scanFeedback.found ? 'bg-success/10 border border-success/30 text-success' : 'bg-destructive/10 border border-destructive/30 text-destructive'
                   }`}>
-                    {scanFeedback.found ? '✓' : '✗'} {scanFeedback.found ? `Encontrado: ${scanFeedback.nombre}` : `No encontrado: ${scanFeedback.nombre}`}
+                    {scanFeedback.found ? (
+                      <>
+                        <Check size={14} />
+                        <span className="flex-1">{scanFeedback.nombre}</span>
+                        {scanFeedback.cantidadAcumulada != null && (
+                          <span className="tabular-nums bg-success/20 px-2 py-0.5 rounded-md font-extrabold">
+                            = {scanFeedback.cantidadAcumulada}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <><X size={14} /> No encontrado: {scanFeedback.nombre}</>
+                    )}
                   </div>
                 )}
 
-                {scannedRow && (
+                {scannedRow && !modoRapido && (
                   <div className="bg-surface rounded-xl border border-border p-3 space-y-2">
                     <div className="flex items-center justify-between">
                       <div>
@@ -394,13 +474,22 @@ export default function Inventarios() {
                         className="flex-1 px-3 py-2 rounded-xl bg-surface-high border-0 text-foreground text-sm font-bold focus:outline-none focus:ring-2 focus:ring-primary/50"
                       />
                       <button
+                        onClick={() => abrirNumpad(scannedRow)}
+                        className="p-2 rounded-xl bg-surface-high text-on-surface-variant hover:text-foreground transition-colors"
+                        title="Teclado numérico"
+                      >
+                        <Hash size={16} />
+                      </button>
+                      <button
                         onClick={() => handleScanQtyKey({ key: 'Enter' } as any)}
                         className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 transition-colors"
                       >
                         Guardar
                       </button>
                     </div>
-                    <p className="text-[10px] text-on-surface-variant">Presioná Enter para guardar y escanear el siguiente</p>
+                    <p className="text-[10px] text-on-surface-variant">
+                      Si el lector BT bloquea el teclado, tocá <Hash size={10} className="inline" /> para abrir el numpad.
+                    </p>
                   </div>
                 )}
               </div>
@@ -429,6 +518,8 @@ export default function Inventarios() {
                     isOpen={isOpen}
                     saving={saving === row.productoId}
                     onSave={guardarDetalle}
+                    onAdjust={(delta) => ajustarCantidad(row, delta)}
+                    onOpenNumpad={() => abrirNumpad(row)}
                   />
                 ))}
                 {detalles.length === 0 && (
@@ -481,6 +572,73 @@ export default function Inventarios() {
               <Button variant="secondary" onClick={() => setConfirmCerrar(false)} disabled={cerrando}>Cancelar</Button>
             </div>
           </div>
+        </Modal>
+
+        {/* Numpad on-screen — independiente del teclado del iPhone (BT-safe) */}
+        <Modal open={!!numpadRow} onClose={() => setNumpadRow(null)} title="Cantidad física">
+          {numpadRow && (
+            <div className="space-y-3">
+              <div className="text-center">
+                <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Producto</p>
+                <p className="text-sm font-bold text-foreground mt-0.5">{numpadRow.nombre}</p>
+                <p className="text-[10px] text-on-surface-variant font-mono mt-0.5">
+                  Stock teórico: {numpadRow.stockTeorico ?? '—'}
+                </p>
+              </div>
+
+              <div className="bg-surface-high rounded-xl p-4 text-right">
+                <span className="text-3xl font-extrabold text-foreground tabular-nums">
+                  {numpadValue || '0'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(n => (
+                  <button
+                    key={n}
+                    onClick={() => numpadPress(n)}
+                    className="py-4 rounded-xl bg-surface-high text-foreground text-xl font-bold hover:bg-primary/10 hover:text-primary transition-colors active:scale-95"
+                  >
+                    {n}
+                  </button>
+                ))}
+                <button
+                  onClick={() => numpadPress('.')}
+                  className="py-4 rounded-xl bg-surface-high text-foreground text-xl font-bold hover:bg-primary/10 hover:text-primary transition-colors active:scale-95"
+                >
+                  .
+                </button>
+                <button
+                  onClick={() => numpadPress('0')}
+                  className="py-4 rounded-xl bg-surface-high text-foreground text-xl font-bold hover:bg-primary/10 hover:text-primary transition-colors active:scale-95"
+                >
+                  0
+                </button>
+                <button
+                  onClick={() => numpadPress('back')}
+                  className="py-4 rounded-xl bg-surface-high text-destructive hover:bg-destructive/10 transition-colors active:scale-95 flex items-center justify-center"
+                  title="Borrar"
+                >
+                  <Delete size={22} />
+                </button>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => numpadPress('clear')}
+                  className="px-4 py-3 rounded-xl bg-surface-high text-on-surface-variant hover:text-foreground font-bold text-sm transition-colors"
+                >
+                  Limpiar
+                </button>
+                <Button onClick={numpadConfirmar} className="flex-1">
+                  <Check size={16} /> Guardar
+                </Button>
+                <Button variant="secondary" onClick={() => setNumpadRow(null)}>
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          )}
         </Modal>
       </div>
     );
@@ -632,11 +790,15 @@ function DetalleRowComp({
   isOpen,
   saving,
   onSave,
+  onAdjust,
+  onOpenNumpad,
 }: {
   row: DetalleRow;
   isOpen: boolean;
   saving: boolean;
   onSave: (productoId: number, cantidadFisica: string) => void;
+  onAdjust: (delta: number) => void;
+  onOpenNumpad: () => void;
 }) {
   const [value, setValue] = useState(row.cantidadFisica !== null ? row.cantidadFisica.toString() : '');
   const committed = useRef(value);
@@ -675,16 +837,46 @@ function DetalleRowComp({
       </td>
       <td className="p-3 text-right">
         {isOpen ? (
-          <input
-            type="number"
-            step="0.01"
-            value={value}
-            onChange={e => setValue(e.target.value)}
-            onBlur={handleBlur}
-            onKeyDown={handleKeyDown}
-            className="w-24 text-right px-2 py-1.5 rounded-lg bg-surface-high border-0 text-foreground text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary/50 tabular-nums"
-            placeholder="0"
-          />
+          <div className="inline-flex items-center gap-1 justify-end">
+            <button
+              type="button"
+              onClick={() => onAdjust(-1)}
+              disabled={saving || (row.cantidadFisica ?? 0) <= 0}
+              className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-surface-high text-on-surface-variant hover:text-destructive hover:bg-destructive/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              title="Restar 1"
+            >
+              <Minus size={14} />
+            </button>
+            <input
+              type="number"
+              step="0.01"
+              inputMode="decimal"
+              value={value}
+              onChange={e => setValue(e.target.value)}
+              onBlur={handleBlur}
+              onKeyDown={handleKeyDown}
+              className="w-20 text-right px-2 py-1.5 rounded-lg bg-surface-high border-0 text-foreground text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary/50 tabular-nums"
+              placeholder="0"
+            />
+            <button
+              type="button"
+              onClick={() => onAdjust(1)}
+              disabled={saving}
+              className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-surface-high text-on-surface-variant hover:text-success hover:bg-success/10 disabled:opacity-30 transition-colors"
+              title="Sumar 1"
+            >
+              <Plus size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={onOpenNumpad}
+              disabled={saving}
+              className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-surface-high text-on-surface-variant hover:text-primary hover:bg-primary/10 disabled:opacity-30 transition-colors"
+              title="Teclado numérico"
+            >
+              <Hash size={13} />
+            </button>
+          </div>
         ) : (
           <span className="text-foreground font-semibold tabular-nums">
             {row.cantidadFisica !== null ? row.cantidadFisica : '-'}

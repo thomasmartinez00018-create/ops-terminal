@@ -202,7 +202,12 @@ router.get('/stock-valorizado', async (_req: Request, res: Response) => {
 
     const productos = await prisma.producto.findMany({
       where: { activo: true },
-      select: { id: true, codigo: true, nombre: true, rubro: true, unidadUso: true }
+      select: {
+        id: true, codigo: true, nombre: true, rubro: true, unidadUso: true,
+        proveedorProductos: {
+          select: { proveedor: { select: { id: true, nombre: true } } }
+        }
+      }
     });
 
     // Obtener último costo unitario de cada producto (último ingreso)
@@ -228,8 +233,20 @@ router.get('/stock-valorizado', async (_req: Request, res: Response) => {
       const valorTotal = Math.round(stockTotal * costoUnitario * 100) / 100;
       granTotal += valorTotal;
 
+      const proveedores = (prod.proveedorProductos || [])
+        .map(pp => pp.proveedor)
+        .filter((p): p is { id: number; nombre: string } => !!p);
+
       resultado.push({
-        producto: prod,
+        producto: {
+          id: prod.id,
+          codigo: prod.codigo,
+          nombre: prod.nombre,
+          rubro: prod.rubro,
+          unidadUso: prod.unidadUso,
+        },
+        rubro: prod.rubro,
+        proveedores,
         stockTotal,
         costoUnitario,
         valorTotal

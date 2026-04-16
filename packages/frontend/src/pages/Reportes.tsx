@@ -44,6 +44,9 @@ export default function Reportes() {
   // Tab 3: Stock valorizado
   const [stockVal, setStockVal] = useState<any[]>([]);
   const [loadingStock, setLoadingStock] = useState(false);
+  const [filtroStockRubro, setFiltroStockRubro] = useState('');
+  const [filtroStockProveedor, setFiltroStockProveedor] = useState('');
+  const [filtroStockBusqueda, setFiltroStockBusqueda] = useState('');
 
   // Tab 4: Historial por producto
   const [historial, setHistorial] = useState<any[]>([]);
@@ -132,7 +135,36 @@ export default function Reportes() {
   const mermasTotal = mermas?.detalle?.length || 0;
   const mermasCantidad = mermas?.detalle?.reduce((acc: number, d: any) => acc + (d.cantidad || 0), 0) || 0;
 
-  const stockGrandTotal = stockVal.reduce((acc, s) => acc + (s.valorTotal || 0), 0);
+  // Stock valorizado: filtros derivados
+  const rubrosDisponibles = Array.from(
+    new Set(stockVal.map(s => s.rubro || s.producto?.rubro).filter(Boolean) as string[])
+  ).sort();
+  const proveedoresDisponibles = Array.from(
+    new Map(
+      stockVal
+        .flatMap(s => s.proveedores || [])
+        .filter((p: any) => p && p.id)
+        .map((p: any) => [p.id, p])
+    ).values()
+  ).sort((a: any, b: any) => a.nombre.localeCompare(b.nombre));
+
+  const stockValFiltrado = stockVal.filter(s => {
+    const rubro = s.rubro || s.producto?.rubro || '';
+    if (filtroStockRubro && rubro !== filtroStockRubro) return false;
+    if (filtroStockProveedor) {
+      const ids = (s.proveedores || []).map((p: any) => String(p.id));
+      if (!ids.includes(filtroStockProveedor)) return false;
+    }
+    if (filtroStockBusqueda) {
+      const q = filtroStockBusqueda.toLowerCase();
+      const nombre = (s.producto?.nombre || s.nombre || '').toLowerCase();
+      const cod = (s.producto?.codigo || '').toLowerCase();
+      if (!nombre.includes(q) && !cod.includes(q)) return false;
+    }
+    return true;
+  });
+
+  const stockGrandTotal = stockValFiltrado.reduce((acc, s) => acc + (s.valorTotal || 0), 0);
 
   return (
     <div>
@@ -376,62 +408,138 @@ export default function Reportes() {
       {/* Tab 3: Stock Valorizado */}
       {tab === 'valorizado' && (
         <div className="space-y-4">
-          <div className="glass rounded-xl p-5 flex justify-end">
-            <ExportMenu size="sm" disabled={stockVal.length === 0} getConfig={() => ({
-              title: 'Stock Valorizado',
-              filename: `stock-valorizado-${new Date().toISOString().split('T')[0]}`,
-              headers: ['Producto', 'Stock Actual', 'Costo Unitario', 'Valor Total'],
-              rows: stockVal.map(s => [
-                s.producto?.nombre || s.nombre || s.productoNombre || '',
-                s.stockTotal ?? s.stockActual ?? 0,
-                s.costoUnitario,
-                s.valorTotal,
-              ]),
-              summary: [
-                { label: 'Valor total stock', value: formatCurrency(stockVal.reduce((s, v) => s + (v.valorTotal || 0), 0)) },
-                { label: 'Productos', value: stockVal.length },
-              ],
-              currencyColumns: [2, 3],
-              numberColumns: [1],
-            } as ExportConfig)} />
+          {/* Filtros + Export */}
+          <div className="glass rounded-xl p-4 flex flex-col lg:flex-row gap-3 lg:items-end lg:justify-between">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 flex-1">
+              <div>
+                <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest block mb-1">Buscar producto</label>
+                <input
+                  type="text"
+                  placeholder="Nombre o código..."
+                  value={filtroStockBusqueda}
+                  onChange={e => setFiltroStockBusqueda(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-surface-high border-0 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest block mb-1">Rubro</label>
+                <select
+                  value={filtroStockRubro}
+                  onChange={e => setFiltroStockRubro(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-surface-high border-0 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                >
+                  <option value="">Todos los rubros</option>
+                  {rubrosDisponibles.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest block mb-1">Proveedor</label>
+                <select
+                  value={filtroStockProveedor}
+                  onChange={e => setFiltroStockProveedor(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-surface-high border-0 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                >
+                  <option value="">Todos los proveedores</option>
+                  {proveedoresDisponibles.map((p: any) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {(filtroStockRubro || filtroStockProveedor || filtroStockBusqueda) && (
+                <button
+                  onClick={() => { setFiltroStockRubro(''); setFiltroStockProveedor(''); setFiltroStockBusqueda(''); }}
+                  className="px-3 py-2 rounded-lg text-xs font-bold text-on-surface-variant hover:text-foreground hover:bg-surface-high transition-colors"
+                >
+                  Limpiar filtros
+                </button>
+              )}
+              <ExportMenu size="sm" disabled={stockValFiltrado.length === 0} getConfig={() => ({
+                title: 'Stock Valorizado',
+                filename: `stock-valorizado-${new Date().toISOString().split('T')[0]}`,
+                headers: ['Producto', 'Rubro', 'Proveedor(es)', 'Stock Actual', 'Costo Unitario', 'Valor Total'],
+                rows: stockValFiltrado.map(s => [
+                  s.producto?.nombre || s.nombre || s.productoNombre || '',
+                  s.rubro || s.producto?.rubro || '',
+                  (s.proveedores || []).map((p: any) => p.nombre).join(', '),
+                  s.stockTotal ?? s.stockActual ?? 0,
+                  s.costoUnitario,
+                  s.valorTotal,
+                ]),
+                summary: [
+                  { label: 'Valor total stock', value: formatCurrency(stockGrandTotal) },
+                  { label: 'Productos', value: stockValFiltrado.length },
+                ],
+                currencyColumns: [4, 5],
+                numberColumns: [3],
+              } as ExportConfig)} />
+            </div>
           </div>
 
           <div className="bg-surface rounded-xl border border-border overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm min-w-[800px]">
                 <thead>
                   <tr className="border-b border-border">
                     <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Producto</th>
-                    <th className="text-right p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Stock Actual</th>
-                    <th className="text-right p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Costo Unitario</th>
+                    <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Rubro</th>
+                    <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Proveedor(es)</th>
+                    <th className="text-right p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Stock</th>
+                    <th className="text-right p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Costo Unit.</th>
                     <th className="text-right p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Valor Total</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {stockVal.map((s, i) => (
-                    <tr key={i} className="hover:bg-surface-high/50 transition-colors">
-                      <td className="p-3 font-semibold text-foreground">{s.producto?.nombre || s.nombre || s.productoNombre}</td>
-                      <td className="p-3 text-right font-semibold text-foreground">{s.stockTotal ?? s.stockActual ?? 0}</td>
-                      <td className="p-3 text-right text-on-surface-variant">{fmtMoney(s.costoUnitario)}</td>
-                      <td className="p-3 text-right font-semibold text-foreground">{fmtMoney(s.valorTotal)}</td>
-                    </tr>
-                  ))}
-                  {stockVal.length > 0 && (
+                  {stockValFiltrado.map((s, i) => {
+                    const provs = (s.proveedores || []) as { id: number; nombre: string }[];
+                    return (
+                      <tr key={i} className="hover:bg-surface-high/50 transition-colors">
+                        <td className="p-3 font-semibold text-foreground">
+                          {s.producto?.nombre || s.nombre || s.productoNombre}
+                          {s.producto?.codigo && (
+                            <span className="block text-[10px] font-mono text-on-surface-variant/70">{s.producto.codigo}</span>
+                          )}
+                        </td>
+                        <td className="p-3 text-xs">
+                          {s.rubro || s.producto?.rubro ? (
+                            <span className="inline-block px-2 py-0.5 rounded-md bg-surface-high text-on-surface-variant font-semibold">{s.rubro || s.producto.rubro}</span>
+                          ) : <span className="text-on-surface-variant/40">—</span>}
+                        </td>
+                        <td className="p-3 text-xs text-on-surface-variant">
+                          {provs.length === 0 ? <span className="text-on-surface-variant/40">—</span> :
+                            provs.length <= 2 ? provs.map(p => p.nombre).join(', ') :
+                            <span title={provs.map(p => p.nombre).join(', ')}>{provs[0].nombre} +{provs.length - 1}</span>}
+                        </td>
+                        <td className="p-3 text-right font-semibold text-foreground tabular-nums">{s.stockTotal ?? s.stockActual ?? 0}</td>
+                        <td className="p-3 text-right text-on-surface-variant tabular-nums">{fmtMoney(s.costoUnitario)}</td>
+                        <td className="p-3 text-right font-semibold text-foreground tabular-nums">{fmtMoney(s.valorTotal)}</td>
+                      </tr>
+                    );
+                  })}
+                  {stockValFiltrado.length > 0 && (
                     <tr className="bg-surface-high/50">
-                      <td className="p-3 font-extrabold text-foreground" colSpan={3}>Total</td>
-                      <td className="p-3 text-right font-extrabold text-primary text-base">{fmtMoney(stockGrandTotal)}</td>
+                      <td className="p-3 font-extrabold text-foreground" colSpan={5}>
+                        Total ({stockValFiltrado.length} producto{stockValFiltrado.length === 1 ? '' : 's'})
+                      </td>
+                      <td className="p-3 text-right font-extrabold text-primary text-base tabular-nums">{fmtMoney(stockGrandTotal)}</td>
+                    </tr>
+                  )}
+                  {stockValFiltrado.length === 0 && stockVal.length > 0 && !loadingStock && (
+                    <tr>
+                      <td colSpan={6} className="p-8 text-center text-on-surface-variant font-medium">
+                        Ningún producto coincide con los filtros. <button onClick={() => { setFiltroStockRubro(''); setFiltroStockProveedor(''); setFiltroStockBusqueda(''); }} className="text-primary font-bold hover:underline">Limpiar</button>
+                      </td>
                     </tr>
                   )}
                   {stockVal.length === 0 && !loadingStock && (
                     <tr>
-                      <td colSpan={4} className="p-8 text-center text-on-surface-variant font-medium">
+                      <td colSpan={6} className="p-8 text-center text-on-surface-variant font-medium">
                         No hay datos de stock valorizado. Verificá que existan productos con stock y costo unitario cargado.
                       </td>
                     </tr>
                   )}
                   {loadingStock && (
                     <tr>
-                      <td colSpan={4} className="p-8 text-center text-on-surface-variant font-medium">
+                      <td colSpan={6} className="p-8 text-center text-on-surface-variant font-medium">
                         Cargando...
                       </td>
                     </tr>
