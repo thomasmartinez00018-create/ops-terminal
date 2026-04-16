@@ -38,9 +38,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // así que useSession siempre está disponible acá.
   const session = useSession();
   const [user, setUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem('user');
-    return saved ? JSON.parse(saved) : null;
+    // Robusto contra incógnito/quota/JSON corrupto.
+    try {
+      const saved = localStorage.getItem('user');
+      if (!saved) return null;
+      const parsed = JSON.parse(saved);
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch {
+      return null;
+    }
   });
+  // Helper local — localStorage puede tirar en Safari incógnito o con
+  // quota exceeded. Todos los writes pasan por acá.
+  const safeLSSet = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* no-op */ } };
+  const safeLSRemove = (k: string) => { try { localStorage.removeItem(k); } catch { /* no-op */ } };
   // Si hay token guardado, arranca "loading" para revalidarlo antes de
   // mostrar la app (evita flash de contenido con un token vencido)
   const [loading, setLoading] = useState<boolean>(() => !!getToken());
@@ -67,13 +78,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           depositoDefectoNombre: u.depositoDefectoNombre ?? null,
         };
         setUser(userData);
-        localStorage.setItem('user', JSON.stringify(userData));
+        safeLSSet('user', JSON.stringify(userData));
       })
       .catch(() => {
         // Token inválido o servidor caído → cerrar sesión
         setToken(null);
         setUser(null);
-        localStorage.removeItem('user');
+        safeLSRemove('user');
       })
       .finally(() => setLoading(false));
   }, []);
@@ -84,7 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const handler = () => {
       setUser(null);
-      localStorage.removeItem('user');
+      safeLSRemove('user');
     };
     window.addEventListener(AUTH_ERROR_EVENT, handler);
     return () => window.removeEventListener(AUTH_ERROR_EVENT, handler);
@@ -92,7 +103,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (user) {
-      localStorage.setItem('user', JSON.stringify(user));
+      safeLSSet('user', JSON.stringify(user));
     }
   }, [user]);
 

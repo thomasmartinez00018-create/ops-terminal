@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
+import { useDebounce } from '../hooks/useDebounce';
 import PageTour from '../components/PageTour';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
@@ -57,12 +58,24 @@ export default function Productos() {
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState('');
 
+  // Debounced search: evita disparar una request por cada tecla al tipear.
+  // Además, un "token" monotónico descarta respuestas stale (si el usuario
+  // sigue tipeando y llega primero la respuesta vieja, la ignoramos).
+  const buscarDebounced = useDebounce(buscar, 300);
+  const fetchTokenRef = useRef(0);
+
   const cargar = () => {
     const params: Record<string, string> = { activo: 'true' };
-    if (buscar) params.buscar = buscar;
+    if (buscarDebounced) params.buscar = buscarDebounced;
     if (filtroRubro) params.rubro = filtroRubro;
     if (filtroSubrubro) params.subrubro = filtroSubrubro;
-    api.getProductos(params).then(setProductos).catch(console.error);
+    const myToken = ++fetchTokenRef.current;
+    api.getProductos(params)
+      .then((data) => {
+        // Descarta respuestas stale de una búsqueda anterior.
+        if (myToken === fetchTokenRef.current) setProductos(data);
+      })
+      .catch(console.error);
   };
 
   // Cuando cambia el filtro de rubro, recargar los subrubros disponibles
@@ -75,7 +88,7 @@ export default function Productos() {
     setFiltroSubrubro('');
   }, [filtroRubro]);
 
-  useEffect(() => { cargar(); }, [buscar, filtroRubro, filtroSubrubro]);
+  useEffect(() => { cargar(); }, [buscarDebounced, filtroRubro, filtroSubrubro]);
   useEffect(() => {
     api.getDepositos({ activo: 'true' }).then(setDepositos).catch(console.error);
     api.getSubrubros().then(setSubrubrosDisponibles).catch(() => {});

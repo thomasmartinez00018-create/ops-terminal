@@ -55,6 +55,49 @@ router.post('/', async (req: Request, res: Response) => {
       return;
     }
 
+    // Validación temprana (antes de abrir transacción) — cada item debe tener
+    // productoId + cantidad y pesoUnidad > 0 para evitar movimientos con
+    // cantidad 0 o NaN por multiplicación. Sin esto, un pesoUnidad=0 o un
+    // item.cantidad=null generaba movimientos fantasma de cantidad 0.
+    const cantidadOrigenNum = Number(cantidadOrigen);
+    if (!Number.isFinite(cantidadOrigenNum) || cantidadOrigenNum <= 0) {
+      res.status(400).json({ error: 'cantidadOrigen debe ser un número mayor a cero' });
+      return;
+    }
+    type ItemValidado = {
+      productoId: number;
+      cantidad: number;
+      pesoUnidad: number;
+      unidad: string;
+      depositoDestinoId: number | null;
+    };
+    const itemsValidados: ItemValidado[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      const pid = Number(it?.productoId);
+      const qty = Number(it?.cantidad);
+      const peso = Number(it?.pesoUnidad);
+      if (!Number.isInteger(pid) || pid <= 0) {
+        res.status(400).json({ error: `Item ${i + 1}: productoId inválido` });
+        return;
+      }
+      if (!Number.isFinite(qty) || qty <= 0) {
+        res.status(400).json({ error: `Item ${i + 1}: cantidad debe ser mayor a cero` });
+        return;
+      }
+      if (!Number.isFinite(peso) || peso <= 0) {
+        res.status(400).json({ error: `Item ${i + 1}: pesoUnidad debe ser mayor a cero` });
+        return;
+      }
+      itemsValidados.push({
+        productoId: pid,
+        cantidad: qty,
+        pesoUnidad: peso,
+        unidad: it.unidad || 'kg',
+        depositoDestinoId: it.depositoDestinoId ? Number(it.depositoDestinoId) : null,
+      });
+    }
+
     const fechaFinal = fecha || new Date().toISOString().split('T')[0];
     const horaFinal = hora || new Date().toTimeString().slice(0, 5);
 
@@ -85,75 +128,65 @@ router.post('/', async (req: Request, res: Response) => {
         }
       });
 
-      // Crear items
-      for (const item of items) {
-        await tx.porcionadoItem.create({
-          data: {
-            porcionadoId: porcionado.id,
-            productoId: Number(item.productoId),
-            cantidad: Number(item.cantidad),
-            pesoUnidad: Number(item.pesoUnidad),
-            unidad: item.unidad || 'kg',
-            depositoDestinoId: item.depositoDestinoId ? Number(item.depositoDestinoId) : null,
-          }
-        });
-      }
+      // Crear items en batch (1 query vs N)
+      await tx.porcionadoItem.createMany({
+        data: itemsValidados.map((v) => ({
+          porcionadoId: porcionado.id,
+          productoId: v.productoId,
+          cantidad: v.cantidad,
+          pesoUnidad: v.pesoUnidad,
+          unidad: v.unidad,
+          depositoDestinoId: v.depositoDestinoId,
+        })),
+      });
 
-      // Movimiento de consumo: sacar producto origen del stock
-      await tx.movimiento.create({
-        data: {
+      // Todos los movimientos (consumo + ingresos + merma opcional) en 1 batch.
+      // Reduce de 1 + N + 1 queries a 1 sola.
+      const mermaNum = Number(merma) || 0;
+      const movsData: any[] = [
+        {
           fecha: fechaFinal,
           hora: horaFinal,
           usuarioId: Number(usuarioId),
           tipo: 'consumo_interno',
           productoId: Number(productoOrigenId),
-          cantidad: Number(cantidadOrigen),
+          cantidad: cantidadOrigenNum,
           unidad: unidadOrigen || 'kg',
           depositoOrigenId: depositoOrigenId ? Number(depositoOrigenId) : null,
           motivo: `Porcionado ${codigo}`,
           documentoRef: codigo,
           porcionadoId: porcionado.id,
-        }
-      });
-
-      // Movimientos de ingreso: cada sub-producto entra al stock
-      for (const item of items) {
-        const cantidadTotal = Number(item.cantidad) * Number(item.pesoUnidad);
-        await tx.movimiento.create({
-          data: {
-            fecha: fechaFinal,
-            hora: horaFinal,
-            usuarioId: Number(usuarioId),
-            tipo: 'elaboracion',
-            productoId: Number(item.productoId),
-            cantidad: cantidadTotal,
-            unidad: item.unidad || 'kg',
-            depositoDestinoId: item.depositoDestinoId ? Number(item.depositoDestinoId) : null,
-            documentoRef: codigo,
-            observacion: `${item.cantidad} unidades x ${item.pesoUnidad} ${item.unidad || 'kg'} c/u`,
-            porcionadoId: porcionado.id,
-          }
+        },
+        ...itemsValidados.map((v) => ({
+          fecha: fechaFinal,
+          hora: horaFinal,
+          usuarioId: Number(usuarioId),
+          tipo: 'elaboracion',
+          productoId: v.productoId,
+          cantidad: v.cantidad * v.pesoUnidad,
+          unidad: v.unidad,
+          depositoDestinoId: v.depositoDestinoId,
+          documentoRef: codigo,
+          observacion: `${v.cantidad} unidades x ${v.pesoUnidad} ${v.unidad} c/u`,
+          porcionadoId: porcionado.id,
+        })),
+      ];
+      if (mermaNum > 0) {
+        movsData.push({
+          fecha: fechaFinal,
+          hora: horaFinal,
+          usuarioId: Number(usuarioId),
+          tipo: 'merma',
+          productoId: Number(productoOrigenId),
+          cantidad: mermaNum,
+          unidad: unidadOrigen || 'kg',
+          depositoOrigenId: depositoOrigenId ? Number(depositoOrigenId) : null,
+          motivo: 'Merma de porcionado',
+          documentoRef: codigo,
+          porcionadoId: porcionado.id,
         });
       }
-
-      // Si hay merma, registrarla
-      if (Number(merma) > 0) {
-        await tx.movimiento.create({
-          data: {
-            fecha: fechaFinal,
-            hora: horaFinal,
-            usuarioId: Number(usuarioId),
-            tipo: 'merma',
-            productoId: Number(productoOrigenId),
-            cantidad: Number(merma),
-            unidad: unidadOrigen || 'kg',
-            depositoOrigenId: depositoOrigenId ? Number(depositoOrigenId) : null,
-            motivo: 'Merma de porcionado',
-            documentoRef: codigo,
-            porcionadoId: porcionado.id,
-          }
-        });
-      }
+      await tx.movimiento.createMany({ data: movsData });
 
       return porcionado;
     });

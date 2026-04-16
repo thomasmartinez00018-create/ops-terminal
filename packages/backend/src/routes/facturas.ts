@@ -137,15 +137,31 @@ async function matchProductosConIA(
       generationConfig: { temperature: 0.1, maxOutputTokens: 4000 },
     });
     const responseText = result.response.text();
-    const jsonStr = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    const matches: { index: number; productoId: number | null; confianza: string }[] = JSON.parse(jsonStr);
 
-    // Mapear resultados indexados a array ordenado
+    // Parseo robusto — IA puede devolver markdown, JSON malformado o truncado.
+    let matches: { index: number; productoId: number | null; confianza: string }[] = [];
+    try {
+      const clean = responseText.replace(/```json\n?/gi, '').replace(/```\n?/g, '').trim();
+      const arrMatch = clean.match(/\[[\s\S]*\]/);
+      if (arrMatch) {
+        const parsed = JSON.parse(arrMatch[0]);
+        if (Array.isArray(parsed)) {
+          matches = parsed.filter((m: any) =>
+            m && typeof m === 'object' && Number.isInteger(m.index) && m.index >= 0
+          );
+        }
+      }
+    } catch {
+      matches = []; // Fallback: no matches en vez de crashear
+    }
+
+    // Mapear resultados indexados a array ordenado. Solo aceptamos productoId
+    // presente en el catálogo enviado — defensa contra IA que inventa IDs.
     const prodMap = new Map(productos.map(p => [p.id, p]));
     return items.map((_, idx) => {
       const m = matches.find(x => x.index === idx);
-      if (!m || !m.productoId) return { productoId: null, productoNombre: null, confidence: 'ninguna' as const };
-      const prod = prodMap.get(m.productoId);
+      if (!m || m.productoId == null) return { productoId: null, productoNombre: null, confidence: 'ninguna' as const };
+      const prod = prodMap.get(Number(m.productoId));
       if (!prod) return { productoId: null, productoNombre: null, confidence: 'ninguna' as const };
       const conf = m.confianza === 'alta' ? 'alta' : m.confianza === 'media' ? 'media' : 'ninguna';
       return { productoId: prod.id, productoNombre: prod.nombre, confidence: conf as 'alta' | 'media' | 'ninguna' };
@@ -188,15 +204,21 @@ router.post('/escanear', async (req, res) => {
     const responseText = result.response.text();
 
     // Parsear JSON de la respuesta (Gemini a veces envuelve en ```json)
-    let parsed;
+    let parsed: any;
     try {
-      const jsonStr = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      parsed = JSON.parse(jsonStr);
+      const jsonStr = responseText.replace(/```json\n?/gi, '').replace(/```\n?/g, '').trim();
+      // Buscar primer objeto top-level {...} para tolerar texto antes/después
+      const objMatch = jsonStr.match(/\{[\s\S]*\}/);
+      parsed = JSON.parse(objMatch ? objMatch[0] : jsonStr);
     } catch (parseErr) {
       return res.status(422).json({
         error: 'No se pudo interpretar la factura. Intentá con una imagen más clara.',
-        raw: responseText,
+        // No devolvemos raw en prod para evitar filtrar contenido del OCR
+        raw: process.env.NODE_ENV === 'production' ? undefined : responseText,
       });
+    }
+    if (!parsed || typeof parsed !== 'object') {
+      return res.status(422).json({ error: 'La IA devolvió un formato inesperado. Intentá con otra imagen.' });
     }
 
     // Match items con productos existentes usando IA semántica
@@ -299,34 +321,45 @@ router.post('/confirmar', async (req, res) => {
         },
       });
 
-      // 2. Crear FacturaItems
-      const itemsValidos = items.filter((i: any) => i.productoId && i.cantidad);
-      for (const item of items) {
-        await tx.facturaItem.create({
-          data: {
+      // 2. Crear FacturaItems en batch (1 query vs N).
+      // Normalizamos números a no-NaN para evitar registros corruptos por
+      // cantidades/precios ausentes o strings basura.
+      const toNum = (v: any, d = 0) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : d;
+      };
+      const itemsValidos = items.filter((i: any) => i.productoId && toNum(i.cantidad) > 0);
+      await tx.facturaItem.createMany({
+        data: items.map((item: any) => {
+          const qty = toNum(item.cantidad);
+          const precio = toNum(item.precioUnitario);
+          const alic = toNum(item.alicuotaIva);
+          const subtotal = qty * precio;
+          return {
             facturaId: factura.id,
             productoId: item.productoId ? Number(item.productoId) : null,
-            descripcion: item.descripcion || '',
-            cantidad: Number(item.cantidad || 0),
+            descripcion: (item.descripcion || '').slice(0, 500),
+            cantidad: qty,
             unidad: item.unidad || 'unidad',
-            precioUnitario: Number(item.precioUnitario || 0),
-            alicuotaIva: Number(item.alicuotaIva ?? 0),
-            subtotal: Number(item.cantidad || 0) * Number(item.precioUnitario || 0),
-            iva: Number(item.cantidad || 0) * Number(item.precioUnitario || 0) * Number(item.alicuotaIva ?? 0) / 100,
-          },
-        });
-      }
+            precioUnitario: precio,
+            alicuotaIva: alic,
+            subtotal,
+            iva: subtotal * alic / 100,
+          };
+        }),
+      });
 
-      // 3. Crear Movimientos de ingreso (solo items con producto asignado)
-      const movimientos = [];
-      for (const item of itemsValidos) {
-        const mov = await tx.movimiento.create({
-          data: {
+      // 3. Crear Movimientos de ingreso en batch (solo items con producto asignado).
+      // Después los leemos ordenados para devolver al cliente y para que
+      // detectarVariaciones reciba el contexto correcto.
+      if (itemsValidos.length) {
+        await tx.movimiento.createMany({
+          data: itemsValidos.map((item: any) => ({
             tipo: 'ingreso',
             productoId: Number(item.productoId),
-            cantidad: Number(item.cantidad),
+            cantidad: toNum(item.cantidad),
             unidad: item.unidad || 'unidad',
-            costoUnitario: item.precioUnitario ? Number(item.precioUnitario) : null,
+            costoUnitario: item.precioUnitario ? toNum(item.precioUnitario) : null,
             usuarioId: Number(usuarioId),
             proveedorId: proveedorId ? Number(proveedorId) : null,
             depositoDestinoId: depositoDestinoId ? Number(depositoDestinoId) : null,
@@ -339,10 +372,13 @@ router.post('/confirmar', async (req, res) => {
             lote: null,
             responsableId: null,
             facturaId: factura.id,
-          },
+          })),
         });
-        movimientos.push(mov);
       }
+      const movimientos = await tx.movimiento.findMany({
+        where: { facturaId: factura.id },
+        orderBy: { id: 'asc' },
+      });
 
       // 4. Detectar variaciones de precio ANTES de sobrescribir ultimoPrecio.
       // Importante: excluimos la factura recién creada para no compararla
@@ -361,24 +397,25 @@ router.post('/confirmar', async (req, res) => {
       );
       const alertasIds = await persistirAlertas(tx, factura.id, variaciones);
 
-      // 5. Actualizar ultimoPrecio en ProveedorProducto si hay proveedor
+      // 5. Actualizar ultimoPrecio en ProveedorProducto si hay proveedor.
+      // Deduplicamos por productoId: si un producto aparece N veces, solo
+      // persistimos el último precio visto (consistente con semántica previa,
+      // pero reduce de N a K queries donde K = productos únicos).
       if (proveedorId) {
+        const precioPorProducto = new Map<number, number>();
         for (const item of itemsValidos) {
-          if (item.precioUnitario) {
-            try {
-              await tx.proveedorProducto.updateMany({
-                where: {
-                  proveedorId: Number(proveedorId),
-                  productoId: Number(item.productoId),
-                },
-                data: {
-                  ultimoPrecio: Number(item.precioUnitario),
-                  fechaPrecio: fechaFinal,
-                },
-              });
-            } catch {
-              // ProveedorProducto puede no existir, está bien
-            }
+          const pid = Number(item.productoId);
+          const precio = toNum(item.precioUnitario);
+          if (pid > 0 && precio > 0) precioPorProducto.set(pid, precio);
+        }
+        for (const [pid, precio] of precioPorProducto) {
+          try {
+            await tx.proveedorProducto.updateMany({
+              where: { proveedorId: Number(proveedorId), productoId: pid },
+              data: { ultimoPrecio: precio, fechaPrecio: fechaFinal },
+            });
+          } catch {
+            // ProveedorProducto puede no existir, está bien
           }
         }
       }

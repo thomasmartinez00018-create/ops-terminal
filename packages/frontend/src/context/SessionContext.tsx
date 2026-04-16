@@ -42,8 +42,12 @@ function readJSON<T>(key: string): T | null {
   }
 }
 function writeJSON(key: string, value: any | null) {
-  if (value === null || value === undefined) localStorage.removeItem(key);
-  else localStorage.setItem(key, JSON.stringify(value));
+  try {
+    if (value === null || value === undefined) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Safari incógnito / quota exceeded / storage disabled — no frenar la app.
+  }
 }
 
 interface SessionContextType {
@@ -196,7 +200,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // Limpiar también el user staff persistido del AuthContext — si no,
       // al volver a stage 2 y re-elegir un workspace el viejo user staff
       // aparece residual hasta el próximo login.
-      localStorage.removeItem('user');
+      try { localStorage.removeItem('user'); } catch { /* incógnito: no-op */ }
     } catch (e) {
       // Fallback: si el endpoint falla, hacemos el logout defensivo
       setToken(null);

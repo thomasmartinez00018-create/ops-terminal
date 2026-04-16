@@ -81,6 +81,64 @@ async function callGemini(prompt: string, maxTokens = 4000): Promise<string> {
   return result.response.text();
 }
 
+/**
+ * Parsea y valida la respuesta JSON de Gemini contra un schema mínimo.
+ * Gemini a veces devuelve:
+ *  - JSON con markdown envolvente (```json ... ```)
+ *  - JSON con texto antes/después
+ *  - JSON malformado por truncación de maxOutputTokens
+ *  - Array con objetos de schema incorrecto
+ *
+ * Este helper convierte todos esos casos en un array vacío en vez de
+ * crashear el handler con TypeError. Filtra items inválidos.
+ */
+function safeParseAIArray<T>(raw: string, validator: (x: any) => T | null): T[] {
+  if (!raw || typeof raw !== 'string') return [];
+  // Quitar markdown fences si existen
+  const clean = raw.replace(/```json\n?/gi, '').replace(/```\n?/g, '').trim();
+  // Buscar primer array top-level
+  const match = clean.match(/\[[\s\S]*\]/);
+  if (!match) return [];
+  let parsed: any;
+  try {
+    parsed = JSON.parse(match[0]);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const result: T[] = [];
+  for (const item of parsed) {
+    const v = validator(item);
+    if (v !== null) result.push(v);
+  }
+  return result;
+}
+
+// Validadores de schema — defensa ante respuestas inconsistentes de la IA.
+function isValidExtractedRow(x: any): { producto: string; presentacion: string | null; precio: number; ambiguo?: boolean } | null {
+  if (!x || typeof x !== 'object') return null;
+  if (typeof x.producto !== 'string' || !x.producto.trim()) return null;
+  const precio = Number(x.precio);
+  if (!Number.isFinite(precio) || precio <= 0 || precio > 100_000_000) return null;
+  const presentacion = typeof x.presentacion === 'string' && x.presentacion.trim()
+    ? x.presentacion.trim()
+    : null;
+  return {
+    producto: x.producto.trim().slice(0, 200),
+    presentacion: presentacion ? presentacion.slice(0, 100) : null,
+    precio,
+    ambiguo: Boolean(x.ambiguo),
+  };
+}
+function isValidMatch(x: any): { idx: number; productoId: number | null; confianza: string } | null {
+  if (!x || typeof x !== 'object') return null;
+  if (typeof x.idx !== 'number' || !Number.isInteger(x.idx) || x.idx < 0) return null;
+  const productoId = x.productoId == null ? null : Number(x.productoId);
+  if (productoId !== null && (!Number.isInteger(productoId) || productoId <= 0)) return null;
+  const confianza = typeof x.confianza === 'string' ? x.confianza : 'baja';
+  return { idx: x.idx, productoId, confianza };
+}
+
 // ── AI Prompt: Extract prices from text ──────────────────────────────────────
 const EXTRACTION_PROMPT = (chunk: string) => `TAREA: Extraer productos, presentaciones y precios de un fragmento de lista de precios de un proveedor gastronómico argentino.
 
@@ -181,16 +239,24 @@ router.get('/', async (_req: Request, res: Response) => {
       take: 100,
     });
 
-    // Add match stats
-    const result = await Promise.all(listas.map(async (l: any) => {
-      const pendientes = await prisma.listaPrecioItem.count({
-        where: { listaPrecioId: l.id, estadoMatch: 'PENDIENTE', activo: true },
-      });
-      const ok = await prisma.listaPrecioItem.count({
-        where: { listaPrecioId: l.id, estadoMatch: 'OK', activo: true },
-      });
-      return { ...l, stats: { total: l._count.items, pendientes, ok } };
-    }));
+    // Add match stats — un solo groupBy reemplaza N×2 counts.
+    const listaIds = listas.map((l: any) => l.id);
+    const stats = listaIds.length ? await prisma.listaPrecioItem.groupBy({
+      by: ['listaPrecioId', 'estadoMatch'],
+      where: { listaPrecioId: { in: listaIds }, activo: true },
+      _count: { _all: true },
+    }) : [];
+    const statsMap = new Map<number, { pendientes: number; ok: number }>();
+    for (const s of stats) {
+      const cur = statsMap.get(s.listaPrecioId) || { pendientes: 0, ok: 0 };
+      if (s.estadoMatch === 'PENDIENTE') cur.pendientes = s._count._all;
+      if (s.estadoMatch === 'OK') cur.ok = s._count._all;
+      statsMap.set(s.listaPrecioId, cur);
+    }
+    const result = listas.map((l: any) => {
+      const s = statsMap.get(l.id) || { pendientes: 0, ok: 0 };
+      return { ...l, stats: { total: l._count.items, pendientes: s.pendientes, ok: s.ok } };
+    });
 
     res.json(result);
   } catch (error: any) {
@@ -286,15 +352,11 @@ router.post('/importar', upload.single('archivo'), async (req: Request, res: Res
       chunks.push(textLines.slice(i, i + CHUNK).join('\n'));
     }
 
-    const allRows: any[] = [];
+    const allRows: Array<{ producto: string; presentacion: string | null; precio: number; ambiguo?: boolean }> = [];
     const chunkResults = await Promise.allSettled(
       chunks.map(async (chunk) => {
         const text = await callGemini(EXTRACTION_PROMPT(chunk), 8000);
-        const match = text.match(/\[[\s\S]*\]/);
-        if (match) {
-          return JSON.parse(match[0]).filter((r: any) => r.producto && typeof r.precio === 'number' && r.precio > 0);
-        }
-        return [];
+        return safeParseAIArray(text, isValidExtractedRow);
       })
     );
     for (const r of chunkResults) {
@@ -354,10 +416,13 @@ router.post('/importar', upload.single('archivo'), async (req: Request, res: Res
         const precio = Number(row.precio);
         const tipoCompra = pres && /caja/i.test(pres) ? 'CAJA' : 'UNIDAD';
 
-        // Calculate derived prices
+        // Calculate derived prices.
+        // `unidades_por_caja` no es parte del schema validado (opcional/legacy);
+        // lo leemos defensivamente como any para mantener compat.
+        const unidadesPorCaja = Number((row as any).unidades_por_caja);
         const parsed = parsePresentacion(pres);
-        const precioPorUnidad = tipoCompra === 'CAJA' && row.unidades_por_caja
-          ? precio / row.unidades_por_caja
+        const precioPorUnidad = tipoCompra === 'CAJA' && Number.isFinite(unidadesPorCaja) && unidadesPorCaja > 0
+          ? precio / unidadesPorCaja
           : precio;
         const precioPorMedidaBase = parsed && parsed.totalQty > 0
           ? precioPorUnidad / parsed.totalQty
@@ -492,19 +557,19 @@ router.post('/:id/match-ai', async (req: Request, res: Response) => {
 
       try {
         const resp = await callGemini(buildMatchPrompt(prodList, itemList), 3000);
-        const clean = resp.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-        const match = clean.match(/\[[\s\S]*\]/);
-        if (match) {
-          const parsed = JSON.parse(match[0]);
-          for (const m of parsed) {
-            if (typeof m.idx === 'number' && m.idx >= 0 && m.idx < batch.length) {
-              allResults.push({
-                itemId: batch[m.idx].id,
-                productoOriginal: batch[m.idx].productoOriginal,
-                productoId: m.productoId || null,
-                confianza: m.confianza || 'baja',
-              });
-            }
+        const parsed = safeParseAIArray(resp, isValidMatch);
+        // Solo aceptamos productoId que exista en el catálogo enviado — blindaje
+        // contra IA que inventa IDs.
+        const validIds = new Set(productos.map((p: any) => p.id));
+        for (const m of parsed) {
+          if (m.idx < batch.length) {
+            const pid = m.productoId && validIds.has(m.productoId) ? m.productoId : null;
+            allResults.push({
+              itemId: batch[m.idx].id,
+              productoOriginal: batch[m.idx].productoOriginal,
+              productoId: pid,
+              confianza: pid ? m.confianza : 'baja',
+            });
           }
         }
       } catch (e: any) {

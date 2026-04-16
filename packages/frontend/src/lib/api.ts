@@ -7,15 +7,29 @@ const RAW_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 const API_BASE = RAW_BASE ? `${RAW_BASE}/api` : '/api';
 
 // ── Token storage ───────────────────────────────────────────────────────────
+// localStorage puede fallar en:
+//  - Safari modo incógnito (setItem lanza QuotaExceeded)
+//  - Configuraciones de privacidad que bloquean storage
+//  - iframe con SameSite restringido
+// Los helpers envuelven todo en try-catch para no tumbar la app.
 const TOKEN_KEY = 'ops_token';
 
 export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
 }
 
 export function setToken(token: string | null) {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // Silent fail: en modo incógnito perdemos persistencia pero la sesión
+    // de memoria del SPA puede seguir funcionando hasta el próximo reload.
+  }
 }
 
 // ── Evento global para 401 → forzar logout/redirect ─────────────────────────
@@ -29,21 +43,36 @@ export const AUTH_ERROR_EVENT = 'ops:auth-error';
 // login / main). NO es una validación de seguridad — solo es para routing.
 // La validación real la hace el backend en cada request.
 export type TokenStage = 'none' | 'cuenta' | 'org' | 'staff';
-export function getTokenStage(): TokenStage {
-  const token = getToken();
-  if (!token) return 'none';
+
+// Decoder interno robusto: valida formato JWT antes de decodificar. Un token
+// corrupto o no-JWT (ej: string random en localStorage, migración vieja)
+// rompía atob/JSON.parse y podía tumbar el arranque de la SPA.
+function safeDecode(token: string | null): any | null {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.split('.');
+  if (parts.length !== 3 || !parts[1]) return null;
   try {
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    if (payload.kind === 'cuenta') return 'cuenta';
-    if (payload.kind === 'org') return 'org';
-    if (payload.kind === 'staff') return 'staff';
-  } catch {}
+    // Normalizar base64url → base64 (JWT usa url-safe)
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const pad = b64.length % 4 === 0 ? b64 : b64 + '='.repeat(4 - (b64.length % 4));
+    const json = atob(pad);
+    const payload = JSON.parse(json);
+    return payload && typeof payload === 'object' ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+export function getTokenStage(): TokenStage {
+  const payload = safeDecode(getToken());
+  if (!payload) return 'none';
+  if (payload.kind === 'cuenta') return 'cuenta';
+  if (payload.kind === 'org') return 'org';
+  if (payload.kind === 'staff') return 'staff';
   return 'none';
 }
 export function decodeToken(): any | null {
-  const token = getToken();
-  if (!token) return null;
-  try { return JSON.parse(atob(token.split('.')[1])); } catch { return null; }
+  return safeDecode(getToken());
 }
 
 // Indica si el token actual fue emitido por un canje de device pairing code.

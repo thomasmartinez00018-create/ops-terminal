@@ -11,7 +11,8 @@ export function usePageOnboarding(pageKey: string) {
 
   useEffect(() => {
     if (!user) return;
-    const done = localStorage.getItem(storageKey(user.id, pageKey));
+    let done: string | null = null;
+    try { done = localStorage.getItem(storageKey(user.id, pageKey)); } catch { /* ignore */ }
     if (!done) {
       const t = setTimeout(() => setShow(true), 400);
       return () => clearTimeout(t);
@@ -20,7 +21,7 @@ export function usePageOnboarding(pageKey: string) {
 
   const dismiss = () => {
     if (!user) return;
-    localStorage.setItem(storageKey(user.id, pageKey), '1');
+    try { localStorage.setItem(storageKey(user.id, pageKey), '1'); } catch { /* ignore */ }
     setShow(false);
   };
 
