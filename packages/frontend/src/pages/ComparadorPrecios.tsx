@@ -72,9 +72,9 @@ export default function ComparadorPrecios() {
   const [evoData, setEvoData] = useState<any[]>([]);
   const [evoLoading, setEvoLoading] = useState(false);
 
-  // Shopping list
+  // Shopping list — ya no hay "proveedor seleccionado"; el tab compara
+  // precios de TODOS los proveedores en paralelo y totaliza por cada uno.
   const [listaItems, setListaItems] = useState<{ productoId: number; codigo: string; nombre: string; cantidad: number; unidad: string }[]>([]);
-  const [listaProveedorId, setListaProveedorId] = useState('');
 
   // UI state: fila expandida para detalle + edición inline de categoría.
   // `expandedCode` es el código del producto con detalle abierto (uno por vez).
@@ -197,18 +197,6 @@ export default function ComparadorPrecios() {
   const updateListaCant = (productoId: number, cantidad: number) =>
     setListaItems(prev => prev.map(i => i.productoId === productoId ? { ...i, cantidad } : i));
 
-  const listaTotal = useMemo(() => {
-    if (!listaProveedorId) return 0;
-    return listaItems.reduce((sum, item) => {
-      const g = grouped[item.codigo];
-      if (!g) return sum;
-      const ultima = getUltima(g.rows).find(r => r.proveedorId === Number(listaProveedorId));
-      if (!ultima) return sum;
-      const precio = adjustPrice(ultima.precioPorUnidad || ultima.precioInformado, ultima.proveedorId) || 0;
-      return sum + precio * item.cantidad;
-    }, 0);
-  }, [listaItems, listaProveedorId, grouped, conImpuestos, provMap]);
-
   // ── Edición inline de categoría/rubro ─────────────────────────────────────
   // El cliente pidió poder corregir errores de categorización de la IA desde
   // acá, sin tener que ir a Productos. Al guardar llamamos a updateProducto
@@ -252,18 +240,6 @@ export default function ComparadorPrecios() {
     return p ? { unidad: p.unidadUso, subrubro: p.subrubro, stockMinimo: p.stockMinimo } : null;
   };
 
-  const enviarWhatsApp = () => {
-    const prov = proveedoresImp.find(p => p.id === Number(listaProveedorId));
-    if (!prov?.whatsapp) { alert('El proveedor no tiene WhatsApp configurado'); return; }
-    const msg = buildOrderMessage({
-      proveedor: prov.nombre,
-      items: listaItems.map(i => ({ producto: i.nombre, cantidad: i.cantidad, unidad: i.unidad })),
-      total: listaTotal,
-    });
-    const link = buildWALink(prov.whatsapp, msg);
-    if (link) window.open(link, '_blank');
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -287,27 +263,43 @@ export default function ComparadorPrecios() {
         ))}
       </div>
 
-      {/* Filters */}
+      {/* Filtros — contextuales por tab.
+          Antes se mostraban todos los filtros siempre, incluyendo el input
+          "Buscar" del header en el tab Lista de Compra donde NO aplica (ese
+          tab tiene su propio SearchableSelect para agregar productos). El
+          usuario veía dos buscadores y el de arriba "no andaba" — porque
+          efectivamente filtraba la grilla de Última que ese tab no mostraba. */}
       <div className="flex flex-wrap gap-3 items-end">
-        <div className="w-40">
-          <label className="block text-xs text-zinc-400 mb-1">Desde</label>
-          <input type="date" value={desde} onChange={e => setDesde(e.target.value)}
-            className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-white text-sm" />
-        </div>
-        <div className="w-40">
-          <label className="block text-xs text-zinc-400 mb-1">Hasta</label>
-          <input type="date" value={hasta} onChange={e => setHasta(e.target.value)}
-            className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-white text-sm" />
-        </div>
-        <div className="w-44">
-          <Select label="Categoria" value={catFilter} onChange={e => setCatFilter(e.target.value)}>
-            <option value="">Todas</option>
-            {categorias.map(c => <option key={c} value={c}>{c}</option>)}
-          </Select>
-        </div>
-        <div className="w-52">
-          <Input label="Buscar" value={search} onChange={e => setSearch(e.target.value)} placeholder="Codigo o nombre..." />
-        </div>
+        {/* Rango de fechas: relevante para Última y Evolución */}
+        {tab !== 'lista' && (
+          <>
+            <div className="w-40">
+              <label className="block text-xs text-zinc-400 mb-1">Desde</label>
+              <input type="date" value={desde} onChange={e => setDesde(e.target.value)}
+                className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-white text-sm" />
+            </div>
+            <div className="w-40">
+              <label className="block text-xs text-zinc-400 mb-1">Hasta</label>
+              <input type="date" value={hasta} onChange={e => setHasta(e.target.value)}
+                className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-white text-sm" />
+            </div>
+          </>
+        )}
+        {/* Categoría + Buscar: solo aplican a la grilla de Última */}
+        {tab === 'ultima' && (
+          <>
+            <div className="w-44">
+              <Select label="Categoria" value={catFilter} onChange={e => setCatFilter(e.target.value)}>
+                <option value="">Todas</option>
+                {categorias.map(c => <option key={c} value={c}>{c}</option>)}
+              </Select>
+            </div>
+            <div className="w-52">
+              <Input label="Buscar" value={search} onChange={e => setSearch(e.target.value)} placeholder="Codigo o nombre..." />
+            </div>
+          </>
+        )}
+        {/* Con impuestos aplica a todos los tabs (afecta precios mostrados) */}
         <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer">
           <input type="checkbox" checked={conImpuestos} onChange={e => setConImpuestos(e.target.checked)} className="accent-orange-500" />
           Con impuestos
@@ -669,86 +661,190 @@ export default function ComparadorPrecios() {
         </div>
       )}
 
-      {/* TAB: Lista de Compra */}
+      {/* TAB: Lista de Compra
+          Armá una lista, la app compara precios entre TODOS los proveedores
+          al mismo tiempo y muestra el total por proveedor. Antes solo
+          mostraba 1 proveedor a la vez (Select "Proveedor para cotizar"),
+          lo que hacía que el nombre del tab "Lista de Compra" fuera en
+          realidad una cotización individual. El cliente pedía ver los
+          precios en paralelo para decidir a quién comprarle cada cosa, y
+          el total a pagar con cada proveedor. */}
       {!loading && tab === 'lista' && (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <h3 className="text-sm font-medium text-zinc-300 mb-2">Agregar productos</h3>
-              <SearchableSelect
-                options={Object.entries(grouped).map(([cod, g]) => ({ value: cod, label: `${cod} - ${g.nombre}` }))}
-                value=""
-                onChange={(val) => {
-                  const g = grouped[val];
-                  if (g) addToLista(g.productoId, val, g.nombre);
-                }}
-                placeholder="Buscar producto..."
-              />
-            </div>
-            <div>
-              <h3 className="text-sm font-medium text-zinc-300 mb-2">Proveedor para cotizar</h3>
-              <Select value={listaProveedorId} onChange={e => setListaProveedorId(e.target.value)}>
-                <option value="">Seleccionar proveedor...</option>
-                {proveedoresEnData.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-              </Select>
-            </div>
+          <div className="max-w-md">
+            <h3 className="text-sm font-medium text-zinc-300 mb-2">Agregar productos a la lista</h3>
+            <SearchableSelect
+              options={Object.entries(grouped).map(([cod, g]) => ({ value: cod, label: `${cod} - ${g.nombre}` }))}
+              value=""
+              onChange={(val) => {
+                const g = grouped[val];
+                if (g) addToLista(g.productoId, val, g.nombre);
+              }}
+              placeholder="Buscar producto..."
+            />
+            <p className="text-[11px] text-zinc-500 mt-1.5">
+              Sumá los productos que querés cotizar. El total se calcula por proveedor con el último precio disponible.
+            </p>
           </div>
 
-          {listaItems.length > 0 && (
-            <div className="bg-zinc-900 rounded-lg border border-zinc-800">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-zinc-800 text-zinc-400">
-                    <th className="px-4 py-3 text-left">Producto</th>
-                    <th className="px-4 py-3 text-center w-24">Cantidad</th>
-                    {listaProveedorId && <th className="px-4 py-3 text-right">Precio Unit.</th>}
-                    {listaProveedorId && <th className="px-4 py-3 text-right">Subtotal</th>}
-                    <th className="px-4 py-3 w-8"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {listaItems.map(item => {
-                    const g = grouped[item.codigo];
-                    let precioUnit: number | null = null;
-                    if (g && listaProveedorId) {
-                      const ultima = getUltima(g.rows).find(r => r.proveedorId === Number(listaProveedorId));
-                      if (ultima) precioUnit = adjustPrice(ultima.precioPorUnidad || ultima.precioInformado, ultima.proveedorId);
-                    }
-                    return (
-                      <tr key={item.productoId} className="border-b border-zinc-800/50">
-                        <td className="px-4 py-2 text-white">{item.nombre} <span className="text-zinc-500 text-xs">{item.codigo}</span></td>
-                        <td className="px-4 py-2 text-center">
-                          <input type="number" min={0.1} step={0.1} value={item.cantidad}
-                            onChange={e => updateListaCant(item.productoId, Number(e.target.value))}
-                            className="w-20 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-white text-center text-sm" />
-                        </td>
-                        {listaProveedorId && <td className="px-4 py-2 text-right text-zinc-300">{fmt(precioUnit)}</td>}
-                        {listaProveedorId && <td className="px-4 py-2 text-right text-white font-medium">{precioUnit != null ? fmt(precioUnit * item.cantidad) : '-'}</td>}
-                        <td className="px-4 py-2">
-                          <button onClick={() => removeLista(item.productoId)} className="text-zinc-500 hover:text-red-400">x</button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                {listaProveedorId && (
-                  <tfoot>
-                    <tr className="border-t border-zinc-700">
-                      <td colSpan={3} className="px-4 py-3 text-right text-zinc-300 font-medium">Total:</td>
-                      <td className="px-4 py-3 text-right text-white font-bold text-base">{fmt(listaTotal)}</td>
-                      <td></td>
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
+          {listaItems.length === 0 && (
+            <div className="bg-zinc-900/60 border border-zinc-800 border-dashed rounded-lg p-8 text-center">
+              <ShoppingCart className="w-8 h-8 text-zinc-600 mx-auto mb-2" />
+              <p className="text-sm text-zinc-400">La lista está vacía</p>
+              <p className="text-xs text-zinc-500 mt-1">Agregá al menos un producto arriba para empezar a comparar.</p>
             </div>
           )}
 
-          {listaItems.length > 0 && listaProveedorId && (
-            <div className="flex gap-2">
-              <Button onClick={enviarWhatsApp}>
-                <Send className="w-4 h-4 mr-2" /> Enviar por WhatsApp
-              </Button>
+          {listaItems.length > 0 && proveedoresEnData.length > 0 && (() => {
+            // Pre-calcular matriz precio[producto][proveedor] y totales por proveedor.
+            // Esto se hace dentro del JSX con un IIFE para no ensuciar el render
+            // principal con más hooks — es un tab, no se re-renderiza seguido.
+            const matriz: Record<number, Record<number, number | null>> = {};
+            const totalPorProveedor: Record<number, { total: number; cobertura: number }> = {};
+            proveedoresEnData.forEach(p => { totalPorProveedor[p.id] = { total: 0, cobertura: 0 }; });
+
+            for (const item of listaItems) {
+              matriz[item.productoId] = {};
+              const g = grouped[item.codigo];
+              if (!g) { proveedoresEnData.forEach(p => { matriz[item.productoId][p.id] = null; }); continue; }
+              const ultimas = getUltima(g.rows);
+              const byProv: Record<number, any> = {};
+              ultimas.forEach(r => { byProv[r.proveedorId] = r; });
+              for (const p of proveedoresEnData) {
+                const r = byProv[p.id];
+                const precio = r ? adjustPrice(r.precioPorUnidad || r.precioInformado, p.id) : null;
+                matriz[item.productoId][p.id] = precio;
+                if (precio != null && precio > 0) {
+                  totalPorProveedor[p.id].total += precio * item.cantidad;
+                  totalPorProveedor[p.id].cobertura += 1;
+                }
+              }
+            }
+
+            // Mejor total entre los que cubren TODOS los items — si ninguno
+            // cubre todos, comparamos los que cubren más items.
+            const proveedorIdsOrdenados = [...proveedoresEnData].map(p => p.id);
+            const coberturaMax = Math.max(...proveedorIdsOrdenados.map(id => totalPorProveedor[id].cobertura));
+            const candidatos = proveedorIdsOrdenados.filter(id =>
+              totalPorProveedor[id].cobertura === coberturaMax && totalPorProveedor[id].total > 0
+            );
+            const mejorProvId = candidatos.length
+              ? candidatos.reduce((a, b) => totalPorProveedor[a].total <= totalPorProveedor[b].total ? a : b)
+              : null;
+
+            return (
+              <div className="bg-zinc-900 rounded-lg border border-zinc-800 overflow-x-auto">
+                <table className="w-full text-sm min-w-[720px]">
+                  <thead>
+                    <tr className="border-b border-zinc-800 text-zinc-400">
+                      <th className="px-3 py-3 text-left sticky left-0 bg-zinc-900 z-10 min-w-[200px]">Producto</th>
+                      <th className="px-3 py-3 text-center w-24">Cantidad</th>
+                      {proveedoresEnData.map(p => (
+                        <th key={p.id} className={`px-3 py-3 text-right text-xs min-w-[100px] ${mejorProvId === p.id ? 'text-green-400' : ''}`}>
+                          {p.nombre}
+                          {mejorProvId === p.id && <span className="block text-[9px] font-normal opacity-80">✓ Más barato</span>}
+                        </th>
+                      ))}
+                      <th className="px-3 py-3 w-8"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {listaItems.map(item => {
+                      const precios = matriz[item.productoId] || {};
+                      const preciosValidos = Object.values(precios).filter((p): p is number => p != null && p > 0);
+                      const minPrecio = preciosValidos.length ? Math.min(...preciosValidos) : null;
+                      return (
+                        <tr key={item.productoId} className="border-b border-zinc-800/50">
+                          <td className="px-3 py-2 text-white sticky left-0 bg-zinc-900 z-10">
+                            {item.nombre}
+                            <span className="text-zinc-500 text-xs ml-2">{item.codigo}</span>
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <input type="number" min={0.1} step={0.1} value={item.cantidad}
+                              onChange={e => updateListaCant(item.productoId, Number(e.target.value))}
+                              className="w-20 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-white text-center text-sm" />
+                          </td>
+                          {proveedoresEnData.map(p => {
+                            const precio = precios[p.id];
+                            const isMin = precio != null && precio === minPrecio && preciosValidos.length > 1;
+                            const subtotal = precio != null ? precio * item.cantidad : null;
+                            return (
+                              <td key={p.id} className={`px-3 py-2 text-right font-mono text-xs ${isMin ? 'text-green-400 font-bold' : precio != null ? 'text-zinc-300' : 'text-zinc-600'}`}>
+                                {subtotal != null ? fmt(subtotal) : '—'}
+                                {precio != null && (
+                                  <span className="block text-[9px] text-zinc-500 font-normal">{fmt(precio)} c/u</span>
+                                )}
+                              </td>
+                            );
+                          })}
+                          <td className="px-3 py-2">
+                            <button onClick={() => removeLista(item.productoId)} className="text-zinc-500 hover:text-red-400" title="Quitar de la lista">×</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-zinc-700 bg-zinc-900/80">
+                      <td colSpan={2} className="px-3 py-3 text-right text-zinc-300 font-bold sticky left-0 bg-zinc-900 z-10">Total:</td>
+                      {proveedoresEnData.map(p => {
+                        const t = totalPorProveedor[p.id];
+                        const esMejor = mejorProvId === p.id;
+                        const coberturaIncompleta = t.cobertura < listaItems.length;
+                        return (
+                          <td key={p.id} className={`px-3 py-3 text-right font-bold ${esMejor ? 'text-green-400 text-base' : 'text-white text-sm'}`}>
+                            {t.total > 0 ? fmt(t.total) : '—'}
+                            {coberturaIncompleta && t.total > 0 && (
+                              <span className="block text-[9px] text-amber-400 font-normal" title={`Solo ${t.cobertura} de ${listaItems.length} productos tienen precio de este proveedor`}>
+                                ({t.cobertura}/{listaItems.length})
+                              </span>
+                            )}
+                          </td>
+                        );
+                      })}
+                      <td></td>
+                    </tr>
+                    <tr className="bg-zinc-900/60">
+                      <td colSpan={2} className="px-3 py-2 text-right text-[10px] text-zinc-500 uppercase tracking-wider sticky left-0 bg-zinc-900 z-10">Acción:</td>
+                      {proveedoresEnData.map(p => {
+                        const prov = proveedoresImp.find(pi => pi.id === p.id);
+                        const t = totalPorProveedor[p.id];
+                        const tieneWA = Boolean(prov?.whatsapp);
+                        return (
+                          <td key={p.id} className="px-2 py-2 text-center">
+                            <button
+                              disabled={!tieneWA || t.total === 0}
+                              onClick={() => {
+                                if (!prov?.whatsapp) return;
+                                const msg = buildOrderMessage({
+                                  proveedor: prov.nombre,
+                                  items: listaItems
+                                    .filter(it => (matriz[it.productoId]?.[p.id] ?? 0) > 0)
+                                    .map(it => ({ producto: it.nombre, cantidad: it.cantidad, unidad: it.unidad })),
+                                  total: t.total,
+                                });
+                                const link = buildWALink(prov.whatsapp, msg);
+                                if (link) window.open(link, '_blank');
+                              }}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold bg-green-600/20 text-green-400 hover:bg-green-600/30 disabled:opacity-30 disabled:cursor-not-allowed"
+                              title={tieneWA ? `Enviar lista a ${p.nombre} por WhatsApp` : 'Este proveedor no tiene WhatsApp configurado'}
+                            >
+                              <Send size={10} /> WA
+                            </button>
+                          </td>
+                        );
+                      })}
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            );
+          })()}
+
+          {listaItems.length > 0 && proveedoresEnData.length === 0 && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 text-sm text-amber-400">
+              No hay proveedores con precios cargados en el rango elegido. Ampliá "Desde/Hasta" en la tab Última.
             </div>
           )}
         </div>
