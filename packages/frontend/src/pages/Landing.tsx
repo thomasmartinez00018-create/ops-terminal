@@ -67,9 +67,9 @@ export default function Landing() {
         </a>
 
         <div className="hidden md:flex items-center gap-8 font-mono-alt text-[11px] uppercase tracking-[0.15em] text-on-surface-variant">
-          <a href="#pilares" className="hover:text-primary transition-colors">Pilares</a>
-          <a href="#casos" className="hover:text-primary transition-colors">Casos</a>
-          <a href="#features" className="hover:text-primary transition-colors">Features</a>
+          <a href="#pilares" className="hover:text-primary transition-colors">Qué resuelve</a>
+          <a href="#casos" className="hover:text-primary transition-colors">Para quién</a>
+          <a href="#features" className="hover:text-primary transition-colors">Cómo funciona</a>
           <a href="#precios" className="hover:text-primary transition-colors">Precios</a>
           <a href="#descargar" className="hover:text-primary transition-colors">Descargar</a>
         </div>
@@ -107,18 +107,17 @@ export default function Landing() {
         <div className="relative grid grid-cols-12 gap-6 lg:gap-10 items-end">
           <div className="col-span-12 lg:col-span-8">
             <div className="reveal reveal-2 font-mono-alt text-[11px] uppercase tracking-[0.25em] text-primary mb-6">
-              // Plataforma de gestión gastronómica
+              // Para bares, restaurantes, pizzerías y cocinas ocupadas
             </div>
             <h1 className="reveal reveal-3 font-display text-[clamp(3.2rem,9vw,9rem)] leading-[0.92] text-foreground tracking-tight">
-              Tu cocina,<br />
-              <span className="italic text-gold-gradient">bajo control.</span>
+              Dejá de adivinar<br />
+              <span className="italic text-gold-gradient">cuánto ganás.</span>
             </h1>
           </div>
 
           <div className="col-span-12 lg:col-span-4 reveal reveal-4 pb-4">
             <p className="text-base lg:text-[15px] text-on-surface-variant leading-relaxed font-medium">
-              OPS Terminal reemplaza 5 planillas, 3 cuadernos y 2 pizarrones.
-              <span className="text-foreground"> Stock, recetas, compras, escandallo de costos y control por scanner</span> — en un solo lugar que corre en el navegador o en tu PC.
+              <span className="text-foreground">Sabé el margen real de cada plato, dejá de tirar mercadería vencida y armá los pedidos a tus proveedores sin planillas.</span> OPS Terminal mantiene tu operación bajo control desde el celular o la compu.
             </p>
           </div>
         </div>
@@ -130,7 +129,7 @@ export default function Landing() {
             className="cta-primary px-7 py-4 rounded-md font-bold text-base flex items-center gap-3"
           >
             <Globe size={18} />
-            Usar en la web ahora
+            Probá 14 días gratis
             <ArrowUpRight size={18} />
           </button>
           <a
@@ -142,7 +141,7 @@ export default function Landing() {
             Descargar para Windows
           </a>
           <div className="font-mono-alt text-[10px] uppercase tracking-[0.2em] text-on-surface-variant ml-2">
-            Instalación en 60 segundos · Sin tarjeta
+            Sin tarjeta · Sin contratos · Cancelás cuando quieras
           </div>
         </div>
 
@@ -179,9 +178,9 @@ export default function Landing() {
         </div>
 
         <SectionHeader
-          kicker="// Cuatro pilares"
-          title={<>Todo lo que una cocina<br /><span className="italic text-gold-gradient">profesional necesita.</span></>}
-          subtitle="Cada módulo resuelve un problema concreto del operativo diario. Hablan entre sí. No hay silos, planillas sueltas, ni datos duplicados."
+          kicker="// Cuatro problemas, una sola app"
+          title={<>Lo que más te cuesta<br /><span className="italic text-gold-gradient">del negocio, resuelto.</span></>}
+          subtitle="No prometemos magia. Prometemos método. Cada parte de la app ataca un dolor concreto del día a día, y todas hablan entre sí para que cargues un dato una vez y aparezca donde lo necesitás."
         />
 
         <div className="mt-20 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-px bg-primary/10 border border-primary/10">
@@ -209,13 +208,14 @@ export default function Landing() {
             [ manifesto ]
           </div>
           <h2 className="font-display text-[clamp(2.5rem,6vw,6rem)] leading-[0.95] text-foreground italic tracking-tight">
-            Una sola herramienta.<br />
-            <span className="text-gold-gradient not-italic">Todo tu operativo.</span>
+            Operá sin miedo.<br />
+            <span className="text-gold-gradient not-italic">Con la cuenta clara.</span>
           </h2>
           <p className="mt-10 max-w-2xl mx-auto text-on-surface-variant text-base leading-relaxed">
-            Te sacamos las planillas de Excel, los cuadernos con letra ilegible,
-            los WhatsApps de la noche pidiendo stock y las llamadas al proveedor
-            para pedir la lista de precios actualizada. Todo vive en OPS Terminal.
+            Se terminaron las planillas de Excel, los cuadernos con letra ilegible,
+            los WhatsApp de la noche avisando que falta algo, y las llamadas al proveedor
+            para pedir la lista actualizada. Todo tu operativo en una sola app,
+            hablada en tu idioma: plata, plato, margen, pedido.
           </p>
         </div>
       </section>
@@ -227,9 +227,9 @@ export default function Landing() {
         </div>
 
         <SectionHeader
-          kicker="// Casos de uso"
-          title={<>Para todos los puestos.<br /><span className="italic text-gold-gradient">De la cocina al contador.</span></>}
-          subtitle="OPS Terminal se adapta a cada rol con una UI específica. Roles + permisos + interfaz tuneada. Tu cocinero ve lo que necesita ver. Tu dueño, también."
+          kicker="// Cada uno ve lo suyo"
+          title={<>Tu cocinero no necesita<br /><span className="italic text-gold-gradient">ver los números del dueño.</span></>}
+          subtitle="El cocinero usa la tablet para registrar lo que hace. El del depósito escanea y listo. Vos como dueño ves el negocio entero desde la compu. Cada uno abre la app y ve solo lo que le sirve."
         />
 
         <div className="mt-20 grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -272,8 +272,8 @@ export default function Landing() {
         </div>
 
         <SectionHeader
-          kicker="// Features destacados"
-          title={<>Por qué OPS Terminal<br /><span className="italic text-gold-gradient">no es una planilla más.</span></>}
+          kicker="// Lo que va a cambiar en tu día"
+          title={<>Menos tiempo con papeles.<br /><span className="italic text-gold-gradient">Más tiempo en la cocina.</span></>}
           subtitle=""
         />
 
@@ -323,9 +323,9 @@ export default function Landing() {
 
         <div className="max-w-[1400px] mx-auto px-6 lg:px-12 relative">
           <SectionHeader
-            kicker="// Pricing"
-            title={<>Un plan por cada<br /><span className="italic text-gold-gradient">tamaño de operación.</span></>}
-            subtitle="14 días de prueba gratis con todas las features de Pro. Sin tarjeta para arrancar. Cancelás cuando quieras."
+            kicker="// Pagás lo justo"
+            title={<>Precios claros<br /><span className="italic text-gold-gradient">y en tu moneda.</span></>}
+            subtitle="14 días de prueba gratis con todo habilitado. No te pedimos tarjeta para empezar. Si no te sirve, te vas y listo — sin llamadas, sin letras chicas, sin contratos."
           />
 
           {/* ── Toggle mensual / anual (CSS-only via details) no, mejor con state; lo embebemos ── */}
@@ -338,9 +338,9 @@ export default function Landing() {
         <div className="absolute inset-0 hero-backdrop opacity-70"></div>
         <div className="max-w-[1400px] mx-auto px-6 lg:px-12 relative">
           <SectionHeader
-            kicker="// Instalación"
-            title={<>Dos formas.<br /><span className="italic text-gold-gradient">Misma app.</span></>}
-            subtitle="Los datos viven en la nube — podés entrar desde el navegador, desde un launcher de escritorio, o desde el celular del chef. Todos ven lo mismo, en tiempo real."
+            kicker="// Donde la uses"
+            title={<>En la compu de la oficina<br /><span className="italic text-gold-gradient">y en el celular del cocinero.</span></>}
+            subtitle="Cada uno usa lo que tiene a mano. Todos ven lo mismo, al instante. El cocinero carga una merma en la tablet y el dueño la ve desde la compu sin refrescar nada."
           />
 
           <div className="mt-16 grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -353,21 +353,21 @@ export default function Landing() {
               </div>
               <h3 className="font-display text-5xl italic leading-[0.95] mb-4">Web</h3>
               <p className="text-on-surface-variant text-sm leading-relaxed mb-10">
-                Abrí tu navegador, entrá, y empezá a trabajar. Funciona en cualquier
-                dispositivo — PC, Mac, Linux, tablet, celular. Ideal para cocinas
-                con muchas terminales o para acceder desde afuera del local.
+                Abrís el navegador y empezás a trabajar. Anda en la compu, en la tablet
+                y en el celular del cocinero. Ideal para cuando tenés varias personas
+                cargando datos en paralelo, o para revisar el negocio desde tu casa.
               </p>
               <button
                 onClick={() => navigate('/login')}
                 className="cta-primary px-6 py-3.5 rounded-md font-bold text-sm flex items-center gap-2"
               >
-                Entrar ahora
+                Probar 14 días gratis
                 <ArrowUpRight size={16} />
               </button>
               <ul className="mt-10 space-y-2 font-mono-alt text-[11px] text-on-surface-variant">
-                <li>→ Funciona en: Chrome, Safari, Firefox, Edge</li>
-                <li>→ Compatible con mobile + tablet</li>
-                <li>→ Se actualiza sola</li>
+                <li>→ Funciona en Chrome, Safari, Firefox, Edge</li>
+                <li>→ Mobile + tablet sin problemas</li>
+                <li>→ Se actualiza sola, no hacés nada</li>
               </ul>
             </div>
 
@@ -380,9 +380,9 @@ export default function Landing() {
               </div>
               <h3 className="font-display text-5xl italic leading-[0.95] mb-4">Desktop</h3>
               <p className="text-on-surface-variant text-sm leading-relaxed mb-10">
-                Un .exe nativo para Windows. Atajo en el escritorio, arranca directo
-                en la app, sin barra del navegador. Ideal para la PC fija de la caja,
-                la oficina, o el depósito.
+                Instalás una vez y arranca directo como cualquier programa. Sin ventana
+                del navegador en el medio. Pensado para la PC fija de la oficina, la
+                caja o el depósito — donde la app se abre todos los días.
               </p>
               <a
                 href={downloadUrl}
@@ -419,9 +419,10 @@ export default function Landing() {
           <div>
             <div className="font-mono-alt text-[10px] text-primary uppercase tracking-[0.2em] mb-4">Producto</div>
             <ul className="space-y-2 text-sm text-on-surface-variant">
-              <li><a href="#pilares" className="hover:text-primary transition-colors">Pilares</a></li>
-              <li><a href="#casos" className="hover:text-primary transition-colors">Casos de uso</a></li>
-              <li><a href="#features" className="hover:text-primary transition-colors">Features</a></li>
+              <li><a href="#pilares" className="hover:text-primary transition-colors">Qué resuelve</a></li>
+              <li><a href="#casos" className="hover:text-primary transition-colors">Para quién</a></li>
+              <li><a href="#features" className="hover:text-primary transition-colors">Cómo funciona</a></li>
+              <li><a href="#precios" className="hover:text-primary transition-colors">Precios</a></li>
               <li><a href="#descargar" className="hover:text-primary transition-colors">Descargar</a></li>
             </ul>
           </div>
@@ -479,36 +480,36 @@ function SectionHeader({ kicker, title, subtitle }: { kicker: string; title: Rea
 // ─────────────────────────────────────────────────────────────
 
 const TICKER_ITEMS = [
-  { value: '30+', label: 'features integrados' },
-  { value: 'Multi', label: 'depósitos y locales' },
-  { value: 'AI', label: 'integrada (Gemini)' },
-  { value: '5', label: 'roles con UI propia' },
-  { value: '∞', label: 'productos y recetas' },
-  { value: 'Real-time', label: 'entre dispositivos' },
-  { value: '0', label: 'instalación en web' },
-  { value: '.exe', label: 'nativo para Windows' },
+  { value: '20 seg', label: 'para cargar una factura de 20 items' },
+  { value: '300', label: 'precios actualizados arrastrando un PDF' },
+  { value: 'Cada plato', label: 'con su margen en tiempo real' },
+  { value: '1 foto', label: 'y la factura queda cargada al stock' },
+  { value: 'Multi-depósito', label: 'cámara, seco, barra, cada uno aparte' },
+  { value: '5 roles', label: 'cada uno ve solo lo suyo' },
+  { value: 'Celular + PC', label: 'todos sincronizados al toque' },
+  { value: 'Sin contratos', label: 'cancelás cuando quieras' },
 ];
 
 const PILARES = [
   {
     icon: Boxes,
-    title: <>Stock en<br />tiempo real</>,
-    text: 'Cada movimiento, uso, merma y compra se refleja al instante. Multi-depósito. Alertas de mínimos. Auditoría completa.',
+    title: <>No tirés más<br />mercadería</>,
+    text: 'Cada cámara, barra o cocina con su propio stock. Ves al toque qué hay en cada lugar y te avisa antes de que se venza. Dejás de abrir la heladera y descubrir lo que compraste hace 2 semanas.',
   },
   {
     icon: ChefHat,
-    title: <>Recetas &<br />costos</>,
-    text: 'Cargá tus recetas una sola vez. Cambiá el precio de un ingrediente y todo el escandallo se recalcula. Sabés qué te sale cada plato, en tiempo real.',
+    title: <>Margen real<br />de cada plato</>,
+    text: 'Cargás la receta una sola vez. Cuando sube el tomate, tu pizza actualiza el costo sola. Nunca más cobrás barato sin darte cuenta, con el método del chef profesional (merma incluida).',
   },
   {
     icon: ShoppingCart,
-    title: <>Compras<br />inteligentes</>,
-    text: 'Comparador de precios entre proveedores. Órdenes de compra directas. Escaneo de facturas con IA. Cuentas por pagar.',
+    title: <>Comprás mejor<br />y más rápido</>,
+    text: 'Sacás foto a la factura y queda cargada en 20 segundos. Comparás precios entre proveedores. Armás la orden y la mandás por WhatsApp en un click.',
   },
   {
     icon: Scan,
-    title: <>Control<br />con scanner</>,
-    text: 'Conteo físico escaneando códigos de barras. Discrepancias automáticas contra el teórico. Inventario cerrado en minutos, no horas.',
+    title: <>Cierre de stock<br />sin dolores de cabeza</>,
+    text: 'Inventario con scanner en el celular del empleado. Ves las diferencias contra el teórico al instante. Cerrás el mes en minutos, no en una noche entera.',
   },
 ];
 
@@ -516,37 +517,37 @@ const CASOS = [
   {
     rol: 'Cocinero',
     chrome: 'cocina · tablet · elaboraciones',
-    title: <>La cocina, sin planillas.</>,
+    title: <>En la cocina, sin parar.</>,
     mock: <CocinaMock />,
     bullets: [
-      'Registra elaboraciones desde una tablet o celular',
-      'UI pensada para manos ocupadas y dedos mojados',
-      'Ve el stock de insumos sin pedir permiso',
-      'Mermas y bajas con 2 toques',
+      'Registra lo que elabora desde una tablet con 2 toques',
+      'Pensado para dedos mojados y manos ocupadas',
+      'Ve cuánto insumo le queda sin preguntarle a nadie',
+      'Marca una merma sin frenar el servicio',
     ],
   },
   {
     rol: 'Depósito',
     chrome: 'depósito · pc · movimientos',
-    title: <>Entradas y salidas, sin ruido.</>,
+    title: <>Recibí mercadería sin errores.</>,
     mock: <DepositoMock />,
     bullets: [
-      'Scanner conectado → conteo instantáneo',
-      'Recepción de mercadería contra orden de compra',
-      'Traspasos entre depósitos con un click',
-      'Auditoría completa de quién movió qué',
+      'Escanea y el conteo se arma solo',
+      'Recibe contra la orden de compra — si falta algo, salta',
+      'Pasa mercadería entre cámaras con un click',
+      'Queda registrado quién movió qué, por si después hay dudas',
     ],
   },
   {
     rol: 'Dueño / Admin',
     chrome: 'oficina · desktop · dashboard',
-    title: <>El operativo, en una pantalla.</>,
+    title: <>Ves el negocio completo, de un vistazo.</>,
     mock: <DashboardMiniMock />,
     bullets: [
-      'Dashboard con todos los KPIs críticos',
-      'Ranking de platos más rentables',
-      'Alertas en tiempo real (stock, vencimientos, tareas)',
-      'Exportable a Excel para tu contador',
+      'Entrás a la mañana y ves qué pasa hoy, esta semana y este mes',
+      'Sabés qué plato te deja más plata y cuál te hace perder',
+      'Alertas cuando sube un precio o baja un stock',
+      'Exportás todo a Excel y se lo mandás al contador',
     ],
   },
 ];
@@ -554,40 +555,40 @@ const CASOS = [
 const FEATURES = [
   {
     icon: LineChart,
-    tag: 'costos · escandallo',
-    title: <>Sabé cuánto te sale <span className="italic text-gold-gradient">cada plato.</span></>,
-    description: 'Cargás tus recetas una sola vez. Cada vez que sube un ingrediente — una lechuga, un kilo de carne, un litro de aceite — el sistema recalcula automáticamente el costo de cada plato que lo usa. Y te avisa si tu margen cayó debajo del objetivo.',
+    tag: 'costos · recetas',
+    title: <>Sabé el margen real de <span className="italic text-gold-gradient">cada plato.</span></>,
+    description: 'Cargás la receta una sola vez. Cuando sube el tomate, la carne o el aceite, la pizza y la milanesa se actualizan solas. Nunca más cobrás barato sin darte cuenta. Usamos el método del chef profesional: cantidad neta, merma y factor de desperdicio incluidos.',
     bullets: [
-      'Escandallo automático por plato y por combo',
-      'Histórico de costos mes a mes',
-      'Alertas cuando el margen baja del objetivo',
-      'Reportes exportables para el contador',
+      'Costo por plato siempre al día, sin tocar nada',
+      'Histórico mes a mes para ver cómo se te movió la carta',
+      'Te avisa si un plato se te fue debajo del margen mínimo',
+      'Un click y le mandás el reporte al contador',
     ],
     mock: <CostosMock />,
   },
   {
     icon: Sparkles,
-    tag: 'IA · automatización',
-    title: <>Dejá que la IA<br /><span className="italic text-gold-gradient">lea tus facturas.</span></>,
-    description: 'Sacás una foto a la factura del proveedor, la subís, y Gemini te extrae cada ítem, precio, cantidad y total automáticamente. Después hace el matcheo contra tus productos existentes. Vos solo revisás y confirmás.',
+    tag: 'escáner de facturas',
+    title: <>Nunca más tipeaste<br /><span className="italic text-gold-gradient">una factura.</span></>,
+    description: 'Sacás una foto a la factura del proveedor. En 20 segundos los 15 items están cargados al stock, matcheados con tu catálogo y el precio actualizado en la lista del proveedor. Vos solo revisás y confirmás.',
     bullets: [
-      'Lectura de facturas y remitos en segundos',
-      'Matcheo automático contra tu catálogo',
-      'Importación de listas de precio en PDF/Excel',
-      'Equivalencias inteligentes entre proveedores',
+      'Lectura de facturas y remitos con la cámara del celular',
+      'Los productos se matchean solos contra tu catálogo',
+      'Arrastrás el PDF de la lista de precios y quedan 300 precios al día',
+      'Si un proveedor le dice "muzza" a la mozzarella, la app lo aprende',
     ],
     mock: <IAMock />,
   },
   {
     icon: Warehouse,
-    tag: 'multi-local · multi-depósito',
-    title: <>Un local, cinco locales,<br /><span className="italic text-gold-gradient">mismo sistema.</span></>,
-    description: 'OPS Terminal es multi-tenant desde el primer día. Cada local tiene sus propios depósitos, usuarios, recetas y reportes — pero vos, como dueño, podés ver la consolidación de todos al mismo tiempo.',
+    tag: 'multi-depósito · multi-local',
+    title: <>Un local o cinco.<br /><span className="italic text-gold-gradient">La misma cabeza fría.</span></>,
+    description: 'Cada cámara, cocina y barra tiene su propio stock. Si crecés a un segundo local, se suma sin tener que empezar de cero. Vos desde tu compu ves todo junto, y cada empleado solo lo suyo.',
     bullets: [
-      'Multi-depósito dentro de un mismo local',
-      'Multi-local dentro de una misma organización',
-      'Roles granulares (admin, cocina, depósito, compras)',
-      'Datos aislados por tenant, consolidables por dueño',
+      'Separás stock de cámara, seco, barra y depósito general',
+      'Sumás un local nuevo sin duplicar catálogos',
+      'El cocinero ve stock, el dueño ve plata, el contador ve lo que necesita',
+      'Tus datos siempre tuyos, los exportás cuando quieras',
     ],
     mock: <MultiLocalMock />,
   },
@@ -954,57 +955,56 @@ const PRICING_PLANS: PricingPlan[] = [
     id: 'starter',
     icon: Zap,
     name: 'Starter',
-    tagline: 'Para el bar de barrio que recién arranca a ordenarse.',
+    tagline: 'Para el bar o restó chico que quiere dejar las planillas atrás.',
     priceMensual: 19990,
     priceAnual: 199900,
     features: [
-      '1 local · 2 depósitos',
-      'Hasta 5 usuarios',
-      'Stock en tiempo real',
-      'Recetas & escandallo básico',
-      'Movimientos & mermas',
-      'Dashboard operativo',
-      'Web + .exe Windows',
-      'Soporte por email',
+      '1 local, hasta 2 depósitos',
+      'Hasta 5 empleados',
+      'Stock siempre al día',
+      'Costo por plato con recetas simples',
+      'Movimientos, mermas e ingresos',
+      'Ves el negocio al entrar a la mañana',
+      'Usás desde la compu y el celular',
+      'Respondemos por email cuando te trabás',
     ],
   },
   {
     id: 'pro',
     icon: Crown,
     name: 'Pro',
-    tagline: 'El plan que la mayoría necesita. Full features.',
+    tagline: 'Lo que usa la mayoría. Todo lo que necesitás sin pensarlo.',
     priceMensual: 39990,
     priceAnual: 399900,
     destacado: true,
     features: [
-      '1 local · depósitos ilimitados',
-      'Usuarios ilimitados',
-      'Todo lo de Starter +',
-      'Escaneo de facturas con IA',
-      'Comparador de precios',
-      'Cuentas por pagar',
-      'Control con scanner',
-      'Órdenes de compra',
-      'Reportes de costos avanzados',
-      'Soporte prioritario por WhatsApp',
+      '1 local, depósitos y empleados ilimitados',
+      'Todo lo del Starter',
+      'Sacás foto a la factura, queda cargada',
+      'Comparás precios entre proveedores',
+      'Llevás las cuentas por pagar de cada proveedor',
+      'Conteos de stock con el escáner del celular',
+      'Armás órdenes de compra y las mandás por WhatsApp',
+      'Reportes de costo, merma y rentabilidad al detalle',
+      'Te atendemos por WhatsApp cuando lo necesites',
     ],
   },
   {
     id: 'multi',
     icon: Building2,
     name: 'Multi-local',
-    tagline: 'Para el dueño con 2 a 5 locales y un depósito central.',
+    tagline: 'Para el que ya tiene 2 a 5 locales y quiere verlos juntos.',
     priceMensual: 89990,
     priceAnual: 899900,
     features: [
-      'Hasta 5 locales',
-      'Depósitos y usuarios ilimitados',
-      'Todo lo de Pro +',
-      'Consolidación multi-local',
-      'Roles granulares por local',
-      'Reportes cruzados',
-      'Onboarding 1-a-1',
-      'Soporte dedicado',
+      'Hasta 5 locales, todos sincronizados',
+      'Depósitos y empleados ilimitados',
+      'Todo lo del plan Pro',
+      'Ves los locales juntos o cada uno por separado',
+      'Permisos distintos por local (gerente de zona, etc.)',
+      'Comparás performance entre locales',
+      'Te ayudamos a migrar tu data inicial',
+      'Soporte dedicado, no bot',
     ],
   },
 ];
