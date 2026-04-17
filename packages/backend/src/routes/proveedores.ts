@@ -126,15 +126,83 @@ router.delete('/:id', async (req: Request, res: Response) => {
 });
 
 // GET /api/proveedores/:id/productos - Listar productos de un proveedor
+// Unifica 2 fuentes de verdad:
+//   1. ProveedorProducto — mapeos "aplicados" (facturas confirmadas,
+//      matches manuales, match-ai aplicado). Tienen productoId interno
+//      vinculado y último precio.
+//   2. ListaPrecioItem sin proveedorProductoId — items que la IA matcheó
+//      pero el usuario no aplicó todavía, o items de listas importadas
+//      sin matching. Son precios reales del proveedor aunque no haya un
+//      producto interno vinculado.
+// Si solo devolvíamos el #1, un proveedor con lista importada y matches
+// pendientes se veía como "sin precios asignados" aunque visualmente en
+// la pantalla de Listas de Precios mostrara 279 matcheados. Este endpoint
+// ahora refleja lo que el cliente espera ver.
 router.get('/:id/productos', async (req: Request, res: Response) => {
   try {
-    const proveedorProductos = await prisma.proveedorProducto.findMany({
-      where: { proveedorId: parseInt(req.params.id as string) },
-      include: { producto: true },
-      orderBy: { nombreProveedor: 'asc' }
-    });
-    res.json(proveedorProductos);
+    const proveedorId = parseInt(req.params.id as string);
+
+    const [proveedorProductos, itemsListas] = await Promise.all([
+      prisma.proveedorProducto.findMany({
+        where: { proveedorId },
+        include: { producto: true },
+        orderBy: { nombreProveedor: 'asc' },
+      }),
+      // Items de listas de precio activos, sin mapping aplicado, pero
+      // potencialmente con match-ai pendiente. Los agrupamos por nombre
+      // de producto original → dejamos solo el precio más reciente por
+      // nombre (no duplicar si el mismo producto está en 3 listas).
+      prisma.listaPrecioItem.findMany({
+        where: {
+          activo: true,
+          proveedorProductoId: null,
+          listaPrecio: { proveedorId },
+        },
+        include: {
+          listaPrecio: { select: { id: true, codigo: true, fecha: true } },
+        },
+        orderBy: { id: 'desc' },
+      }),
+    ]);
+
+    // Dedupe: si dos items tienen mismo nombre, quedamos con el más nuevo
+    // (primero en la lista orderBy id desc).
+    const nombresYaEnPP = new Set(
+      proveedorProductos.map((p: any) => (p.nombreProveedor || '').toLowerCase().trim())
+    );
+    const seen = new Set<string>();
+    const pseudoPP: any[] = [];
+    for (const it of itemsListas) {
+      const key = (it.productoOriginal || '').toLowerCase().trim();
+      if (!key || seen.has(key) || nombresYaEnPP.has(key)) continue;
+      seen.add(key);
+      pseudoPP.push({
+        // id string para evitar colisión con ProveedorProducto.id numérico;
+        // el frontend no debe intentar Edit/Delete sobre estos.
+        id: `lp-${it.id}`,
+        fuente: 'lista',
+        listaPrecioId: it.listaPrecio.id,
+        listaPrecioCodigo: it.listaPrecio.codigo,
+        listaItemId: it.id,
+        productoId: null,
+        producto: null,
+        nombreProveedor: it.productoOriginal,
+        codigoProveedor: null,
+        unidadProveedor: it.unidadMedida || null,
+        factorConversion: it.cantidadPorUnidad || null,
+        presentacionOriginal: it.presentacionOriginal || null,
+        ultimoPrecio: it.precioPorUnidad ?? it.precioInformado ?? 0,
+        fechaPrecio: it.listaPrecio.fecha,
+      });
+    }
+
+    // Marcar los directos como fuente 'directo' para que el frontend pueda
+    // mostrar badge consistente.
+    const directos = proveedorProductos.map((p: any) => ({ ...p, fuente: 'directo' }));
+
+    res.json([...directos, ...pseudoPP]);
   } catch (error) {
+    console.error('[proveedores/:id/productos]', error);
     res.status(500).json({ error: 'Error al obtener productos del proveedor' });
   }
 });

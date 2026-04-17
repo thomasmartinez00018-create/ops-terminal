@@ -353,13 +353,14 @@ export default function Proveedores() {
                 disabled={proveedorProductos.length === 0}
                 getConfig={() => {
                   const rows = proveedorProductos.map(pp => {
-                    const prod = productos.find(p => p.id === pp.productoId);
+                    const prod = pp.productoId ? productos.find(p => p.id === pp.productoId) : null;
+                    const esPendiente = pp.fuente === 'lista';
                     return [
-                      prod?.codigo || `#${pp.productoId}`,
-                      prod?.nombre || '',
+                      prod?.codigo || (esPendiente ? '(pendiente)' : ''),
+                      prod?.nombre || (esPendiente ? pp.nombreProveedor : ''),
                       pp.nombreProveedor || '',
                       pp.codigoProveedor || '',
-                      pp.unidadProveedor || '',
+                      pp.unidadProveedor || pp.presentacionOriginal || '',
                       pp.factorConversion ?? 1,
                       pp.ultimoPrecio ?? 0,
                       pp.fechaPrecio || '',
@@ -403,14 +404,36 @@ export default function Proveedores() {
                 </thead>
                 <tbody className="divide-y divide-border">
                   {proveedorProductos.map(pp => {
-                    const prod = productos.find(p => p.id === pp.productoId);
+                    const prod = pp.productoId
+                      ? productos.find(p => p.id === pp.productoId)
+                      : null;
+                    const esPendiente = pp.fuente === 'lista';
                     return (
-                      <tr key={pp.id} className="hover:bg-surface-high/50 transition-colors">
+                      <tr key={pp.id} className={`hover:bg-surface-high/50 transition-colors ${esPendiente ? 'bg-amber-500/[0.04]' : ''}`}>
                         <td className="p-3">
-                          <p className="font-semibold text-foreground">{prod?.nombre || `#${pp.productoId}`}</p>
-                          <p className="font-mono text-xs text-primary">{prod?.codigo}</p>
+                          {prod ? (
+                            <>
+                              <p className="font-semibold text-foreground">{prod.nombre}</p>
+                              <p className="font-mono text-xs text-primary">{prod.codigo}</p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="font-semibold text-foreground">{pp.nombreProveedor || `#${pp.productoId ?? '—'}`}</p>
+                              {esPendiente && (
+                                <span className="inline-flex items-center gap-1 mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/15 text-amber-400"
+                                      title="Importado desde lista de precios, falta vincular con un producto interno">
+                                  PENDIENTE · {pp.listaPrecioCodigo || 'Lista'}
+                                </span>
+                              )}
+                            </>
+                          )}
                         </td>
-                        <td className="p-3 text-on-surface-variant hidden sm:table-cell">{pp.nombreProveedor || '-'}</td>
+                        <td className="p-3 text-on-surface-variant hidden sm:table-cell">
+                          {pp.nombreProveedor || '-'}
+                          {pp.presentacionOriginal && (
+                            <p className="text-[10px] text-on-surface-variant/70 mt-0.5">{pp.presentacionOriginal}</p>
+                          )}
+                        </td>
                         <td className="p-3 font-mono text-xs text-on-surface-variant hidden md:table-cell">{pp.codigoProveedor || '-'}</td>
                         <td className="p-3 text-on-surface-variant hidden lg:table-cell">{pp.unidadProveedor || '-'}</td>
                         <td className="p-3 text-on-surface-variant hidden lg:table-cell">{pp.factorConversion ?? '-'}</td>
@@ -418,18 +441,30 @@ export default function Proveedores() {
                         <td className="p-3 text-right text-on-surface-variant hidden sm:table-cell">{formatFecha(pp.fechaPrecio)}</td>
                         <td className="p-3 text-right">
                           <div className="flex items-center justify-end gap-1">
-                            <button
-                              onClick={() => abrirMap(pp)}
-                              className="p-1.5 rounded-lg hover:bg-surface-high text-on-surface-variant hover:text-foreground transition-colors"
-                            >
-                              <Pencil size={14} />
-                            </button>
-                            <button
-                              onClick={() => eliminarMap(pp.id, prod?.nombre || `#${pp.productoId}`)}
-                              className="p-1.5 rounded-lg hover:bg-destructive/10 text-on-surface-variant hover:text-destructive transition-colors"
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            {esPendiente ? (
+                              <button
+                                onClick={() => navigate(`/importar-lista?listaId=${pp.listaPrecioId}`)}
+                                className="px-2 py-1 rounded-lg text-[10px] font-bold bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 transition-colors uppercase tracking-wider"
+                                title="Ir a la lista de precios para vincular este item"
+                              >
+                                Vincular
+                              </button>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => abrirMap(pp)}
+                                  className="p-1.5 rounded-lg hover:bg-surface-high text-on-surface-variant hover:text-foreground transition-colors"
+                                >
+                                  <Pencil size={14} />
+                                </button>
+                                <button
+                                  onClick={() => eliminarMap(pp.id, prod?.nombre || `#${pp.productoId}`)}
+                                  className="p-1.5 rounded-lg hover:bg-destructive/10 text-on-surface-variant hover:text-destructive transition-colors"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -438,7 +473,11 @@ export default function Proveedores() {
                   {proveedorProductos.length === 0 && (
                     <tr>
                       <td colSpan={8} className="p-8 text-center text-on-surface-variant font-medium">
-                        Este proveedor no tiene productos asignados
+                        <p>Este proveedor no tiene precios cargados todavía.</p>
+                        <p className="text-xs mt-2 text-on-surface-variant/70">
+                          Podés agregar productos manualmente, importar una lista de precios (PDF/Excel)
+                          o confirmar una factura de este proveedor — se auto-cargan acá.
+                        </p>
                       </td>
                     </tr>
                   )}

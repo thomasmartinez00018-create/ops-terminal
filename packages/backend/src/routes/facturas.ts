@@ -397,25 +397,81 @@ router.post('/confirmar', async (req, res) => {
       );
       const alertasIds = await persistirAlertas(tx, factura.id, variaciones);
 
-      // 5. Actualizar ultimoPrecio en ProveedorProducto si hay proveedor.
+      // 5. Actualizar/crear ProveedorProducto si hay proveedor.
       // Deduplicamos por productoId: si un producto aparece N veces, solo
-      // persistimos el último precio visto (consistente con semántica previa,
-      // pero reduce de N a K queries donde K = productos únicos).
+      // persistimos el último precio visto.
+      //
+      // Antes hacíamos updateMany — que NO creaba el mapping si no existía.
+      // Consecuencia: cargabas una factura de "Don Juan" con 3 productos, la
+      // IA los matcheaba contra el catálogo, pero en la pantalla de
+      // "Lista de precios de Don Juan" no aparecía nada (porque el mapping
+      // Proveedor×Producto no se creaba). El cliente tenía que ir a
+      // Proveedores → "Agregar producto" manualmente para cada uno.
+      //
+      // Ahora hacemos upsert: si ya existe el mapping, update. Si no, lo
+      // creamos con el nombre del producto como nombreProveedor (placeholder
+      // editable después). Esto hace que el flujo factura → lista de precios
+      // sea automático, que es lo que el cliente siempre esperó.
       if (proveedorId) {
-        const precioPorProducto = new Map<number, number>();
+        // Necesitamos el nombre del producto para el caso de create. Traemos
+        // un map una sola vez (evita N queries).
+        const pidsUnicos: number[] = Array.from(new Set(
+          itemsValidos
+            .map((i: any) => Number(i.productoId))
+            .filter((n: number) => Number.isFinite(n) && n > 0)
+        )) as number[];
+        const productosBase = pidsUnicos.length
+          ? await tx.producto.findMany({
+              where: { id: { in: pidsUnicos } },
+              select: { id: true, nombre: true },
+            })
+          : [];
+        const nombrePorId = new Map<number, string>(
+          productosBase.map((p: any) => [p.id, p.nombre])
+        );
+
+        const precioPorProducto = new Map<number, { precio: number; descripcion: string }>();
         for (const item of itemsValidos) {
           const pid = Number(item.productoId);
           const precio = toNum(item.precioUnitario);
-          if (pid > 0 && precio > 0) precioPorProducto.set(pid, precio);
+          if (pid > 0 && precio > 0) {
+            // Dedupe: último precio gana. Conservamos la descripción original
+            // de la factura por si es la primera vez que vemos el mapping.
+            precioPorProducto.set(pid, { precio, descripcion: item.descripcion || '' });
+          }
         }
-        for (const [pid, precio] of precioPorProducto) {
+
+        for (const [pid, { precio, descripcion }] of precioPorProducto) {
           try {
-            await tx.proveedorProducto.updateMany({
+            // findFirst + update/create en lugar de upsert porque no hay
+            // índice único compuesto proveedorId+productoId garantizado.
+            const existing = await tx.proveedorProducto.findFirst({
               where: { proveedorId: Number(proveedorId), productoId: pid },
-              data: { ultimoPrecio: precio, fechaPrecio: fechaFinal },
+              select: { id: true },
             });
-          } catch {
-            // ProveedorProducto puede no existir, está bien
+            if (existing) {
+              await tx.proveedorProducto.update({
+                where: { id: existing.id },
+                data: { ultimoPrecio: precio, fechaPrecio: fechaFinal },
+              });
+            } else {
+              const nombreFallback = descripcion?.trim()
+                || nombrePorId.get(pid)
+                || `Producto #${pid}`;
+              await tx.proveedorProducto.create({
+                data: {
+                  proveedorId: Number(proveedorId),
+                  productoId: pid,
+                  nombreProveedor: nombreFallback.slice(0, 200),
+                  ultimoPrecio: precio,
+                  fechaPrecio: fechaFinal,
+                },
+              });
+            }
+          } catch (e: any) {
+            // Log pero no romper la transacción entera — el registro de la
+            // factura y los movimientos son más importantes que este side-effect.
+            console.warn('[facturas/confirmar] upsert PP fallo:', e?.message);
           }
         }
       }
