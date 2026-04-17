@@ -389,16 +389,20 @@ export default function OrdenesCompra() {
                     ? dif < 0 ? 'bg-destructive/5 border-destructive/30' : 'bg-warning/5 border-warning/30'
                     : 'bg-surface-high border-transparent'
                 }`}>
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="flex-1">
+                  {/* Mobile: nombre arriba solo, luego inputs en fila.
+                      Desktop: nombre + inputs en misma fila (layout original). */}
+                  <div className="sm:flex sm:items-center sm:gap-3 mb-2">
+                    <div className="flex-1 mb-2 sm:mb-0">
                       <p className="text-sm font-semibold text-foreground">{item.nombre}</p>
                       <p className="text-xs text-on-surface-variant">Pedido: <strong>{item.cantidadPedida} {item.unidad}</strong></p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <div className="text-center">
-                        <p className="text-[10px] text-on-surface-variant mb-1">Recibido</p>
+                    <div className="flex items-end gap-2">
+                      <div className="flex-1 sm:flex-none sm:w-24">
+                        <p className="text-[10px] text-on-surface-variant mb-1">Recibido ({item.unidad})</p>
                         <Input
                           type="number"
+                          inputMode="decimal"
+                          step="0.01"
                           value={item.cantidadRecibida}
                           onChange={e => {
                             const updated = [...recepcionItems];
@@ -410,13 +414,15 @@ export default function OrdenesCompra() {
                             }
                             setRecepcionItems(updated);
                           }}
-                          className="w-24 text-center"
+                          className="w-full text-center sm:w-24"
                         />
                       </div>
-                      <div className="text-center">
-                        <p className="text-[10px] text-on-surface-variant mb-1">$/u</p>
+                      <div className="flex-1 sm:flex-none sm:w-24">
+                        <p className="text-[10px] text-on-surface-variant mb-1">$/unidad</p>
                         <Input
                           type="number"
+                          inputMode="decimal"
+                          step="0.01"
                           placeholder="—"
                           value={item.costoUnitario || ''}
                           onChange={e => {
@@ -424,7 +430,7 @@ export default function OrdenesCompra() {
                             updated[idx].costoUnitario = e.target.value;
                             setRecepcionItems(updated);
                           }}
-                          className="w-24 text-center"
+                          className="w-full text-center sm:w-24"
                         />
                       </div>
                     </div>
