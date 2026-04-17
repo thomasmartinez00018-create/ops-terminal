@@ -53,6 +53,46 @@ router.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
+// Helper: normaliza campos opcionales de Receta (precio/ficha técnica).
+// Devuelve un objeto con las keys que vinieron en el body — si un campo no
+// está, Prisma lo deja como está (no lo pisa con null en un PUT parcial).
+function camposOpcionales(body: any): Record<string, any> {
+  const out: Record<string, any> = {};
+  if ('precioVenta' in body) {
+    const n = Number(body.precioVenta);
+    out.precioVenta = body.precioVenta === null || body.precioVenta === '' ? null
+      : Number.isFinite(n) && n > 0 ? n : null;
+  }
+  if ('margenObjetivo' in body) {
+    const n = Number(body.margenObjetivo);
+    out.margenObjetivo = body.margenObjetivo === null || body.margenObjetivo === '' ? null
+      : Number.isFinite(n) && n >= 0 && n <= 100 ? n : null;
+  }
+  if ('metodoPreparacion' in body) {
+    out.metodoPreparacion = typeof body.metodoPreparacion === 'string'
+      ? body.metodoPreparacion.slice(0, 5000) || null : null;
+  }
+  if ('tiempoPreparacion' in body) {
+    const n = Number(body.tiempoPreparacion);
+    out.tiempoPreparacion = body.tiempoPreparacion === null || body.tiempoPreparacion === '' ? null
+      : Number.isInteger(n) && n >= 0 ? n : null;
+  }
+  if ('notasChef' in body) {
+    out.notasChef = typeof body.notasChef === 'string'
+      ? body.notasChef.slice(0, 2000) || null : null;
+  }
+  if ('imagenBase64' in body) {
+    // Cap a ~500KB de base64 (~375KB de imagen) para no romper el transfer
+    // de Neon. El frontend comprime agresivamente antes de subir.
+    if (typeof body.imagenBase64 === 'string' && body.imagenBase64.length <= 500_000) {
+      out.imagenBase64 = body.imagenBase64 || null;
+    } else if (body.imagenBase64 === null || body.imagenBase64 === '') {
+      out.imagenBase64 = null;
+    }
+  }
+  return out;
+}
+
 // POST /api/recetas
 router.post('/', async (req: Request, res: Response) => {
   try {
@@ -74,6 +114,7 @@ router.post('/', async (req: Request, res: Response) => {
           productoResultadoId: productoResultadoId ? Number(productoResultadoId) : null,
           cantidadProducida: cantidadProducida ? Number(cantidadProducida) : null,
           unidadProducida: unidadProducida || null,
+          ...camposOpcionales(req.body),
           ingredientes: {
             create: ingredientes.map((ing: any) => ({
               productoId: ing.productoId,
@@ -124,6 +165,7 @@ router.put('/:id', async (req: Request, res: Response) => {
           productoResultadoId: productoResultadoId ? Number(productoResultadoId) : null,
           cantidadProducida: cantidadProducida ? Number(cantidadProducida) : null,
           unidadProducida: unidadProducida || null,
+          ...camposOpcionales(req.body),
         }
       });
 
@@ -237,12 +279,35 @@ router.get('/:id/costo', async (req: Request, res: Response) => {
     const costoTotal = ingredientesConCosto.reduce((sum, ing) => sum + ing.costoTotal, 0);
     const costoPorPorcion = receta.porciones > 0 ? costoTotal / receta.porciones : 0;
 
+    // Margen — si la receta tiene precio de venta setteado, calculamos
+    // margen bruto real vs objetivo. Si no, los campos van en null y el
+    // frontend no muestra la sección de margen.
+    const precioVenta = (receta as any).precioVenta as number | null ?? null;
+    const margenObjetivo = (receta as any).margenObjetivo as number | null ?? null;
+    let margenActual: number | null = null;
+    let gananciaPorPorcion: number | null = null;
+    let estadoMargen: 'ok' | 'alerta' | 'critico' | null = null;
+    if (precioVenta && precioVenta > 0) {
+      margenActual = ((precioVenta - costoPorPorcion) / precioVenta) * 100;
+      gananciaPorPorcion = precioVenta - costoPorPorcion;
+      const objetivo = margenObjetivo ?? 70;
+      // Umbrales: verde >= objetivo, amber 10 puntos debajo, rojo más abajo.
+      if (margenActual >= objetivo) estadoMargen = 'ok';
+      else if (margenActual >= objetivo - 10) estadoMargen = 'alerta';
+      else estadoMargen = 'critico';
+    }
+
     res.json({
       nombre: receta.nombre,
       codigo: receta.codigo,
       porciones: receta.porciones,
       costoTotal,
       costoPorPorcion,
+      precioVenta,
+      margenObjetivo,
+      margenActual,
+      gananciaPorPorcion,
+      estadoMargen,
       ingredientes: ingredientesConCosto
     });
   } catch (error) {

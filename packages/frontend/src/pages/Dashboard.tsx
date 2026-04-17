@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import Badge from '../components/ui/Badge';
 import QuickMovimiento from '../components/QuickMovimiento';
+import SugerenciaCompraWidget from '../components/SugerenciaCompraWidget';
+import MargenCriticoWidget from '../components/MargenCriticoWidget';
 import {
   Package, Warehouse, ArrowRightLeft, AlertTriangle,
   TrendingDown, TrendingUp, ClipboardCheck, Activity,
@@ -481,6 +483,11 @@ function DashboardDueno() {
         <VistaToggleDueno hacia="admin" />
       </div>
 
+      {/* ── "Te estás quedando corto de..." — sugerencia inteligente arriba,
+            porque el dueño quiere ver a la mañana qué comprar primero. */}
+      {showWidget('alertas') && <SugerenciaCompraWidget />}
+      {showWidget('alertas') && <MargenCriticoWidget />}
+
       {/* ── Alertas unificadas (arriba de todo, porque acá querés mirar) ── */}
       {showWidget('alertas') && alertasTotal > 0 && (
         <div className="space-y-2 mb-6">
@@ -815,6 +822,12 @@ function DashboardAdmin() {
 
       {/* ── Tareas + responsabilidades pendientes (unificado) ─────────── */}
       {showWidget('tareas') && <MisTareasPendientes />}
+
+      {/* ── "Te estás quedando corto de..." — sugerencia inteligente de
+            compra. Usa Reposición (stock bajo) + Comparador (mejor
+            proveedor). Solo aparece si hay productos que requieren compra. */}
+      {showWidget('alertas') && <SugerenciaCompraWidget />}
+      {showWidget('alertas') && <MargenCriticoWidget />}
 
       {/* ── Alertas admin ─────────────────────────────────────────────── */}
       {showWidget('alertas') && ((user?.rol === 'admin' && ocPendientes.length > 0) || discGraves > 0) && (

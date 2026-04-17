@@ -11,10 +11,11 @@ import SearchableSelect from '../components/ui/SearchableSelect';
 import HelpHint from '../components/ui/HelpHint';
 import {
   Plus, Pencil, Trash2, ChefHat, DollarSign, X, Package, Calculator, Info,
-  Copy, ChevronDown, ChevronUp, Send, Sliders, Search,
+  Copy, ChevronDown, ChevronUp, Send, Sliders, Search, Printer,
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { factorDesperdicio, porcentajeDesperdicio } from '../lib/merma';
+import { sugerirMerma } from '../lib/mermasSugeridas';
 
 // ============================================================================
 // RECETAS — rediseño pensado para el barro de la cocina
@@ -71,6 +72,14 @@ const emptyForm = {
   cantidadProducida: '' as string | number,
   unidadProducida: '',
   ingredientes: [] as Ingrediente[],
+  // Pricing (opcional)
+  precioVenta: '' as string | number,
+  margenObjetivo: 70 as number,
+  // Ficha técnica (opcional)
+  metodoPreparacion: '',
+  tiempoPreparacion: '' as string | number,
+  notasChef: '',
+  imagenBase64: '' as string | null,
 };
 
 // Formato de dinero corto pensado para etiquetas ("$3.250" sin decimales si
@@ -86,6 +95,199 @@ function fmtMoney(n: number): string {
 function fmtNum(n: number, dec = 3): string {
   if (!Number.isFinite(n)) return '—';
   return n.toLocaleString('es-AR', { maximumFractionDigits: dec });
+}
+
+// Calcula info de margen para una receta dada su costo por porción en vivo.
+// Devuelve null si falta data (la UI no muestra badge). Esta lógica espeja
+// la del backend en /recetas/:id/costo pero en cliente para mostrarla en la
+// lista sin gastar una llamada por receta.
+function calcMargenInfo(r: any, costoPorPorcion: number | null | undefined): { pct: number; className: string; estado: 'ok' | 'alerta' | 'critico' } | null {
+  const precio = Number(r?.precioVenta);
+  const costo = Number(costoPorPorcion);
+  if (!precio || precio <= 0 || !Number.isFinite(costo)) return null;
+  const pct = ((precio - costo) / precio) * 100;
+  const objetivo = Number(r?.margenObjetivo) || 70;
+  if (pct >= objetivo) {
+    return { pct, estado: 'ok', className: 'bg-success/10 text-success' };
+  }
+  if (pct >= objetivo - 10) {
+    return { pct, estado: 'alerta', className: 'bg-amber-500/10 text-amber-500' };
+  }
+  return { pct, estado: 'critico', className: 'bg-destructive/10 text-destructive' };
+}
+
+// Abre una ventana nueva con el layout imprimible de la ficha técnica
+// (método + foto + ingredientes + costo). El usuario tira Cmd+P / Ctrl+P
+// directo. No depende de PDF-libs en el bundle — es HTML + CSS puro.
+function imprimirFichaTecnica(costoData: any, receta: any) {
+  if (!costoData) return;
+  const nombre = receta?.nombre ?? costoData.nombre ?? 'Receta';
+  const codigo = receta?.codigo ?? costoData.codigo ?? '';
+  const porciones = receta?.porciones ?? costoData.porciones ?? 1;
+  const tiempo = receta?.tiempoPreparacion;
+  const metodo = receta?.metodoPreparacion || '';
+  const notas = receta?.notasChef || '';
+  const imagen = receta?.imagenBase64 || '';
+  const precioVenta = receta?.precioVenta;
+  const costoPorPorcion = Number(costoData.costoPorPorcion) || 0;
+  const costoTotal = Number(costoData.costoTotal) || 0;
+  const ingredientes = costoData.ingredientes || [];
+
+  const fmt = (n: number) => `$${n.toLocaleString('es-AR', { maximumFractionDigits: 0 })}`;
+
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Ficha técnica · ${nombre}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, system-ui, sans-serif;
+      color: #111;
+      padding: 24px;
+      max-width: 800px;
+      margin: 0 auto;
+      line-height: 1.5;
+    }
+    h1 { font-size: 28px; margin-bottom: 4px; }
+    h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: #666; margin-bottom: 10px; margin-top: 24px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+    .meta { color: #666; font-size: 13px; margin-bottom: 16px; }
+    .meta span + span { margin-left: 12px; padding-left: 12px; border-left: 1px solid #ccc; }
+    .hero { display: flex; gap: 20px; align-items: flex-start; margin-bottom: 20px; }
+    .hero img { width: 180px; height: 180px; object-fit: cover; border-radius: 8px; border: 1px solid #ddd; }
+    .hero-info { flex: 1; }
+    .costo-box { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-top: 12px; }
+    .costo-item { background: #f8f8f8; padding: 10px 14px; border-radius: 8px; }
+    .costo-item .label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #666; }
+    .costo-item .value { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .costo-item.highlight { background: #fff6d6; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 8px 6px; text-align: left; border-bottom: 1px solid #eee; }
+    th { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #666; }
+    .r { text-align: right; font-variant-numeric: tabular-nums; }
+    .metodo { white-space: pre-wrap; padding: 14px; background: #f8f8f8; border-left: 4px solid #D4AF37; border-radius: 0 8px 8px 0; font-size: 14px; }
+    .footer { margin-top: 30px; padding-top: 14px; border-top: 1px solid #ddd; font-size: 11px; color: #999; text-align: center; }
+    @media print {
+      body { padding: 0; }
+      .no-print { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="hero">
+    ${imagen ? `<img src="${imagen}" alt="${nombre}">` : ''}
+    <div class="hero-info">
+      <div class="meta">
+        <span><strong>${codigo}</strong></span>
+        <span>${porciones} porción${porciones === 1 ? '' : 'es'}</span>
+        ${tiempo ? `<span>${tiempo} min</span>` : ''}
+      </div>
+      <h1>${nombre}</h1>
+      <div class="costo-box">
+        <div class="costo-item highlight">
+          <div class="label">Costo por porción</div>
+          <div class="value">${fmt(costoPorPorcion)}</div>
+        </div>
+        <div class="costo-item">
+          <div class="label">Costo total</div>
+          <div class="value">${fmt(costoTotal)}</div>
+        </div>
+        ${precioVenta ? `
+        <div class="costo-item">
+          <div class="label">Precio de venta</div>
+          <div class="value">${fmt(Number(precioVenta))}</div>
+        </div>` : ''}
+      </div>
+    </div>
+  </div>
+
+  <h2>Ingredientes</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Ingrediente</th>
+        <th class="r">Cant. neta</th>
+        <th class="r">% merma</th>
+        <th class="r">Cant. bruta</th>
+        <th class="r">Costo</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${ingredientes.map((ing: any) => {
+        const cantNeta = Number(ing.cantidad) || 0;
+        const merma = Number(ing.mermaEsperada) || 0;
+        const cantBruta = Number(ing.cantidadBruta ?? cantNeta) || 0;
+        const costo = Number(ing.costoTotal) || 0;
+        return `
+          <tr>
+            <td><strong>${ing.nombre}</strong> <span style="color:#999;font-size:11px;">${ing.unidad}</span></td>
+            <td class="r">${cantNeta.toFixed(3)}</td>
+            <td class="r">${merma > 0 ? merma.toFixed(1) + '%' : '—'}</td>
+            <td class="r">${cantBruta.toFixed(3)}</td>
+            <td class="r"><strong>${fmt(costo)}</strong></td>
+          </tr>`;
+      }).join('')}
+    </tbody>
+  </table>
+
+  ${metodo ? `
+  <h2>Método de preparación</h2>
+  <div class="metodo">${metodo.replace(/</g, '&lt;')}</div>
+  ` : ''}
+
+  ${notas ? `
+  <h2>Notas del chef</h2>
+  <div class="metodo" style="border-left-color:#999;">${notas.replace(/</g, '&lt;')}</div>
+  ` : ''}
+
+  <div class="footer">
+    OPS Terminal · ${new Date().toLocaleDateString('es-AR')} · Esta ficha se regenera cuando cambian los precios de los ingredientes.
+  </div>
+
+  <script>
+    // Auto-imprimir al abrir, pero esperar a que cargue la imagen si hay.
+    window.addEventListener('load', () => { setTimeout(() => window.print(), 300); });
+  </script>
+</body>
+</html>`;
+
+  const win = window.open('', '_blank', 'width=900,height=1100');
+  if (!win) {
+    alert('Permití los pop-ups para imprimir la ficha.');
+    return;
+  }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+}
+
+// Comprime una imagen client-side antes de subirla. Necesario porque el
+// iPhone genera fotos de 3-5MB que en base64 serían 4-7MB — matar el
+// transfer de Neon (estamos a $19/mes con 100GB de cap). Objetivo: ~80KB.
+async function comprimirImagen(file: File, maxDim = 800, quality = 0.75): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('No se pudo leer el archivo'));
+    reader.onload = () => {
+      img.onerror = () => reject(new Error('No se pudo procesar la imagen'));
+      img.onload = () => {
+        const scale = Math.min(maxDim / img.width, maxDim / img.height, 1);
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { reject(new Error('Canvas no soportado')); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 export default function Recetas() {
@@ -161,6 +363,12 @@ export default function Recetas() {
           unidad: ing.unidad,
           mermaEsperada: ing.mermaEsperada || 0,
         })) || [],
+        precioVenta: receta.precioVenta ?? '',
+        margenObjetivo: receta.margenObjetivo ?? 70,
+        metodoPreparacion: receta.metodoPreparacion ?? '',
+        tiempoPreparacion: receta.tiempoPreparacion ?? '',
+        notasChef: receta.notasChef ?? '',
+        imagenBase64: receta.imagenBase64 ?? '',
       });
     } else {
       setEditId(null);
@@ -174,7 +382,7 @@ export default function Recetas() {
   const guardar = async () => {
     setError('');
     try {
-      const data = {
+      const data: any = {
         codigo: form.codigo,
         nombre: form.nombre,
         categoria: form.categoria,
@@ -189,6 +397,16 @@ export default function Recetas() {
           unidad: ing.unidad,
           mermaEsperada: Number(ing.mermaEsperada),
         })),
+        // Pricing (null si vacío)
+        precioVenta: form.precioVenta !== '' && Number(form.precioVenta) > 0
+          ? Number(form.precioVenta) : null,
+        margenObjetivo: Number(form.margenObjetivo) || 70,
+        // Ficha técnica (null si vacío para no ensuciar la DB)
+        metodoPreparacion: form.metodoPreparacion?.trim() || null,
+        tiempoPreparacion: form.tiempoPreparacion !== '' && Number(form.tiempoPreparacion) > 0
+          ? Number(form.tiempoPreparacion) : null,
+        notasChef: form.notasChef?.trim() || null,
+        imagenBase64: form.imagenBase64 || null,
       };
       if (editId) {
         await api.updateReceta(editId, data);
@@ -219,7 +437,10 @@ export default function Recetas() {
   const verCosto = async (id: number) => {
     try {
       const data = await api.getRecetaCosto(id);
-      setCostoData(data);
+      // Guardamos el id para que "Imprimir ficha" pueda cruzarlo con la
+      // receta original (método de preparación, foto, tiempo no vienen en
+      // /costo porque es un endpoint focalizado en cálculo).
+      setCostoData({ ...data, id });
       setCostoModal(true);
     } catch (e: any) {
       console.error(e);
@@ -403,17 +624,23 @@ export default function Recetas() {
       <div className="sm:hidden space-y-2.5">
         {recetasFiltradas.map(r => {
           const costo = costosListaCache[r.id];
+          const margenInfo = calcMargenInfo(r, costo);
           return (
             <div key={r.id} className="bg-surface rounded-xl border border-border p-4 active:scale-[0.99] transition-transform">
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div className="flex-1 min-w-0">
                   <p className="font-mono text-[10px] text-primary">{r.codigo}</p>
                   <p className="font-bold text-foreground text-base leading-tight mt-0.5 truncate">{r.nombre}</p>
-                  <div className="flex items-center gap-2 mt-1">
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
                     <Badge>{r.categoria}</Badge>
                     <span className="text-[10px] text-on-surface-variant">
                       {r.porciones} porción{r.porciones === 1 ? '' : 'es'}
                     </span>
+                    {margenInfo && (
+                      <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded ${margenInfo.className}`}>
+                        Margen {margenInfo.pct.toFixed(0)}%
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="text-right shrink-0">
@@ -421,6 +648,11 @@ export default function Recetas() {
                   <p className="font-mono text-xl font-extrabold text-primary tabular-nums leading-tight">
                     {costo != null ? fmtMoney(costo) : '—'}
                   </p>
+                  {r.precioVenta && r.precioVenta > 0 && (
+                    <p className="text-[10px] text-on-surface-variant mt-0.5">
+                      venta {fmtMoney(Number(r.precioVenta))}
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-2 pt-2 border-t border-border">
@@ -481,12 +713,15 @@ export default function Recetas() {
                 <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden md:table-cell">Sector</th>
                 <th className="text-right p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden md:table-cell">Porciones</th>
                 <th className="text-right p-3 text-[10px] font-bold text-primary uppercase tracking-widest">Costo / porción</th>
+                <th className="text-right p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden lg:table-cell">Precio venta</th>
+                <th className="text-center p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden lg:table-cell">Margen</th>
                 <th className="text-right p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {recetasFiltradas.map(r => {
                 const costo = costosListaCache[r.id];
+                const margenInfo = calcMargenInfo(r, costo);
                 return (
                   <tr key={r.id} className="hover:bg-surface-high/50 transition-colors">
                     <td className="p-3 font-mono text-xs text-primary">{r.codigo}</td>
@@ -500,6 +735,18 @@ export default function Recetas() {
                       <span className="font-mono text-base font-extrabold text-primary tabular-nums">
                         {costo != null ? fmtMoney(costo) : '—'}
                       </span>
+                    </td>
+                    <td className="p-3 hidden lg:table-cell text-right font-mono text-foreground tabular-nums">
+                      {r.precioVenta ? fmtMoney(Number(r.precioVenta)) : <span className="text-on-surface-variant/60">—</span>}
+                    </td>
+                    <td className="p-3 hidden lg:table-cell text-center">
+                      {margenInfo ? (
+                        <span className={`inline-block text-[11px] font-extrabold px-2 py-0.5 rounded ${margenInfo.className}`} title={margenInfo.estado === 'critico' ? 'Margen crítico — revisá el precio' : margenInfo.estado === 'alerta' ? 'Margen cerca del objetivo' : 'Margen OK'}>
+                          {margenInfo.pct.toFixed(0)}%
+                        </span>
+                      ) : (
+                        <span className="text-on-surface-variant/60 text-xs">—</span>
+                      )}
                     </td>
                     <td className="p-3 text-right">
                       <div className="flex items-center justify-end gap-1">
@@ -522,7 +769,7 @@ export default function Recetas() {
               })}
               {recetasFiltradas.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="p-10 text-center text-on-surface-variant font-medium">
+                  <td colSpan={9} className="p-10 text-center text-on-surface-variant font-medium">
                     {recetas.length === 0 ? 'Todavía no hay recetas. Creá la primera con el botón de arriba.' : 'Sin resultados con ese filtro.'}
                   </td>
                 </tr>
@@ -664,6 +911,211 @@ export default function Recetas() {
             </div>
           </details>
 
+          {/* Precio de venta y margen — opcional pero muy visible */}
+          <details className="rounded-xl border border-border bg-surface-high/20 group" open={!!form.precioVenta}>
+            <summary className="flex items-center gap-2 p-3 cursor-pointer list-none select-none">
+              <DollarSign size={13} className="text-primary" />
+              <p className="text-[11px] font-bold text-on-surface-variant uppercase tracking-widest flex-1">
+                Precio de venta <span className="normal-case font-normal">(opcional)</span>
+              </p>
+              {form.precioVenta !== '' && Number(form.precioVenta) > 0 && (() => {
+                const precio = Number(form.precioVenta);
+                const margen = precio > 0 ? ((precio - costoPorPorcion) / precio) * 100 : 0;
+                const objetivo = Number(form.margenObjetivo) || 70;
+                const estado = margen >= objetivo ? 'ok' : margen >= objetivo - 10 ? 'alerta' : 'critico';
+                const color = estado === 'ok' ? 'text-success bg-success/10'
+                  : estado === 'alerta' ? 'text-amber-500 bg-amber-500/10'
+                  : 'text-destructive bg-destructive/10';
+                return (
+                  <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded ${color}`}>
+                    Margen {margen.toFixed(0)}%
+                  </span>
+                );
+              })()}
+              <ChevronDown size={14} className="text-on-surface-variant group-open:rotate-180 transition-transform" />
+            </summary>
+            <div className="p-3 pt-0 space-y-2">
+              <p className="text-[11px] text-on-surface-variant">
+                Cargá lo que cobrás por porción. La app te va a avisar cuando el costo de los ingredientes suba y el margen caiga debajo de tu objetivo.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1 block">Precio por porción</label>
+                  <div className="flex items-stretch rounded-lg bg-surface overflow-hidden border border-border/40">
+                    <span className="flex items-center justify-center px-2 text-xs font-bold text-on-surface-variant bg-surface-high/60">$</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      placeholder="0"
+                      value={form.precioVenta}
+                      onChange={e => setForm({ ...form, precioVenta: e.target.value })}
+                      className="flex-1 min-w-0 px-3 py-2 bg-transparent text-foreground text-base font-bold focus:outline-none"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1 block">Margen objetivo %</label>
+                  <div className="flex items-stretch rounded-lg bg-surface overflow-hidden border border-border/40">
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      step="1"
+                      min="0"
+                      max="99"
+                      placeholder="70"
+                      value={form.margenObjetivo}
+                      onChange={e => setForm({ ...form, margenObjetivo: Number(e.target.value) })}
+                      className="flex-1 min-w-0 px-3 py-2 bg-transparent text-foreground text-base font-bold focus:outline-none"
+                    />
+                    <span className="flex items-center justify-center px-2 text-xs font-bold text-on-surface-variant bg-surface-high/60">%</span>
+                  </div>
+                </div>
+              </div>
+              {form.precioVenta !== '' && Number(form.precioVenta) > 0 && costoPorPorcion > 0 && (() => {
+                const precio = Number(form.precioVenta);
+                const margen = ((precio - costoPorPorcion) / precio) * 100;
+                const ganancia = precio - costoPorPorcion;
+                const objetivo = Number(form.margenObjetivo) || 70;
+                const bajoObjetivo = margen < objetivo;
+                return (
+                  <div className={`rounded-lg px-3 py-2 text-xs flex items-center justify-between ${
+                    bajoObjetivo
+                      ? margen < objetivo - 10
+                        ? 'bg-destructive/10 text-destructive border border-destructive/30'
+                        : 'bg-amber-500/10 text-amber-500 border border-amber-500/30'
+                      : 'bg-success/10 text-success border border-success/30'
+                  }`}>
+                    <span className="font-bold">
+                      Margen {margen.toFixed(1)}% · ganás {fmtMoney(ganancia)} por porción
+                    </span>
+                    {bajoObjetivo && (
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider">
+                        {margen < objetivo - 10 ? '⚠ revisá precio' : 'atento'}
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          </details>
+
+          {/* Ficha técnica — método de preparación + foto + tiempo. Colapsado
+              por default porque es opcional y no queremos saturar al usuario. */}
+          <details className="rounded-xl border border-border bg-surface-high/20 group" open={!!(form.metodoPreparacion || form.imagenBase64 || form.tiempoPreparacion)}>
+            <summary className="flex items-center gap-2 p-3 cursor-pointer list-none select-none">
+              <ChefHat size={13} className="text-primary" />
+              <p className="text-[11px] font-bold text-on-surface-variant uppercase tracking-widest flex-1">
+                Ficha técnica <span className="normal-case font-normal">(método, foto, tiempo)</span>
+              </p>
+              {(form.metodoPreparacion || form.imagenBase64) && (
+                <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded">
+                  Cargada
+                </span>
+              )}
+              <ChevronDown size={14} className="text-on-surface-variant group-open:rotate-180 transition-transform" />
+            </summary>
+            <div className="p-3 pt-0 space-y-3">
+              <p className="text-[11px] text-on-surface-variant">
+                Convertí la receta en una ficha completa que podés imprimir y pegar en la cocina.
+              </p>
+
+              {/* Foto — opcional, comprimida client-side para no reventar DB */}
+              <div>
+                <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1 block">
+                  Foto del plato
+                </label>
+                {form.imagenBase64 ? (
+                  <div className="relative rounded-lg overflow-hidden border border-border/40">
+                    <img
+                      src={form.imagenBase64}
+                      alt="Foto del plato"
+                      className="w-full max-h-64 object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, imagenBase64: '' })}
+                      className="absolute top-2 right-2 p-1.5 rounded-lg bg-background/80 hover:bg-background text-destructive"
+                      title="Quitar foto"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <label className="flex items-center justify-center gap-2 px-4 py-6 rounded-lg bg-surface border border-dashed border-border hover:border-primary/40 cursor-pointer text-xs text-on-surface-variant transition-colors">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={async e => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        // Compresión agresiva: max 800px, JPEG 75% — típicamente
+                        // deja el base64 en 60-100KB. Evita subir 3MB del iPhone.
+                        try {
+                          const compressed = await comprimirImagen(file, 800, 0.75);
+                          if (compressed.length > 500_000) {
+                            addToast('La imagen es muy grande. Probá con otra más chica.', 'error');
+                            return;
+                          }
+                          setForm(f => ({ ...f, imagenBase64: compressed }));
+                        } catch {
+                          addToast('No pudimos procesar la imagen', 'error');
+                        }
+                      }}
+                    />
+                    <Plus size={16} /> Subir foto del plato
+                  </label>
+                )}
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1 block">
+                  Método de preparación
+                </label>
+                <textarea
+                  value={form.metodoPreparacion}
+                  onChange={e => setForm({ ...form, metodoPreparacion: e.target.value })}
+                  placeholder={'1. Picar la cebolla...\n2. Rehogar en aceite...\n3. Agregar el tomate...'}
+                  rows={4}
+                  className="w-full px-3 py-2 rounded-lg bg-surface border-0 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 resize-y"
+                  maxLength={5000}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1 block">
+                    Tiempo (min)
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min="0"
+                    placeholder="30"
+                    value={form.tiempoPreparacion}
+                    onChange={e => setForm({ ...form, tiempoPreparacion: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-surface border-0 text-foreground text-base font-bold focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1 block">
+                  Notas del chef
+                </label>
+                <textarea
+                  value={form.notasChef}
+                  onChange={e => setForm({ ...form, notasChef: e.target.value })}
+                  placeholder="Vino recomendado, presentación, trucos…"
+                  rows={2}
+                  className="w-full px-3 py-2 rounded-lg bg-surface border-0 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 resize-y"
+                  maxLength={2000}
+                />
+              </div>
+            </div>
+          </details>
+
           {/* Ingredientes — cards verticales */}
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -788,6 +1240,34 @@ export default function Recetas() {
                               Dejala en <b className="text-foreground">0</b> si comprás ya limpio (ej: muzzarella, harina). Si pelás 1kg de cebolla y tirás 200g, tenés 20% de merma.
                             </p>
                           </div>
+
+                          {/* Sugerencia automática según nombre del producto —
+                              solo se muestra si: el producto está elegido, hay
+                              sugerencia confiable en la tabla del rubro, y el
+                              usuario todavía no cargó un valor propio (merma=0).
+                              Es un hint pasivo: no pisa lo que el chef puso. */}
+                          {prod && !tieneMerma && (() => {
+                            const s = sugerirMerma(prod.nombre);
+                            if (!s) return null;
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => actualizarIngrediente(index, 'mermaEsperada', s.pct)}
+                                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 active:bg-amber-500/20 text-left transition-colors"
+                                title="Tocá para aplicar la merma típica de este producto"
+                              >
+                                <span className="text-base">💡</span>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[11px] font-bold text-amber-500">
+                                    Merma típica para {prod.nombre.length > 30 ? prod.nombre.slice(0, 30) + '…' : prod.nombre}: {s.pct}%
+                                  </p>
+                                  <p className="text-[10px] text-on-surface-variant mt-0.5">
+                                    {s.nota} · tocá para usar
+                                  </p>
+                                </div>
+                              </button>
+                            );
+                          })()}
 
                           <div className="grid grid-cols-2 gap-3">
                             <div>
@@ -957,9 +1437,16 @@ export default function Recetas() {
                 </div>
               </div>
 
-              <div className="flex gap-2 pt-1">
-                <Button onClick={compartirWA} className="flex-1" variant="secondary">
-                  <Send size={14} /> Compartir por WhatsApp
+              <div className="flex gap-2 pt-1 flex-wrap">
+                <Button onClick={compartirWA} className="flex-1 min-w-[140px]" variant="secondary">
+                  <Send size={14} /> WhatsApp
+                </Button>
+                <Button
+                  onClick={() => imprimirFichaTecnica(costoData, recetas.find(r => r.id === costoData.id))}
+                  className="flex-1 min-w-[140px]"
+                  variant="secondary"
+                >
+                  <Printer size={14} /> Imprimir ficha
                 </Button>
                 <Button onClick={() => setCostoModal(false)}>Cerrar</Button>
               </div>

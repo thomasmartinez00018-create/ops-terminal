@@ -383,6 +383,21 @@ model Receta {
   cantidadProducida   Float?  @map("cantidad_producida")
   unidadProducida     String? @map("unidad_producida")
   activo              Boolean @default(true)
+  // ── Pricing (opcional) ───────────────────────────────────────────────
+  // precioVenta: lo que cobra el restaurante por porción al cliente.
+  // margenObjetivo: % de margen bruto que el dueño considera sano
+  // (default 70% = food cost del 30%, el benchmark del rubro).
+  // Cuando el costo sube y el margen cae bajo este número, la app
+  // alerta para actualizar precio.
+  precioVenta         Float?  @map("precio_venta")
+  margenObjetivo      Float?  @default(70) @map("margen_objetivo")
+  // ── Ficha técnica (opcional, feature 3) ──────────────────────────────
+  // Campos para convertir la receta en una ficha técnica completa que
+  // el chef pueda imprimir y pegar en la pared de la cocina.
+  metodoPreparacion   String? @map("metodo_preparacion")
+  tiempoPreparacion   Int?    @map("tiempo_preparacion") // minutos
+  notasChef           String? @map("notas_chef")
+  imagenBase64        String? @map("imagen_base64") // base64 comprimido, ~80KB
 
   organizacion      Organizacion        @relation(fields: [organizacionId], references: [id])
   ingredientes      RecetaIngrediente[]
