@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { puedeRegistrarMovimiento } from '../../lib/permisosMovimiento';
 import {
   Plus, X, ArrowRightLeft, ShoppingCart, ScanLine, FlaskConical,
   ScanBarcode, Trash2
@@ -10,7 +11,8 @@ interface FABAction {
   label: string;
   icon: any;
   to?: string;
-  action?: string; // 'quick-mov' | 'quick-mov-merma' etc
+  action?: string;             // 'quick-mov' | 'quick-mov-merma'
+  requierePermisoMov?: string; // tipo de movimiento requerido (p.ej. "merma")
 }
 
 const ACTIONS_POR_ROL: Record<string, FABAction[]> = {
@@ -32,11 +34,11 @@ const ACTIONS_POR_ROL: Record<string, FABAction[]> = {
   cocina: [
     { label: 'Registrar uso', icon: ArrowRightLeft, action: 'quick-mov' },
     { label: 'Elaborar', icon: FlaskConical, to: '/elaboraciones' },
-    { label: 'Merma', icon: Trash2, action: 'quick-mov-merma' },
+    { label: 'Merma', icon: Trash2, action: 'quick-mov-merma', requierePermisoMov: 'merma' },
   ],
   barra: [
     { label: 'Registrar uso', icon: ArrowRightLeft, action: 'quick-mov' },
-    { label: 'Merma', icon: Trash2, action: 'quick-mov-merma' },
+    { label: 'Merma', icon: Trash2, action: 'quick-mov-merma', requierePermisoMov: 'merma' },
   ],
 };
 
@@ -55,7 +57,13 @@ export default function FAB({ onQuickMov }: Props) {
 
   if (!user) return null;
 
-  const actions = ACTIONS_POR_ROL[user.rol] || ACTIONS_POR_ROL['admin'];
+  // Filtrar acciones: si la acción es un tipo de movimiento específico,
+  // verificar que el usuario tenga permiso para ese tipo. Las acciones
+  // generales (navegación, quick-mov genérico) pasan sin check.
+  const actions = (ACTIONS_POR_ROL[user.rol] || ACTIONS_POR_ROL['admin'])
+    .filter((a: FABAction) =>
+      !a.requierePermisoMov || puedeRegistrarMovimiento(user as any, a.requierePermisoMov as any)
+    );
 
   const handleAction = (action: FABAction) => {
     setExpanded(false);

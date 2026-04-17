@@ -6,10 +6,11 @@ import Select from '../components/ui/Select';
 import PageTour from '../components/PageTour';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
-import { Plus, Pencil, Trash2, ShieldCheck, QrCode, LayoutDashboard, Link2, Copy, Check, RefreshCw } from 'lucide-react';
+import { Plus, Pencil, Trash2, ShieldCheck, QrCode, LayoutDashboard, Link2, Copy, Check, RefreshCw, ArrowRightLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { DashboardConfig } from '../context/AuthContext';
 import { isPairedDevice } from '../lib/api';
+import { TIPOS_MOVIMIENTO, PERMISOS_MOVIMIENTO_TODOS, permKey, type TipoMovimiento } from '../lib/permisosMovimiento';
 
 const ROLES = [
   { value: 'admin', label: 'Administrador' },
@@ -203,6 +204,22 @@ export default function Usuarios() {
       setPermisos([]);
     } else {
       setPermisos(PERMISOS_DISPONIBLES.map(p => p.key));
+    }
+  };
+
+  // Tipos de movimiento permitidos — viven en el mismo array `permisos`
+  // con prefix "mov.". Helpers locales para toggle + select-all.
+  const toggleTipoMov = (tipo: TipoMovimiento) => {
+    const k = permKey(tipo);
+    setPermisos(prev => prev.includes(k) ? prev.filter(p => p !== k) : [...prev, k]);
+  };
+  const tipoMovActivo = (tipo: TipoMovimiento) => permisos.includes(permKey(tipo));
+  const todosLosTiposMovActivos = TIPOS_MOVIMIENTO.every(t => permisos.includes(permKey(t.value)));
+  const toggleTodosMov = () => {
+    if (todosLosTiposMovActivos) {
+      setPermisos(prev => prev.filter(p => !PERMISOS_MOVIMIENTO_TODOS.includes(p)));
+    } else {
+      setPermisos(prev => Array.from(new Set([...prev, ...PERMISOS_MOVIMIENTO_TODOS])));
     }
   };
 
@@ -448,6 +465,52 @@ export default function Usuarios() {
             <div className="flex items-center gap-2 p-3 bg-primary/10 rounded-lg">
               <ShieldCheck size={16} className="text-primary" />
               <p className="text-xs font-bold text-primary">Admin: acceso total a todas las secciones</p>
+            </div>
+          )}
+
+          {/* Tipos de movimientos permitidos — granular por usuario.
+              Solo aplica a no-admin; los admin pueden todo por definición. */}
+          {form.rol !== 'admin' && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <ArrowRightLeft size={13} className="text-primary" />
+                  <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">
+                    Tipos de movimientos que puede registrar
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={toggleTodosMov}
+                  className="text-[10px] font-bold text-primary hover:text-primary/80 uppercase tracking-wider"
+                >
+                  {todosLosTiposMovActivos ? 'Quitar todos' : 'Seleccionar todos'}
+                </button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 bg-surface-high rounded-lg p-3">
+                {TIPOS_MOVIMIENTO.map(t => (
+                  <label
+                    key={t.value}
+                    className={`flex items-center gap-2 px-2 py-2 rounded-md cursor-pointer transition-colors ${
+                      tipoMovActivo(t.value)
+                        ? 'bg-primary/10 text-foreground'
+                        : 'text-on-surface-variant hover:bg-surface'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={tipoMovActivo(t.value)}
+                      onChange={() => toggleTipoMov(t.value)}
+                      className="accent-[#D4AF37] w-3.5 h-3.5"
+                    />
+                    <span className="text-base">{t.icon}</span>
+                    <span className="text-xs font-semibold">{t.label}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-[10px] text-on-surface-variant mt-1.5">
+                Si no marcás ninguno, se usa el default del rol ({form.rol}).
+              </p>
             </div>
           )}
 

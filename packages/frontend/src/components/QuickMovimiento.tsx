@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -8,14 +8,11 @@ import Button from './ui/Button';
 import Input from './ui/Input';
 import SearchableSelect from './ui/SearchableSelect';
 import { ScanBarcode, X } from 'lucide-react';
+import { TIPOS_MOVIMIENTO, tiposPermitidos, type TipoMovimiento } from '../lib/permisosMovimiento';
 
-const TIPOS = [
-  { value: 'venta', label: 'Venta', icon: '🛒', color: 'bg-primary/10 text-primary border-primary/30' },
-  { value: 'consumo_interno', label: 'Consumo / Uso', icon: '🍽️', color: 'bg-blue-500/10 text-blue-400 border-blue-500/30' },
-  { value: 'merma', label: 'Merma', icon: '🗑️', color: 'bg-destructive/10 text-destructive border-destructive/30' },
-  { value: 'transferencia', label: 'Transferencia', icon: '↔️', color: 'bg-warning/10 text-warning border-warning/30' },
-  { value: 'ingreso', label: 'Ingreso', icon: '📦', color: 'bg-success/10 text-success border-success/30' },
-];
+// Wrapper local para conservar la shape original (label/icon/color) pero
+// derivado de la fuente única en lib/permisosMovimiento.ts.
+const TIPOS = TIPOS_MOVIMIENTO.map(t => ({ ...t }));
 
 interface Props {
   open: boolean;
@@ -28,7 +25,19 @@ export default function QuickMovimiento({ open, onClose, tipoInicial = 'consumo_
   const { addToast } = useToast();
   const { getRecents, addRecent } = useRecentProducts(user?.id || 0);
 
-  const [tipo, setTipo] = useState(tipoInicial);
+  // Filtrar tipos visibles por permisos del user. Un usuario de cocina sin
+  // permiso de "Ingreso" no debería ni siquiera ver ese botón.
+  const tiposVisibles = useMemo(() => {
+    const permitidos = new Set<TipoMovimiento>(tiposPermitidos(user));
+    return TIPOS.filter(t => permitidos.has(t.value as TipoMovimiento));
+  }, [user]);
+
+  // Si el tipo inicial no está permitido, caer al primero disponible.
+  const tipoInicialResuelto = tiposVisibles.some(t => t.value === tipoInicial)
+    ? tipoInicial
+    : (tiposVisibles[0]?.value ?? tipoInicial);
+
+  const [tipo, setTipo] = useState(tipoInicialResuelto);
   const [productoId, setProductoId] = useState('');
   const [cantidad, setCantidad] = useState('');
   const [unidad, setUnidad] = useState('');
@@ -61,7 +70,14 @@ export default function QuickMovimiento({ open, onClose, tipoInicial = 'consumo_
     }
   }, [open, user]);
 
-  useEffect(() => { setTipo(tipoInicial); }, [tipoInicial]);
+  useEffect(() => {
+    // Normaliza el tipo si cambia tipoInicial desde props o si cambian los
+    // permisos del usuario (ej: refreshUser tras update).
+    if (tiposVisibles.some(t => t.value === tipoInicial)) setTipo(tipoInicial);
+    else if (tiposVisibles[0] && !tiposVisibles.some(t => t.value === tipo)) {
+      setTipo(tiposVisibles[0].value);
+    }
+  }, [tipoInicial, tiposVisibles]);
 
   // Keep scanner input focused when scanner mode is on
   useEffect(() => {
@@ -178,20 +194,29 @@ export default function QuickMovimiento({ open, onClose, tipoInicial = 'consumo_
   return (
     <Modal open={open} onClose={onClose} title="Registrar rápido">
       <div className="space-y-4">
-        {/* Tipo — chips grandes */}
-        <div className="grid grid-cols-2 gap-2">
-          {TIPOS.map(t => (
-            <button
-              key={t.value}
-              onClick={() => setTipo(t.value)}
-              className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border font-bold text-sm transition-all ${
-                tipo === t.value ? t.color : 'border-border text-on-surface-variant hover:bg-surface-high'
-              }`}
-            >
-              <span>{t.icon}</span> {t.label}
-            </button>
-          ))}
-        </div>
+        {/* Tipo — chips grandes. Solo los tipos que el admin habilitó para
+            este usuario. Si solo hay 1 tipo permitido, igual se muestra
+            (a modo de confirmación visual). Si no hay ninguno, mostramos
+            un mensaje en vez de botones vacíos. */}
+        {tiposVisibles.length === 0 ? (
+          <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-400">
+            No tenés permisos para registrar movimientos. Pedile al administrador que habilite al menos un tipo.
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            {tiposVisibles.map(t => (
+              <button
+                key={t.value}
+                onClick={() => setTipo(t.value)}
+                className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border font-bold text-sm transition-all ${
+                  tipo === t.value ? t.color : 'border-border text-on-surface-variant hover:bg-surface-high'
+                }`}
+              >
+                <span>{t.icon}</span> {t.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Producto + toggle scanner */}
         <div>
@@ -333,7 +358,7 @@ export default function QuickMovimiento({ open, onClose, tipoInicial = 'consumo_
         </label>
 
         <div className="flex gap-2 pt-1">
-          <Button onClick={guardar} disabled={!productoId || !cantidad || loading} className="flex-1">
+          <Button onClick={guardar} disabled={!productoId || !cantidad || loading || tiposVisibles.length === 0} className="flex-1">
             {loading ? 'Guardando...' : batchMode ? 'Guardar y seguir' : 'Guardar'}
           </Button>
           <Button variant="secondary" onClick={onClose}>Cerrar</Button>

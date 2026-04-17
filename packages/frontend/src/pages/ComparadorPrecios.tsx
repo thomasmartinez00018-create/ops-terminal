@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { Fragment, useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { buildWALink, buildOrderMessage } from '../lib/whatsapp';
@@ -7,7 +7,15 @@ import Select from '../components/ui/Select';
 import Input from '../components/ui/Input';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import MatchListaIAModal from '../components/MatchListaIAModal';
-import { BarChart3, TrendingUp, ShoppingCart, Send, Loader2, ArrowUpRight, ArrowDownRight, Sparkles, Upload, AlertTriangle } from 'lucide-react';
+import { BarChart3, TrendingUp, ShoppingCart, Send, Loader2, ArrowUpRight, ArrowDownRight, Sparkles, Upload, AlertTriangle, ChevronDown, ChevronRight, Pencil, Check, X as XIcon, Info } from 'lucide-react';
+
+// Rubros sugeridos para el editor inline de categoría. Mismos que Proveedores.tsx
+// + rubros comunes en gastronomía, para que un click alcance.
+const RUBROS_SUGERIDOS = [
+  'Verdulería', 'Carnicería', 'Fiambrería', 'Bebidas', 'Limpieza',
+  'Descartables', 'Lácteos', 'Secos/Almacén', 'Panadería', 'Congelados',
+  'Especias', 'Aceites', 'Pescadería', 'General',
+];
 
 function defaultDesde() {
   const d = new Date(); d.setDate(d.getDate() - 90);
@@ -67,6 +75,16 @@ export default function ComparadorPrecios() {
   // Shopping list
   const [listaItems, setListaItems] = useState<{ productoId: number; codigo: string; nombre: string; cantidad: number; unidad: string }[]>([]);
   const [listaProveedorId, setListaProveedorId] = useState('');
+
+  // UI state: fila expandida para detalle + edición inline de categoría.
+  // `expandedCode` es el código del producto con detalle abierto (uno por vez).
+  // `editingCatCode` es el código del producto cuya categoría se está editando.
+  // Overrides locales permiten reflejar el cambio sin recargar todo el comparativo.
+  const [expandedCode, setExpandedCode] = useState<string | null>(null);
+  const [editingCatCode, setEditingCatCode] = useState<string | null>(null);
+  const [editingCatValue, setEditingCatValue] = useState('');
+  const [categoriaOverrides, setCategoriaOverrides] = useState<Record<string, string>>({});
+  const [savingCat, setSavingCat] = useState(false);
 
   useEffect(() => { cargar(); }, []);
 
@@ -190,6 +208,49 @@ export default function ComparadorPrecios() {
       return sum + precio * item.cantidad;
     }, 0);
   }, [listaItems, listaProveedorId, grouped, conImpuestos, provMap]);
+
+  // ── Edición inline de categoría/rubro ─────────────────────────────────────
+  // El cliente pidió poder corregir errores de categorización de la IA desde
+  // acá, sin tener que ir a Productos. Al guardar llamamos a updateProducto
+  // con { rubro: nuevoValor } y aplicamos un override local para no esperar
+  // el round-trip completo del getComparativa.
+  const iniciarEditCat = (codigo: string, valorActual: string) => {
+    setEditingCatCode(codigo);
+    setEditingCatValue(valorActual || '');
+  };
+  const cancelarEditCat = () => {
+    setEditingCatCode(null);
+    setEditingCatValue('');
+  };
+  const guardarEditCat = async (codigo: string, productoId: number) => {
+    const nuevo = editingCatValue.trim();
+    if (!nuevo || savingCat) return;
+    setSavingCat(true);
+    try {
+      await api.updateProducto(productoId, { rubro: nuevo });
+      setCategoriaOverrides(prev => ({ ...prev, [codigo]: nuevo }));
+      cancelarEditCat();
+    } catch (e) {
+      console.error('[comparador] updateProducto', e);
+    }
+    setSavingCat(false);
+  };
+
+  // Obtener la categoría visible (override local > categoría del dato).
+  const getCategoria = (codigo: string, fallback: string) =>
+    categoriaOverrides[codigo] ?? fallback;
+
+  // Expand / collapse de fila. Si la misma fila se clickea, toggle.
+  const toggleExpand = (codigo: string) => {
+    setExpandedCode(prev => (prev === codigo ? null : codigo));
+  };
+
+  // Helper: info adicional para el detalle expandido. Busca stock y unidad
+  // del producto en el listado general.
+  const prodInfo = (productoId: number) => {
+    const p = productos.find(pr => pr.id === productoId);
+    return p ? { unidad: p.unidadUso, subrubro: p.subrubro, stockMinimo: p.stockMinimo } : null;
+  };
 
   const enviarWhatsApp = () => {
     const prov = proveedoresImp.find(p => p.id === Number(listaProveedorId));
@@ -341,9 +402,14 @@ export default function ComparadorPrecios() {
       {/* TAB: Ultima */}
       {!loading && tab === 'ultima' && (
         <div className="bg-zinc-900 rounded-lg border border-zinc-800 overflow-auto">
+          {/* Hint discreto sobre interactividad */}
+          <p className="px-4 pt-3 pb-1 text-[11px] text-zinc-500 flex items-center gap-1.5">
+            <Info size={11} /> Tocá una fila para ver el detalle · clic en la categoría para corregirla
+          </p>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-800 text-zinc-400">
+                <th className="px-2 py-3 w-6"></th>
                 <th className="px-4 py-3 text-left">Producto</th>
                 <th className="px-4 py-3 text-left">Categoria</th>
                 {proveedoresEnData.map(p => (
@@ -353,34 +419,188 @@ export default function ComparadorPrecios() {
             </thead>
             <tbody>
               {entries.length === 0 && (
-                <tr><td colSpan={2 + proveedoresEnData.length} className="py-8 text-center text-zinc-500">Sin datos</td></tr>
+                <tr><td colSpan={3 + proveedoresEnData.length} className="py-8 text-center text-zinc-500">Sin datos</td></tr>
               )}
               {entries.slice(0, 100).map(([cod, g]) => {
                 const ultimas = getUltima(g.rows);
+                // Mapa por proveedor con el registro COMPLETO (no solo el precio)
+                // — así podemos mostrar la presentación en el detalle.
+                const rowByProv: Record<number, any> = {};
                 const priceMap: Record<number, number | null> = {};
                 ultimas.forEach(r => {
+                  rowByProv[r.proveedorId] = r;
                   priceMap[r.proveedorId] = adjustPrice(r.precioPorMedidaBase || r.precioPorUnidad, r.proveedorId);
                 });
                 const allPrices = Object.values(priceMap).filter(p => p != null && p > 0) as number[];
                 const minPrice = allPrices.length ? Math.min(...allPrices) : null;
+                const maxPrice = allPrices.length ? Math.max(...allPrices) : null;
+                // "Imposible": variación > 3x entre min y max → probablemente
+                // unidades/presentaciones incompatibles entre proveedores.
+                const discrepanciaGrande = minPrice && maxPrice && maxPrice / minPrice > 3;
+                const expanded = expandedCode === cod;
+                const categoriaMostrada = getCategoria(cod, g.categoria);
+                const editandoCat = editingCatCode === cod;
+                const info = prodInfo(g.productoId);
 
                 return (
-                  <tr key={cod} className="border-b border-zinc-800/50 hover:bg-zinc-800/30">
-                    <td className="px-4 py-2">
-                      <span className="text-white">{g.nombre}</span>
-                      <span className="text-zinc-500 text-xs ml-2">{cod}</span>
-                    </td>
-                    <td className="px-4 py-2 text-zinc-400 text-xs">{g.categoria}</td>
-                    {proveedoresEnData.map(p => {
-                      const price = priceMap[p.id];
-                      const isMin = price != null && price === minPrice && allPrices.length > 1;
-                      return (
-                        <td key={p.id} className={`px-3 py-2 text-right font-mono text-xs ${isMin ? 'text-green-400 font-bold' : price != null ? 'text-zinc-300' : 'text-zinc-600'}`}>
-                          {fmt(price ?? null)}
+                  <Fragment key={cod}>
+                    <tr
+                      onClick={() => toggleExpand(cod)}
+                      className={`border-b border-zinc-800/50 cursor-pointer ${expanded ? 'bg-zinc-800/40' : 'hover:bg-zinc-800/30'}`}
+                    >
+                      <td className="px-2 py-2 text-zinc-500">
+                        {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                      </td>
+                      <td className="px-4 py-2">
+                        <span className="text-white">{g.nombre}</span>
+                        <span className="text-zinc-500 text-xs ml-2">{cod}</span>
+                        {discrepanciaGrande && (
+                          <span
+                            className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/15 text-amber-400"
+                            title={`Variación ${(maxPrice! / minPrice!).toFixed(1)}× entre el más caro y el más barato — probablemente presentaciones distintas`}
+                            onClick={e => { e.stopPropagation(); setExpandedCode(cod); }}
+                          >
+                            <AlertTriangle size={9} /> Revisar unidades
+                          </span>
+                        )}
+                      </td>
+                      <td
+                        className="px-4 py-2 text-xs group"
+                        onClick={e => { if (!editandoCat) { e.stopPropagation(); iniciarEditCat(cod, categoriaMostrada); } }}
+                      >
+                        {editandoCat ? (
+                          <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                            <input
+                              list={`rubros-${cod}`}
+                              value={editingCatValue}
+                              onChange={e => setEditingCatValue(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') { e.preventDefault(); guardarEditCat(cod, g.productoId); }
+                                if (e.key === 'Escape') cancelarEditCat();
+                              }}
+                              autoFocus
+                              className="flex-1 min-w-[100px] px-2 py-1 rounded bg-zinc-800 border border-primary/50 text-white text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                              placeholder="Categoría..."
+                            />
+                            <datalist id={`rubros-${cod}`}>
+                              {Array.from(new Set([...RUBROS_SUGERIDOS, ...categorias])).map(r => (
+                                <option key={r} value={r} />
+                              ))}
+                            </datalist>
+                            <button
+                              onClick={() => guardarEditCat(cod, g.productoId)}
+                              disabled={savingCat}
+                              className="p-1 rounded bg-primary/20 hover:bg-primary/30 text-primary disabled:opacity-50"
+                            >
+                              <Check size={12} />
+                            </button>
+                            <button
+                              onClick={cancelarEditCat}
+                              className="p-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400"
+                            >
+                              <XIcon size={12} />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-zinc-400">{categoriaMostrada || <span className="italic text-zinc-600">Sin categoría</span>}</span>
+                            <Pencil size={10} className="text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </div>
+                        )}
+                      </td>
+                      {proveedoresEnData.map(p => {
+                        const price = priceMap[p.id];
+                        const row = rowByProv[p.id];
+                        const isMin = price != null && price === minPrice && allPrices.length > 1;
+                        return (
+                          <td
+                            key={p.id}
+                            className={`px-3 py-2 text-right font-mono text-xs ${isMin ? 'text-green-400 font-bold' : price != null ? 'text-zinc-300' : 'text-zinc-600'}`}
+                            title={row?.presentacionOriginal ? `Presentación: ${row.presentacionOriginal}` : undefined}
+                          >
+                            {fmt(price ?? null)}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                    {expanded && (
+                      <tr key={`${cod}-detail`} className="border-b border-zinc-800/70 bg-zinc-900/80">
+                        <td></td>
+                        <td colSpan={2 + proveedoresEnData.length} className="px-4 py-3">
+                          <div className="space-y-3">
+                            {/* Info del producto */}
+                            <div className="flex flex-wrap gap-4 text-[11px] text-zinc-400">
+                              {info?.unidad && <span><span className="text-zinc-500">Unidad de uso:</span> <span className="text-zinc-200">{info.unidad}</span></span>}
+                              {info?.subrubro && <span><span className="text-zinc-500">Subrubro:</span> <span className="text-zinc-200">{info.subrubro}</span></span>}
+                              {info?.stockMinimo != null && <span><span className="text-zinc-500">Stock mínimo:</span> <span className="text-zinc-200">{info.stockMinimo} {info.unidad}</span></span>}
+                            </div>
+
+                            {/* Tabla con precio / presentación / fecha por proveedor.
+                                Acá se ven las "discrepancias imposibles": un proveedor
+                                vende "CAJA x12" a $7.820 y otro "UNIDAD" a $4.833 —
+                                la presentación explica el delta, no es un bug. */}
+                            <div className="overflow-x-auto">
+                              <table className="text-[11px] w-full">
+                                <thead>
+                                  <tr className="text-zinc-500 border-b border-zinc-800">
+                                    <th className="px-2 py-1.5 text-left font-medium">Proveedor</th>
+                                    <th className="px-2 py-1.5 text-left font-medium">Presentación</th>
+                                    <th className="px-2 py-1.5 text-right font-medium">Precio informado</th>
+                                    <th className="px-2 py-1.5 text-right font-medium">$ / unidad</th>
+                                    <th className="px-2 py-1.5 text-right font-medium">$ / base (kg/l)</th>
+                                    <th className="px-2 py-1.5 text-right font-medium">Fecha</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {proveedoresEnData.map(p => {
+                                    const r = rowByProv[p.id];
+                                    if (!r) {
+                                      return (
+                                        <tr key={p.id} className="text-zinc-600">
+                                          <td className="px-2 py-1.5">{p.nombre}</td>
+                                          <td colSpan={5} className="px-2 py-1.5 italic">Sin datos recientes</td>
+                                        </tr>
+                                      );
+                                    }
+                                    const ppu = adjustPrice(r.precioPorUnidad, r.proveedorId);
+                                    const ppb = adjustPrice(r.precioPorMedidaBase, r.proveedorId);
+                                    const inf = adjustPrice(r.precioInformado, r.proveedorId);
+                                    return (
+                                      <tr key={p.id} className="text-zinc-300 hover:bg-zinc-800/40">
+                                        <td className="px-2 py-1.5 text-white">{p.nombre}</td>
+                                        <td className="px-2 py-1.5 text-zinc-400">
+                                          {r.presentacionOriginal || <span className="italic text-zinc-600">sin presentación</span>}
+                                        </td>
+                                        <td className="px-2 py-1.5 text-right font-mono">{fmt(inf)}</td>
+                                        <td className="px-2 py-1.5 text-right font-mono">{fmt(ppu)}</td>
+                                        <td className="px-2 py-1.5 text-right font-mono">{fmt(ppb)}</td>
+                                        <td className="px-2 py-1.5 text-right text-zinc-500">{r.fecha || '-'}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+
+                            <div className="flex gap-2">
+                              <button
+                                onClick={e => { e.stopPropagation(); navigate(`/productos?id=${g.productoId}`); }}
+                                className="text-[10px] font-bold text-primary hover:text-primary/80 uppercase tracking-wider"
+                              >
+                                Editar producto →
+                              </button>
+                              <button
+                                onClick={e => { e.stopPropagation(); setTab('evolucion'); cargarEvolucion(String(g.productoId)); }}
+                                className="text-[10px] font-bold text-zinc-400 hover:text-zinc-200 uppercase tracking-wider"
+                              >
+                                Ver evolución →
+                              </button>
+                            </div>
+                          </div>
                         </td>
-                      );
-                    })}
-                  </tr>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
             </tbody>
