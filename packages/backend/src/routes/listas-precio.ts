@@ -676,12 +676,9 @@ router.post('/:id/match-ai', async (req: Request, res: Response) => {
 // POST /api/listas-precio/:id/apply-matches — Apply reviewed matches in bulk
 router.post('/:id/apply-matches', async (req: Request, res: Response) => {
   try {
-    // Capturar tenant ANTES del $transaction: el `tx` interno es un cliente
-    // Prisma raw sin la extensión multi-tenant, así que tenemos que
-    // inyectar organizacionId manualmente en cada create que lo requiera
-    // (ProveedorProducto tiene FK a Organizacion, sin esto el default 0
-    // viola el FK y tira 500 — que es exactamente el "Algo falló / Error
-    // al aplicar matches" que reportó el cliente).
+    // Captura tenant al primer tick para tenerlo disponible en todas las
+    // queries (cliente Prisma extendido lo inyecta automáticamente, pero
+    // lo pasamos explícito por defensa y claridad).
     const { organizacionId } = getTenant();
 
     const listaId = parseInt(req.params.id as string);
@@ -691,16 +688,35 @@ router.post('/:id/apply-matches', async (req: Request, res: Response) => {
     const lista = await prisma.listaPrecio.findUnique({ where: { id: listaId } });
     if (!lista) { res.status(404).json({ error: 'Lista no encontrada' }); return; }
 
+    // ANTES usábamos prisma.$transaction(async (tx) => { for (...) {...} }).
+    // Problema: Prisma tiene un timeout DEFAULT de 5 segundos para
+    // transacciones interactivas. Cada match hace 3 queries (find + create/
+    // update + update). Listas grandes (300+ items como SALECIANO, 1000+
+    // como ALYSER) → ~1000 queries → excede el timeout → el tx se cierra
+    // a mitad y el próximo `tx.update()` tira:
+    //   "Transaction API error: Transaction not found"
+    // que es exactamente el error que reportó el cliente.
+    //
+    // Solución: procesar SIN transacción. Cada match es idempotente:
+    //   - findFirst + create/update de ProveedorProducto → lookup único
+    //     por (org, proveedor, producto), no duplica
+    //   - update de ListaPrecioItem → setea flags, idempotente
+    // Si se corta a mitad, el usuario puede reintentar; los ya aplicados
+    // quedan intactos y los restantes se aplican. Acumulamos errores por
+    // match para poder reportar parcialidad al frontend.
     let applied = 0;
-    await prisma.$transaction(async (tx: any) => {
-      for (const m of matches) {
-        if (!m.itemId || !m.productoId) continue;
+    const errores: Array<{ itemId: number; error: string }> = [];
 
-        const item = await tx.listaPrecioItem.findUnique({ where: { id: Number(m.itemId) } });
+    for (const m of matches) {
+      if (!m.itemId || !m.productoId) continue;
+      try {
+        const item = await prisma.listaPrecioItem.findUnique({
+          where: { id: Number(m.itemId) },
+        });
         if (!item || item.listaPrecioId !== listaId) continue;
 
         // Find or create ProveedorProducto — scopeado al tenant.
-        let mapping = await tx.proveedorProducto.findFirst({
+        let mapping = await prisma.proveedorProducto.findFirst({
           where: {
             organizacionId,
             proveedorId: lista.proveedorId,
@@ -708,7 +724,7 @@ router.post('/:id/apply-matches', async (req: Request, res: Response) => {
           },
         });
         if (!mapping) {
-          mapping = await tx.proveedorProducto.create({
+          mapping = await prisma.proveedorProducto.create({
             data: {
               organizacionId,
               proveedorId: lista.proveedorId,
@@ -719,7 +735,7 @@ router.post('/:id/apply-matches', async (req: Request, res: Response) => {
             },
           });
         } else {
-          await tx.proveedorProducto.update({
+          await prisma.proveedorProducto.update({
             where: { id: mapping.id },
             data: {
               ultimoPrecio: item.precioPorUnidad || item.precioInformado,
@@ -728,15 +744,26 @@ router.post('/:id/apply-matches', async (req: Request, res: Response) => {
           });
         }
 
-        await tx.listaPrecioItem.update({
+        await prisma.listaPrecioItem.update({
           where: { id: Number(m.itemId) },
           data: { proveedorProductoId: mapping.id, estadoMatch: 'OK' },
         });
         applied++;
+      } catch (innerErr: any) {
+        console.warn(`[apply-matches] item ${m.itemId} falló:`, innerErr?.message);
+        errores.push({
+          itemId: Number(m.itemId),
+          error: innerErr?.message || 'Error al aplicar match',
+        });
       }
-    });
+    }
 
-    res.json({ ok: true, applied });
+    res.json({
+      ok: true,
+      applied,
+      fallidos: errores.length,
+      errores: errores.length ? errores.slice(0, 10) : undefined, // cap para no inflar response
+    });
   } catch (error: any) {
     console.error('[listas-precio/apply-matches]', error);
     res.status(500).json({ error: error?.message || 'Error al aplicar matches' });

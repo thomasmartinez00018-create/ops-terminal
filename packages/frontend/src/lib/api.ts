@@ -124,11 +124,18 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     // Intentamos parsear el body para mostrar detalle (útil si el backend
     // devuelve algo como { error, db: 'down' }).
     const payload = await res.json().catch(() => ({ error: `Error ${res.status}` }));
-    const isDbDown = payload?.db === 'down' || /database|prisma|ECONNREFUSED|reach database/i.test(payload?.error || '');
+    // Solo clasificamos como "db down" si hay señal INEQUÍVOCA de conexión:
+    //  - flag explícito { db: 'down' } del health endpoint
+    //  - "can't reach database", ECONNREFUSED, connection timeout
+    // Antes matcheábamos cualquier mensaje con "prisma" → falso positivo
+    // con errores de transacción (timeout, lifecycle) que no son DB-down.
+    const errMsg = payload?.error || '';
+    const isDbDown = payload?.db === 'down'
+      || /can'?t reach database|connection refused|ECONNREFUSED|ETIMEDOUT connection|connection timeout|database server/i.test(errMsg);
     window.dispatchEvent(new CustomEvent(BACKEND_DOWN_EVENT, {
-      detail: { kind: isDbDown ? 'db' : 'server', status: res.status, message: payload?.error },
+      detail: { kind: isDbDown ? 'db' : 'server', status: res.status, message: errMsg },
     }));
-    throw new Error(payload?.error || `Error ${res.status} del servidor`);
+    throw new Error(errMsg || `Error ${res.status} del servidor`);
   }
   if (!res.ok) {
     const error = await res.json().catch(() => ({ error: 'Error de servidor' }));
