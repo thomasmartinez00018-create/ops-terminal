@@ -8,6 +8,7 @@ import Modal from '../components/ui/Modal';
 import DrawerModal from '../components/ui/DrawerModal';
 import Badge from '../components/ui/Badge';
 import SearchableSelect from '../components/ui/SearchableSelect';
+import HelpHint from '../components/ui/HelpHint';
 import {
   Plus, Pencil, Trash2, ChefHat, DollarSign, X, Package, Calculator, Info,
   Copy, ChevronDown, ChevronUp, Send, Sliders, Search,
@@ -357,7 +358,18 @@ export default function Recetas() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <div>
-          <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Cocina</p>
+          <div className="flex items-center gap-2">
+            <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Cocina</p>
+            <HelpHint
+              title="¿Cómo funcionan las recetas?"
+              bullets={[
+                'Cargás cada plato una sola vez con sus ingredientes y cuánto lleva de cada uno.',
+                'Cuando subís una factura nueva del proveedor, el costo de cada plato se actualiza solo.',
+                'El número grande en dorado es el costo por porción — lo que te cuesta hacer un plato. Cobrá mínimo 3× ese número.',
+                'Si un ingrediente se descarta (cáscara, hueso), usá el chip "Detalle" para poner el % de merma. Si no, dejalo en 0.',
+              ]}
+            />
+          </div>
           <h1 className="text-xl font-extrabold text-foreground mt-1">Recetas</h1>
           <p className="text-xs text-on-surface-variant mt-0.5">
             {recetas.length} receta{recetas.length === 1 ? '' : 's'} — costo por porción al día con los últimos precios de proveedor.

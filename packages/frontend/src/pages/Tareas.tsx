@@ -111,11 +111,29 @@ export default function Tareas() {
 
   const completar = async () => {
     if (!modalCompletar) return;
+    const tareaId = modalCompletar.id;
+    const titulo = modalCompletar.titulo || 'Tarea';
     try {
-      await api.completarTarea(modalCompletar.id, obsCompletar);
+      await api.completarTarea(tareaId, obsCompletar);
       setModalCompletar(null);
       setObsCompletar('');
-      addToast('Tarea completada');
+      // Toast con "Deshacer" — si el usuario se equivocó al marcar completa,
+      // tiene 6 segundos para revertir sin tener que ir a buscar la tarea.
+      // `updateTarea` con estado=pendiente deja la tarea otra vez en el feed.
+      addToast(`✓ ${titulo.slice(0, 40)}${titulo.length > 40 ? '…' : ''} completada`, {
+        action: {
+          label: 'Deshacer',
+          onClick: async () => {
+            try {
+              await api.updateTarea(tareaId, { estado: 'pendiente' });
+              addToast('Tarea restaurada');
+              cargar();
+            } catch {
+              addToast('No se pudo deshacer', 'error');
+            }
+          },
+        },
+      });
       cargar();
     } catch (e: any) {
       addToast('Error: ' + e.message, 'error');

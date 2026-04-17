@@ -56,14 +56,23 @@ router.post('/', async (req: Request, res: Response) => {
       res.status(400).json({ error: 'Producto es requerido' });
       return;
     }
-    if (!cantidad || Number(cantidad) <= 0) {
-      res.status(400).json({ error: 'Cantidad debe ser mayor a 0' });
+    if (!cantidad || !Number.isFinite(Number(cantidad)) || Number(cantidad) <= 0) {
+      res.status(400).json({ error: 'Cantidad debe ser un número mayor a 0' });
       return;
     }
-    if (!usuarioId) {
+    if (!usuarioId || !Number.isFinite(Number(usuarioId))) {
       res.status(400).json({ error: 'Usuario es requerido' });
       return;
     }
+
+    // Helper: convierte string → número o null. Evita que un input malicioso
+    // ("abc") se inserte como NaN en la DB (lo que después hace imposible
+    // sumar o reportar ese movimiento).
+    const toNumOrNull = (v: any): number | null => {
+      if (v == null || v === '') return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
 
     const movimiento = await prisma.movimiento.create({
       data: {
@@ -74,16 +83,16 @@ router.post('/', async (req: Request, res: Response) => {
         usuarioId: Number(req.body.usuarioId),
         fecha: req.body.fecha,
         hora: req.body.hora,
-        depositoOrigenId: req.body.depositoOrigenId ? Number(req.body.depositoOrigenId) : null,
-        depositoDestinoId: req.body.depositoDestinoId ? Number(req.body.depositoDestinoId) : null,
+        depositoOrigenId: toNumOrNull(req.body.depositoOrigenId),
+        depositoDestinoId: toNumOrNull(req.body.depositoDestinoId),
         lote: req.body.lote || null,
         motivo: req.body.motivo || null,
-        costoUnitario: req.body.costoUnitario ? Number(req.body.costoUnitario) : null,
-        proveedorId: req.body.proveedorId ? Number(req.body.proveedorId) : null,
+        costoUnitario: toNumOrNull(req.body.costoUnitario),
+        proveedorId: toNumOrNull(req.body.proveedorId),
         documentoRef: req.body.documentoRef || null,
         observacion: req.body.observacion || null,
-        responsableId: req.body.responsableId ? Number(req.body.responsableId) : null,
-        recepcionId: req.body.recepcionId ? Number(req.body.recepcionId) : null,
+        responsableId: toNumOrNull(req.body.responsableId),
+        recepcionId: toNumOrNull(req.body.recepcionId),
       },
       include: {
         usuario: { select: { nombre: true } },

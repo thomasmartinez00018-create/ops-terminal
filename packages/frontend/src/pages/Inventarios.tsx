@@ -8,6 +8,7 @@ import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
+import HelpHint from '../components/ui/HelpHint';
 import { Plus, ClipboardCheck, Lock, Trash2, AlertTriangle, ScanBarcode, X, Minus, Zap, Delete, Check, Hash } from 'lucide-react';
 
 interface DetalleRow {
@@ -653,7 +654,18 @@ export default function Inventarios() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <div>
-          <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Sección</p>
+          <div className="flex items-center gap-2">
+            <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Sección</p>
+            <HelpHint
+              title="¿Cómo hago un inventario?"
+              bullets={[
+                'Arrancás un inventario nuevo y elegís en qué depósito vas a contar.',
+                'Con el escáner del celular o a mano, marcás cuántas unidades hay de cada producto.',
+                'Podés pausar y seguir después — aparece destacado arriba para retomar sin buscar.',
+                'Cuando cerrás el inventario, el sistema compara con el teórico y muestra las diferencias para investigar.',
+              ]}
+            />
+          </div>
           <h1 className="text-xl font-extrabold text-foreground mt-1">Inventarios</h1>
         </div>
         <Button onClick={abrirNuevo}>

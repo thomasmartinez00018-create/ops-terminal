@@ -208,7 +208,7 @@ export default function OrdenesCompra() {
       return Math.abs(dif) > 0.001 && !i.atribucion;
     });
     if (sinAtribucion.length > 0) {
-      setError(`Indicá a quién se atribuye la diferencia en: ${sinAtribucion.map(i => i.nombre).join(', ')}`);
+      setError(`Falta marcar quién se hace cargo de la diferencia en: ${sinAtribucion.map(i => i.nombre).join(', ')}`);
       return;
     }
     try {

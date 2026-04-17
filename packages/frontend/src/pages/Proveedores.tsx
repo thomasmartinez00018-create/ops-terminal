@@ -643,11 +643,13 @@ export default function Proveedores() {
               placeholder="ej: cajón"
             />
             <Input
-              label="Factor conv."
+              label="Unidades por compra"
               id="map-factor"
               type="number"
+              inputMode="decimal"
               value={mapForm.factorConversion}
               onChange={e => setMapForm({ ...mapForm, factorConversion: Number(e.target.value) })}
+              placeholder="ej: 12 si viene cajón de 12"
             />
             <Input
               label="Último precio"
