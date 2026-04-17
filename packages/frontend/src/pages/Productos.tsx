@@ -126,13 +126,26 @@ export default function Productos() {
 
   const guardar = async () => {
     setError('');
+    // Validación mínima antes de mandar: factor > 0 porque lo usamos como
+    // divisor al convertir unidadCompra → unidadUso. Sin este guard, guardar
+    // con factor=0 rompía los cálculos de stock y de recetas cuando ese
+    // producto aparecía (NaN/Infinity).
+    const factor = Number(form.factorConversion);
+    if (!Number.isFinite(factor) || factor <= 0) {
+      setError('El factor de conversión debe ser mayor a cero.');
+      return;
+    }
+    if (!form.nombre.trim()) {
+      setError('El nombre del producto es obligatorio.');
+      return;
+    }
     try {
       const data = {
         ...form,
         subrubro: form.subrubro.trim() || null,
-        factorConversion: Number(form.factorConversion),
-        stockMinimo: Number(form.stockMinimo),
-        stockIdeal: Number(form.stockIdeal),
+        factorConversion: factor,
+        stockMinimo: Number(form.stockMinimo) || 0,
+        stockIdeal: Number(form.stockIdeal) || 0,
         depositoDefectoId: form.depositoDefectoId || null,
         codigoBarras: form.codigoBarras || null,
       };
@@ -250,58 +263,102 @@ export default function Productos() {
         )}
       </div>
 
-      {/* Tabla */}
-      <div className="bg-surface rounded-xl border border-border overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border">
-                <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Código</th>
-                <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Nombre</th>
-                <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden sm:table-cell">Rubro</th>
-                <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden md:table-cell">Tipo</th>
-                <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden lg:table-cell">Unidad</th>
-                <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden lg:table-cell">Stock mín.</th>
-                <th className="text-right p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {productos.map(p => (
-                <tr key={p.id} className="hover:bg-surface-high/50 transition-colors">
-                  <td className="p-3 font-mono text-xs text-primary">{p.codigo}</td>
-                  <td className="p-3 font-semibold text-foreground">{p.nombre}</td>
-                  <td className="p-3 hidden sm:table-cell">
-                    <div className="flex flex-wrap gap-1">
-                      <Badge>{p.rubro}</Badge>
-                      {p.subrubro && <Badge variant="secondary">{p.subrubro}</Badge>}
-                    </div>
-                  </td>
-                  <td className="p-3 hidden md:table-cell capitalize text-on-surface-variant">{p.tipo}</td>
-                  <td className="p-3 hidden lg:table-cell text-on-surface-variant">{p.unidadUso}</td>
-                  <td className="p-3 hidden lg:table-cell text-on-surface-variant">{p.stockMinimo}</td>
-                  <td className="p-3 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <button onClick={() => abrir(p)} className="p-1.5 rounded-lg hover:bg-surface-high text-on-surface-variant hover:text-foreground transition-colors">
-                        <Pencil size={14} />
-                      </button>
-                      <button onClick={() => eliminar(p.id, p.nombre)} className="p-1.5 rounded-lg hover:bg-destructive/10 text-on-surface-variant hover:text-destructive transition-colors">
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {productos.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="p-8 text-center text-on-surface-variant font-medium">
-                    No se encontraron productos
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+      {/* Empty state compartido entre mobile/desktop */}
+      {productos.length === 0 && (
+        <div className="bg-surface rounded-xl border border-border p-10 text-center text-on-surface-variant font-medium">
+          No se encontraron productos
         </div>
-      </div>
+      )}
+
+      {/* Mobile: cards con info densa pero legible en 375px */}
+      {productos.length > 0 && (
+        <div className="sm:hidden space-y-2">
+          {productos.map(p => (
+            <div key={p.id} className="bg-surface rounded-xl border border-border p-3.5">
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <div className="flex-1 min-w-0">
+                  <p className="font-mono text-[10px] text-primary">{p.codigo}</p>
+                  <p className="font-bold text-foreground text-sm leading-tight mt-0.5 truncate">{p.nombre}</p>
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    <Badge>{p.rubro}</Badge>
+                    {p.subrubro && <Badge variant="secondary">{p.subrubro}</Badge>}
+                  </div>
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  <button
+                    onClick={() => abrir(p)}
+                    className="p-2 rounded-lg bg-surface-high text-on-surface-variant active:text-foreground"
+                    title="Editar"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  <button
+                    onClick={() => eliminar(p.id, p.nombre)}
+                    className="p-2 rounded-lg bg-surface-high text-on-surface-variant active:bg-destructive/10 active:text-destructive"
+                    title="Eliminar"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-3 text-[11px] text-on-surface-variant pt-2 border-t border-border/50">
+                <span className="capitalize">{p.tipo}</span>
+                <span>· {p.unidadUso}</span>
+                {p.stockMinimo > 0 && <span>· mín {p.stockMinimo}</span>}
+                {p.codigoBarras && <span className="font-mono">· {p.codigoBarras}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Desktop: tabla */}
+      {productos.length > 0 && (
+        <div className="hidden sm:block bg-surface rounded-xl border border-border overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Código</th>
+                  <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Nombre</th>
+                  <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Rubro</th>
+                  <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden md:table-cell">Tipo</th>
+                  <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden lg:table-cell">Unidad</th>
+                  <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden lg:table-cell">Stock mín.</th>
+                  <th className="text-right p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {productos.map(p => (
+                  <tr key={p.id} className="hover:bg-surface-high/50 transition-colors">
+                    <td className="p-3 font-mono text-xs text-primary">{p.codigo}</td>
+                    <td className="p-3 font-semibold text-foreground">{p.nombre}</td>
+                    <td className="p-3">
+                      <div className="flex flex-wrap gap-1">
+                        <Badge>{p.rubro}</Badge>
+                        {p.subrubro && <Badge variant="secondary">{p.subrubro}</Badge>}
+                      </div>
+                    </td>
+                    <td className="p-3 hidden md:table-cell capitalize text-on-surface-variant">{p.tipo}</td>
+                    <td className="p-3 hidden lg:table-cell text-on-surface-variant">{p.unidadUso}</td>
+                    <td className="p-3 hidden lg:table-cell text-on-surface-variant">{p.stockMinimo}</td>
+                    <td className="p-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => abrir(p)} className="p-1.5 rounded-lg hover:bg-surface-high text-on-surface-variant hover:text-foreground transition-colors">
+                          <Pencil size={14} />
+                        </button>
+                        <button onClick={() => eliminar(p.id, p.nombre)} className="p-1.5 rounded-lg hover:bg-destructive/10 text-on-surface-variant hover:text-destructive transition-colors">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Modal */}
       <Modal
