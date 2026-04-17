@@ -59,6 +59,17 @@ model Organizacion {
   cuit                 String?
   condicionIva         String?   @map("condicion_iva") // responsable_inscripto | monotributo | exento
   domicilioFiscal      String?   @map("domicilio_fiscal")
+  // ── Onboarding personalizado ──────────────────────────────────────────
+  // JSON stringificado con respuestas del wizard post-signup:
+  //   { empleados: 'solo_yo'|'2_5'|'6_15'|'16_mas',
+  //     dolor: 'costo_plato'|'merma'|'robo'|'pedidos',
+  //     frecuencia: 'todo_dia'|'rato'|'ocasional',
+  //     skipped?: true,
+  //     version: 1 }
+  // Se usa para (a) inyectar contexto al asistente IA y (b) priorizar
+  // qué tours/recomendaciones mostrar en el Dashboard. null = wizard no
+  // completado todavía (seguimos mostrándolo hasta que responda u omita).
+  perfilOnboarding     String?   @map("perfil_onboarding")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 

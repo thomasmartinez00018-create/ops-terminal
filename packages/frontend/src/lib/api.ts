@@ -157,6 +157,19 @@ export interface CuentaInfo {
   nombre: string;
   emailVerificado?: boolean;
 }
+// Perfil de onboarding del workspace — capturado en el wizard de 3 preguntas
+// que aparece la primera vez que el dueño/admin entra al Dashboard. Todos
+// los campos son opcionales; `skipped=true` marca que el usuario dijo "más
+// tarde" y no queremos volver a preguntar. `null` en WorkspaceInfo significa
+// que el wizard aún no se mostró — el front lo dispara.
+export interface PerfilOnboarding {
+  empleados?: 'solo_yo' | '2_5' | '6_15' | '16_mas';
+  dolor?: 'costo_plato' | 'merma' | 'robo' | 'pedidos';
+  frecuencia?: 'todo_dia' | 'rato' | 'ocasional';
+  skipped?: boolean;
+  version?: number;
+}
+
 export interface WorkspaceInfo {
   id: number;
   nombre: string;
@@ -164,6 +177,7 @@ export interface WorkspaceInfo {
   plan: string;
   estadoSuscripcion: string;
   rol: string;
+  perfilOnboarding?: PerfilOnboarding | null;
 }
 export interface CuentaLoginResponse {
   token: string;
@@ -278,6 +292,15 @@ export const api = {
       body: JSON.stringify({ organizacionId }),
     }),
   cuentaLogout: () => request<{ ok: boolean }>('/cuenta/logout', { method: 'POST' }),
+
+  // Onboarding: guarda/actualiza el perfil del workspace (tamaño + dolor +
+  // frecuencia). Solo el owner/admin de la cuenta puede modificarlo.
+  // Pasar { skipped: true } para marcar que el usuario omitió el wizard.
+  updateWorkspacePerfil: (workspaceId: number, perfil: PerfilOnboarding) =>
+    request<{ ok: boolean; perfil: PerfilOnboarding }>(
+      `/cuenta/workspaces/${workspaceId}/perfil`,
+      { method: 'PATCH', body: JSON.stringify(perfil) },
+    ),
   // Baja un token stage 2/3 a stage 1 (selector de workspace) sin pedir
   // password. Se usa desde dentro de la app para "Cambiar workspace".
   downgradeToStage1: () =>

@@ -9,6 +9,7 @@ import AIAssistant from '../AIAssistant';
 import QuickMovimiento from '../QuickMovimiento';
 import CommandPalette, { useCommandPaletteShortcut } from '../CommandPalette';
 import BackendStatusBanner from '../BackendStatusBanner';
+import OnboardingPerfilWizard from '../OnboardingPerfilWizard';
 
 export default function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -51,6 +52,10 @@ export default function AppLayout() {
       <QuickMovimiento open={quickMovOpen} onClose={() => setQuickMovOpen(false)} tipoInicial={quickMovTipo} />
       <Onboarding />
       <AIAssistant />
+      {/* Wizard de 3 preguntas que aparece la primera vez que el owner entra
+          a un workspace sin perfilOnboarding. Se auto-oculta si ya respondió
+          u omitió, o si el usuario staff no es admin. */}
+      <OnboardingPerfilWizard />
       {/* Banner de estado del backend/DB (fixed top). Solo visible cuando
           hay problemas de infraestructura. */}
       <BackendStatusBanner />

@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import prisma from '../lib/prisma';
+import { tryGetTenant } from '../lib/tenantContext';
 
 const router = Router();
 
@@ -92,6 +94,101 @@ GUARDRAILS DE SEGURIDAD:
 // al anterior estable que haya disponible.
 const GEMINI_MODEL = 'gemini-3.1-flash-lite-preview';
 
+// ── Contexto del negocio para la IA ─────────────────────────────────────────
+// Lee el perfil de onboarding + stats básicos del workspace actual y arma
+// un bloque de texto que se concatena al SYSTEM_PROMPT. Con esto el asistente
+// deja de ser genérico: sabe que está hablando con "Sushi X" de 6-15 empleados
+// cuyo dolor principal es costo por plato y que aún no cargó recetas → puede
+// guiar con precisión en vez de responder como si fuera la primera interacción.
+//
+// Degrada sin contexto: si Prisma falla o el perfil está vacío, devuelve ''.
+// Ningún error de este paso debe romper el chat.
+const EMPLEADOS_LABEL: Record<string, string> = {
+  solo_yo: 'Trabaja solo, sin empleados',
+  '2_5': 'Equipo chico (2-5 personas)',
+  '6_15': 'Equipo mediano (6-15 personas)',
+  '16_mas': 'Equipo grande (16+ personas)',
+};
+const DOLOR_LABEL: Record<string, string> = {
+  costo_plato: 'No sabe cuánto le cuesta cada plato/producto (prioridad: costeo preciso)',
+  merma: 'Se le vence mercadería antes de usarla (prioridad: control de merma)',
+  robo: 'Pierde stock sin explicación, sospecha robo interno (prioridad: trazabilidad)',
+  pedidos: 'Pierde tiempo armando pedidos a proveedores (prioridad: órdenes de compra)',
+};
+const FRECUENCIA_LABEL: Record<string, string> = {
+  todo_dia: 'Usa la app todo el día (POS-like, mucho volumen)',
+  rato: 'Usa la app un rato (modo supervisor/dueño)',
+  ocasional: 'Usa la app solo cuando hace falta',
+};
+
+async function buildContextoNegocio(): Promise<string> {
+  const ctx = tryGetTenant();
+  if (!ctx) return '';
+  try {
+    const [org, productosCount, recetasCount, facturasCount, proveedoresCount, movimientosCount] = await Promise.all([
+      prisma.organizacion.findUnique({
+        where: { id: ctx.organizacionId },
+        select: { nombre: true, perfilOnboarding: true, createdAt: true } as any,
+      }),
+      prisma.producto.count(),
+      prisma.receta.count(),
+      prisma.factura.count(),
+      prisma.proveedor.count(),
+      prisma.movimiento.count(),
+    ]);
+    if (!org) return '';
+
+    const lines: string[] = ['---', 'CONTEXTO DEL NEGOCIO DEL USUARIO:'];
+    if ((org as any).nombre) lines.push(`- Workspace: ${(org as any).nombre}`);
+
+    // Perfil de onboarding parseado
+    let perfil: any = null;
+    try {
+      const raw = (org as any).perfilOnboarding;
+      perfil = raw ? JSON.parse(raw) : null;
+    } catch { /* perfil corrupto, ignorar */ }
+
+    if (perfil && !perfil.skipped) {
+      if (perfil.empleados && EMPLEADOS_LABEL[perfil.empleados]) {
+        lines.push(`- Tamaño del equipo: ${EMPLEADOS_LABEL[perfil.empleados]}`);
+      }
+      if (perfil.dolor && DOLOR_LABEL[perfil.dolor]) {
+        lines.push(`- Dolor principal declarado: ${DOLOR_LABEL[perfil.dolor]}`);
+      }
+      if (perfil.frecuencia && FRECUENCIA_LABEL[perfil.frecuencia]) {
+        lines.push(`- Frecuencia de uso: ${FRECUENCIA_LABEL[perfil.frecuencia]}`);
+      }
+    }
+
+    // Edad del workspace + estado de configuración
+    const createdAt = (org as any).createdAt;
+    if (createdAt) {
+      const diasDesdeCreacion = Math.max(0, Math.floor((Date.now() - new Date(createdAt).getTime()) / (1000 * 60 * 60 * 24)));
+      lines.push(`- Workspace creado hace ${diasDesdeCreacion} día${diasDesdeCreacion === 1 ? '' : 's'}`);
+    }
+    lines.push(`- Estado actual: ${productosCount} productos · ${recetasCount} recetas · ${proveedoresCount} proveedores · ${facturasCount} facturas · ${movimientosCount} movimientos`);
+
+    // Hints accionables derivados — le dan al modelo "siguientes pasos" sin
+    // que tenga que inferirlos solo.
+    const hints: string[] = [];
+    if (productosCount === 0) hints.push('todavía no cargó ningún producto');
+    else if (productosCount < 10) hints.push('recién empieza a cargar productos');
+    if (recetasCount === 0 && productosCount > 5) hints.push('tiene productos pero 0 recetas → no puede ver costo por plato');
+    if (facturasCount === 0 && proveedoresCount > 0) hints.push('tiene proveedores cargados pero ninguna factura confirmada');
+    if (hints.length) {
+      lines.push(`- Señales: ${hints.join('; ')}`);
+    }
+
+    lines.push('');
+    lines.push('INSTRUCCIÓN EXTRA: tené en cuenta este contexto al responder. Si el usuario pregunta algo vago tipo "¿qué hago ahora?", proponé un próximo paso alineado con su dolor principal y su estado actual. No listes features genéricas — sugerí UNA acción concreta.');
+
+    return lines.join('\n');
+  } catch (err) {
+    console.warn('[aiChat] buildContextoNegocio falló, degradando a prompt genérico:', (err as any)?.message);
+    return '';
+  }
+}
+
 // POST /api/ai/chat
 router.post('/chat', async (req: Request, res: Response) => {
   try {
@@ -125,10 +222,17 @@ router.post('/chat', async (req: Request, res: Response) => {
         parts: [{ text: sanitizeUserText(h.text, MAX_HISTORY_MSG_LEN) }],
       }));
 
+    // Traemos el contexto del negocio EN PARALELO con la construcción del
+    // historial; si la DB tarda o falla, el chat no se bloquea.
+    const contextoNegocio = await buildContextoNegocio();
+    const systemInstructionFinal = contextoNegocio
+      ? `${SYSTEM_PROMPT}\n\n${contextoNegocio}`
+      : SYSTEM_PROMPT;
+
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({
       model: GEMINI_MODEL,
-      systemInstruction: SYSTEM_PROMPT,
+      systemInstruction: systemInstructionFinal,
       generationConfig: {
         maxOutputTokens: MAX_OUTPUT_TOKENS,
         temperature: TEMPERATURE,

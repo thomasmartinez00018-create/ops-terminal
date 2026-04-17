@@ -316,6 +316,9 @@ router.get('/workspaces', requireAnyAuth, async (req: Request, res: Response) =>
         plan: m.organizacion.plan,
         estadoSuscripcion: m.organizacion.estadoSuscripcion,
         rol: m.rol,
+        // Perfil parseado — null si no hay, o el objeto si existe. El front
+        // lo usa para decidir si mostrar el wizard post-signup o no.
+        perfilOnboarding: parsePerfilOnboarding((m.organizacion as any).perfilOnboarding),
       })));
     });
   } catch (err: any) {
@@ -733,6 +736,106 @@ router.post('/to-stage-1', requireAnyAuth, async (req: Request, res: Response) =
 // ============================================================================
 router.post('/logout', (_req: Request, res: Response) => {
   res.json({ ok: true });
+});
+
+// ============================================================================
+// Onboarding: perfil del workspace (tamaño + dolor + frecuencia)
+// ----------------------------------------------------------------------------
+// Se setea una vez al final del signup/creación de workspace. Se usa para:
+//   1. Inyectar contexto al asistente IA (aiChat) — respuestas personalizadas.
+//   2. Priorizar tours/recomendaciones en el Dashboard.
+//   3. Data de producto para Ops (qué rubros y dolores tienen los clientes).
+// Schema esperado (todos opcionales excepto version):
+//   { empleados: 'solo_yo'|'2_5'|'6_15'|'16_mas',
+//     dolor: 'costo_plato'|'merma'|'robo'|'pedidos',
+//     frecuencia: 'todo_dia'|'rato'|'ocasional',
+//     skipped?: boolean,
+//     version: number }
+// Validación estricta para no ensuciar la DB con JSON arbitrario.
+// ============================================================================
+
+const EMPLEADOS_VALIDOS = new Set(['solo_yo', '2_5', '6_15', '16_mas']);
+const DOLOR_VALIDO = new Set(['costo_plato', 'merma', 'robo', 'pedidos']);
+const FRECUENCIA_VALIDA = new Set(['todo_dia', 'rato', 'ocasional']);
+
+function parsePerfilOnboarding(raw: string | null | undefined): any | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function sanitizarPerfil(body: any): {
+  empleados?: string;
+  dolor?: string;
+  frecuencia?: string;
+  skipped?: boolean;
+  version: number;
+} {
+  const out: any = { version: 1 };
+  if (body?.skipped === true) {
+    return { skipped: true, version: 1 };
+  }
+  if (typeof body?.empleados === 'string' && EMPLEADOS_VALIDOS.has(body.empleados)) {
+    out.empleados = body.empleados;
+  }
+  if (typeof body?.dolor === 'string' && DOLOR_VALIDO.has(body.dolor)) {
+    out.dolor = body.dolor;
+  }
+  if (typeof body?.frecuencia === 'string' && FRECUENCIA_VALIDA.has(body.frecuencia)) {
+    out.frecuencia = body.frecuencia;
+  }
+  return out;
+}
+
+// PATCH /api/cuenta/workspaces/:id/perfil
+// Guarda/actualiza el perfil de onboarding del workspace. Requiere que la
+// cuenta del token sea miembro del workspace con rol owner o admin — los
+// empleados staff no pueden modificar el perfil del dueño.
+router.patch('/workspaces/:id/perfil', requireAnyAuth, async (req: Request, res: Response) => {
+  try {
+    const workspaceId = parseInt(req.params.id as string);
+    if (!Number.isFinite(workspaceId) || workspaceId <= 0) {
+      res.status(400).json({ error: 'ID de workspace inválido' });
+      return;
+    }
+
+    const cuentaId = (req.token as any).cuentaId;
+    if (!cuentaId) {
+      res.status(401).json({ error: 'Token sin cuentaId' });
+      return;
+    }
+
+    const perfil = sanitizarPerfil(req.body);
+
+    await runWithoutTenant(async () => {
+      // Verificar membership + rol
+      const miembro = await prismaRaw.miembro.findFirst({
+        where: { cuentaId, organizacionId: workspaceId },
+      });
+      if (!miembro) {
+        res.status(403).json({ error: 'No sos miembro de este workspace' });
+        return;
+      }
+      if (miembro.rol !== 'owner' && miembro.rol !== 'admin') {
+        res.status(403).json({ error: 'Solo el owner o admin puede editar el perfil del workspace' });
+        return;
+      }
+
+      await prismaRaw.organizacion.update({
+        where: { id: workspaceId },
+        data: { perfilOnboarding: JSON.stringify(perfil) } as any,
+      });
+
+      res.json({ ok: true, perfil });
+    });
+  } catch (err: any) {
+    console.error('[cuenta/workspaces/:id/perfil PATCH]', err);
+    res.status(500).json({ error: 'Error al guardar perfil' });
+  }
 });
 
 export default router;
