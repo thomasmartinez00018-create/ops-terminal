@@ -542,6 +542,12 @@ router.post('/importar', upload.single('archivo'), async (req: Request, res: Res
 // POST /api/listas-precio/:id/match — Manual match single item
 router.post('/:id/match', async (req: Request, res: Response) => {
   try {
+    // Capturamos el tenant temprano por la misma razón que apply-matches —
+    // aunque acá no usamos $transaction, mantenemos el patrón consistente
+    // y defensivo por si la extensión multi-tenant no se aplica en algún
+    // caso edge (ej: ALS perdido por async work).
+    const { organizacionId } = getTenant();
+
     const { itemId, productoId } = req.body;
     if (!itemId || !productoId) {
       res.status(400).json({ error: 'Faltan itemId y productoId' });
@@ -558,12 +564,13 @@ router.post('/:id/match', async (req: Request, res: Response) => {
 
     // Find or create ProveedorProducto
     let mapping = await prisma.proveedorProducto.findFirst({
-      where: { proveedorId, productoId: Number(productoId) },
+      where: { organizacionId, proveedorId, productoId: Number(productoId) },
     });
 
     if (!mapping) {
       mapping = await prisma.proveedorProducto.create({
         data: {
+          organizacionId,
           proveedorId,
           productoId: Number(productoId),
           nombreProveedor: item.productoOriginal,
@@ -669,6 +676,14 @@ router.post('/:id/match-ai', async (req: Request, res: Response) => {
 // POST /api/listas-precio/:id/apply-matches — Apply reviewed matches in bulk
 router.post('/:id/apply-matches', async (req: Request, res: Response) => {
   try {
+    // Capturar tenant ANTES del $transaction: el `tx` interno es un cliente
+    // Prisma raw sin la extensión multi-tenant, así que tenemos que
+    // inyectar organizacionId manualmente en cada create que lo requiera
+    // (ProveedorProducto tiene FK a Organizacion, sin esto el default 0
+    // viola el FK y tira 500 — que es exactamente el "Algo falló / Error
+    // al aplicar matches" que reportó el cliente).
+    const { organizacionId } = getTenant();
+
     const listaId = parseInt(req.params.id as string);
     const { matches } = req.body; // [{ itemId, productoId }]
     if (!matches?.length) { res.status(400).json({ error: 'No matches to apply' }); return; }
@@ -684,13 +699,18 @@ router.post('/:id/apply-matches', async (req: Request, res: Response) => {
         const item = await tx.listaPrecioItem.findUnique({ where: { id: Number(m.itemId) } });
         if (!item || item.listaPrecioId !== listaId) continue;
 
-        // Find or create ProveedorProducto
+        // Find or create ProveedorProducto — scopeado al tenant.
         let mapping = await tx.proveedorProducto.findFirst({
-          where: { proveedorId: lista.proveedorId, productoId: Number(m.productoId) },
+          where: {
+            organizacionId,
+            proveedorId: lista.proveedorId,
+            productoId: Number(m.productoId),
+          },
         });
         if (!mapping) {
           mapping = await tx.proveedorProducto.create({
             data: {
+              organizacionId,
               proveedorId: lista.proveedorId,
               productoId: Number(m.productoId),
               nombreProveedor: item.productoOriginal,
@@ -719,7 +739,7 @@ router.post('/:id/apply-matches', async (req: Request, res: Response) => {
     res.json({ ok: true, applied });
   } catch (error: any) {
     console.error('[listas-precio/apply-matches]', error);
-    res.status(500).json({ error: 'Error al aplicar matches' });
+    res.status(500).json({ error: error?.message || 'Error al aplicar matches' });
   }
 });
 

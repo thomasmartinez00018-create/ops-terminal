@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import prisma from '../lib/prisma';
+import { getTenant } from '../lib/tenantContext';
 import { detectarVariaciones, persistirAlertas, type VariacionDetectada } from '../lib/alertasPrecio';
 
 const router = Router();
@@ -280,6 +281,15 @@ router.post('/escanear', async (req, res) => {
 // ── POST /api/facturas/confirmar ── Persiste Factura + Items + Movimientos ──
 router.post('/confirmar', async (req, res) => {
   try {
+    // Capturamos el tenant ACÁ (primer tick del handler) porque dentro del
+    // $transaction interactivo el ALS puede perderse si una operación async
+    // interna salta fuera del frame. Lo inyectamos explícitamente en los
+    // creates que tienen FK a Organizacion — sin esto, si la extensión
+    // multi-tenant no interceptó la query, el default organizacionId=0 viola
+    // el FK y la transacción entera se rollea back → "Error al registrar
+    // factura" en el frontend.
+    const { organizacionId } = getTenant();
+
     const {
       items, proveedorId, depositoDestinoId, usuarioId,
       fecha, documentoRef,
@@ -302,9 +312,10 @@ router.post('/confirmar', async (req, res) => {
       const nextNum = (last?.id || 0) + 1;
       const codigo = `FAC-${String(nextNum).padStart(4, '0')}`;
 
-      // 1. Crear Factura
+      // 1. Crear Factura — organizacionId explícito por defensa.
       const factura = await tx.factura.create({
         data: {
+          organizacionId,
           codigo,
           tipoComprobante: tipoComprobante || 'ticket',
           numero: documentoRef || '',
@@ -355,6 +366,7 @@ router.post('/confirmar', async (req, res) => {
       if (itemsValidos.length) {
         await tx.movimiento.createMany({
           data: itemsValidos.map((item: any) => ({
+            organizacionId,
             tipo: 'ingreso',
             productoId: Number(item.productoId),
             cantidad: toNum(item.cantidad),
@@ -445,8 +457,10 @@ router.post('/confirmar', async (req, res) => {
           try {
             // findFirst + update/create en lugar de upsert porque no hay
             // índice único compuesto proveedorId+productoId garantizado.
+            // organizacionId explícito para no depender de la extensión
+            // dentro de $transaction.
             const existing = await tx.proveedorProducto.findFirst({
-              where: { proveedorId: Number(proveedorId), productoId: pid },
+              where: { organizacionId, proveedorId: Number(proveedorId), productoId: pid },
               select: { id: true },
             });
             if (existing) {
@@ -460,6 +474,7 @@ router.post('/confirmar', async (req, res) => {
                 || `Producto #${pid}`;
               await tx.proveedorProducto.create({
                 data: {
+                  organizacionId,
                   proveedorId: Number(proveedorId),
                   productoId: pid,
                   nombreProveedor: nombreFallback.slice(0, 200),
