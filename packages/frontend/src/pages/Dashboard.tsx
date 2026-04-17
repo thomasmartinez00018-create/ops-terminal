@@ -158,7 +158,7 @@ function DashboardSimple({ rol }: { rol: string }) {
       <MisTareasPendientes />
 
       {/* Acciones principales — botones grandes */}
-      <div className="grid grid-cols-2 gap-3 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
         {showAccion('uso') && (
           <button
             onClick={() => abrirQuick('consumo_interno')}
@@ -274,7 +274,7 @@ function DashboardDeposito() {
       <MisTareasPendientes />
 
       {/* Acciones principales */}
-      <div className="grid grid-cols-2 gap-3 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
         {showAccion('ordenes') && (
         <button
           onClick={() => navigate('/ordenes-compra')}
@@ -526,7 +526,7 @@ function DashboardDueno() {
 
       {/* ── Pulso del negocio — 4 KPIs grandes, clickables ──────────────── */}
       {showWidget('pulso') && (
-        <div className="grid grid-cols-2 gap-3 mb-6 stagger-children">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6 stagger-children">
           <button
             onClick={() => navigate('/reportes-costos')}
             className="glass card-glow rounded-2xl p-5 text-left hover:bg-surface-high/50 active:scale-[0.98] transition-all"
@@ -844,7 +844,7 @@ function DashboardAdmin() {
 
       {/* ── KPIs clickables con tendencia ─────────────────────────────────── */}
       {showWidget('kpis') && (
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6 stagger-children">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6 stagger-children">
         {kpis.map(card => (
           <button
             key={card.label}

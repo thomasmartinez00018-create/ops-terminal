@@ -10,6 +10,7 @@ import Badge from '../components/ui/Badge';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import { useToast } from '../context/ToastContext';
 import { useRecentProducts } from '../hooks/useRecentProducts';
+import { tiposPermitidos, TIPOS_MOVIMIENTO } from '../lib/permisosMovimiento';
 import { Plus, ScanLine, Layers, ScanBarcode } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import ExportMenu from '../components/ui/ExportMenu';
@@ -84,10 +85,33 @@ export default function Movimientos() {
     api.getUsuarios({ activo: 'true' }).then(setUsuarios).catch(console.error);
   }, []);
 
-  const abrirNuevo = () => {
+  // Default inteligente por rol — le ahorra al cocinero/barra/depósito
+  // un tap cada vez que abre el form. Antes arrancaba siempre en "ingreso"
+  // aunque el cocinero solo registra "consumo_interno" y "merma".
+  const tipoDefaultPorRol = (rol?: string): string => {
+    if (rol === 'cocina') return 'consumo_interno';
+    if (rol === 'barra') return 'venta';
+    if (rol === 'deposito') return 'ingreso';
+    return 'ingreso'; // admin/compras
+  };
+
+  const abrirNuevo = (tipoForzado?: string) => {
+    const tipo = tipoForzado || tipoDefaultPorRol(user?.rol);
+    const depDef = user?.depositoDefectoId ? String(user.depositoDefectoId) : '';
     setForm({
-      tipo: 'ingreso', productoId: '', depositoOrigenId: '', depositoDestinoId: '',
-      cantidad: '', unidad: '', lote: '', motivo: '', observacion: '', responsableId: ''
+      tipo,
+      productoId: '',
+      // Pre-llenamos el depósito defecto del usuario según el tipo:
+      // - Consumo/merma/venta/transferencia → es el origen (desde donde sale)
+      // - Ingreso → es el destino (donde llega)
+      depositoOrigenId: ['merma', 'transferencia', 'consumo_interno', 'venta'].includes(tipo) ? depDef : '',
+      depositoDestinoId: ['ingreso', 'transferencia'].includes(tipo) ? depDef : '',
+      cantidad: '',
+      unidad: '',
+      lote: '',
+      motivo: '',
+      observacion: '',
+      responsableId: '',
     });
     setError('');
     setModalOpen(true);
@@ -293,11 +317,37 @@ export default function Movimientos() {
           >
             <Layers size={16} /> Múltiple
           </button>
-          <Button onClick={abrirNuevo}>
+          <Button onClick={() => abrirNuevo()}>
             <Plus size={16} /> Registrar movimiento
           </Button>
         </div>
       </div>
+
+      {/* Chips de acceso rápido — atajos al form con el tipo precargado.
+          El usuario ve las 2-3 acciones que hace todos los días en su rol
+          ("Merma", "Consumo/uso" si es cocina; "Ingreso", "Transferencia"
+          si es depósito) con 1 tap. Respeta los permisos del usuario
+          (si el admin no habilitó "venta" para cocina, ese chip no aparece). */}
+      {(() => {
+        const permitidos = new Set(tiposPermitidos(user as any));
+        const chips = TIPOS_MOVIMIENTO.filter(t => permitidos.has(t.value));
+        if (chips.length === 0) return null;
+        return (
+          <div className="flex flex-wrap gap-2 mb-4">
+            <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider self-center mr-1">Registro rápido:</span>
+            {chips.map(t => (
+              <button
+                key={t.value}
+                onClick={() => abrirNuevo(t.value)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all active:scale-95 ${t.color}`}
+                title={`Registrar ${t.label.toLowerCase()}`}
+              >
+                <span>{t.icon}</span> {t.label}
+              </button>
+            ))}
+          </div>
+        );
+      })()}
 
       <div className="mb-4">
         <select

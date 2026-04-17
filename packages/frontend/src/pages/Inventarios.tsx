@@ -661,6 +661,49 @@ export default function Inventarios() {
         </Button>
       </div>
 
+      {/* Banner de inventarios pausados — reduce fricción cuando el conteo
+          quedó a mitad (turno interrumpido, wifi caído, alguien pausó para
+          atender servicio). Aparece destacado arriba para no olvidar y
+          lleva directo a retomar sin tener que buscarlo en la lista. */}
+      {(() => {
+        const abiertos = inventarios.filter(i => i.estado === 'abierto');
+        if (abiertos.length === 0) return null;
+        return (
+          <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <ClipboardCheck size={14} className="text-amber-500" />
+              <p className="text-xs font-bold text-amber-500">
+                {abiertos.length === 1
+                  ? 'Tenés un inventario sin terminar'
+                  : `Tenés ${abiertos.length} inventarios sin terminar`}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {abiertos.map(inv => {
+                const contados = inv._count?.detalles ?? inv.detalles?.length ?? 0;
+                return (
+                  <button
+                    key={inv.id}
+                    onClick={() => abrirDetalle(inv.id)}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface border border-border hover:border-amber-500/40 active:bg-surface-high transition-colors text-left"
+                  >
+                    <div>
+                      <p className="text-sm font-bold text-foreground">{inv.deposito?.nombre || 'Sin depósito'}</p>
+                      <p className="text-[10px] text-on-surface-variant">
+                        {inv.fecha} · {contados} productos contados
+                      </p>
+                    </div>
+                    <span className="text-[10px] font-bold text-amber-500 px-2 py-0.5 rounded bg-amber-500/10 uppercase tracking-wider">
+                      Seguir
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-4">
         <select

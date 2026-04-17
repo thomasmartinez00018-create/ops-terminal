@@ -8,7 +8,7 @@ import Select from '../components/ui/Select';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
 import SearchableSelect from '../components/ui/SearchableSelect';
-import { Plus, Eye, X as XIcon, Check, CheckCheck, AlertTriangle, TrendingDown, TrendingUp } from 'lucide-react';
+import { Plus, Eye, X as XIcon, Check, CheckCheck, AlertTriangle, TrendingDown, TrendingUp, Copy } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 
 const ESTADOS: Record<string, { label: string; variant: 'default' | 'success' | 'warning' | 'danger' | 'info' }> = {
@@ -113,6 +113,43 @@ export default function OrdenesCompra() {
 
   const agregarItem = () => {
     setItemsForm([...itemsForm, { productoId: 0, nombre: '', cantidadPedida: 1, unidad: 'unidad', precioEstimado: null }]);
+  };
+
+  // "Duplicar última OC del proveedor" — resuelve el caso típico:
+  // el viernes hacés pedido a Barraca Logística con los 12 insumos
+  // habituales, variando solo las cantidades. Sin esto, arrancás de cero
+  // cada viernes tipeando 12 líneas. Ahora elegís proveedor y con 1 click
+  // copiás los items de la orden anterior (cantidades incluidas, editables).
+  const duplicarUltimaOC = async () => {
+    if (!form.proveedorId) {
+      setError('Elegí primero el proveedor para traer su última orden.');
+      return;
+    }
+    try {
+      const ordenes = await api.getOrdenesCompra({ proveedorId: String(form.proveedorId) });
+      if (!ordenes || ordenes.length === 0) {
+        setError('Este proveedor no tiene órdenes previas. Cargá los items manualmente.');
+        return;
+      }
+      // La lista viene ordenada desc por fecha. Tomamos la primera con items.
+      const ultima = await api.getOrdenCompra(ordenes[0].id);
+      if (!ultima?.items?.length) {
+        setError('La última orden de este proveedor no tiene items.');
+        return;
+      }
+      setItemsForm(
+        ultima.items.map((it: any) => ({
+          productoId: it.productoId,
+          nombre: it.producto?.nombre || '',
+          cantidadPedida: Number(it.cantidadPedida) || 1,
+          unidad: it.unidad || 'unidad',
+          precioEstimado: it.precioEstimado ? Number(it.precioEstimado) : null,
+        })),
+      );
+      setError('');
+    } catch (e: any) {
+      setError(e.message || 'No pudimos traer la última orden.');
+    }
   };
 
   const updateItem = (idx: number, field: string, value: any) => {
@@ -607,6 +644,20 @@ export default function OrdenesCompra() {
           </Select>
 
           <Input label="Observación" value={form.observacion} onChange={e => setForm({ ...form, observacion: e.target.value })} />
+
+          {/* Shortcut: duplicar última OC de este proveedor — ahorra cargar
+              los mismos 10-15 items cada semana. Solo visible cuando hay
+              proveedor elegido y la lista de items está vacía (caso típico
+              al abrir el modal). */}
+          {form.proveedorId && itemsForm.length === 0 && (
+            <button
+              onClick={duplicarUltimaOC}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-primary/10 border border-primary/30 text-primary text-xs font-bold hover:bg-primary/20 active:bg-primary/30 transition-colors"
+              title="Copia los items (cantidades incluidas) de la última orden a este proveedor"
+            >
+              <Copy size={14} /> Usar la última orden a este proveedor
+            </button>
+          )}
 
           {/* Items */}
           <div>
