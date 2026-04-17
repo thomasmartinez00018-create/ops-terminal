@@ -6,6 +6,7 @@ import Badge from '../components/ui/Badge';
 import QuickMovimiento from '../components/QuickMovimiento';
 import SugerenciaCompraWidget from '../components/SugerenciaCompraWidget';
 import MargenCriticoWidget from '../components/MargenCriticoWidget';
+import RevisionDelDiaWidget from '../components/RevisionDelDiaWidget';
 import {
   Package, Warehouse, ArrowRightLeft, AlertTriangle,
   TrendingDown, TrendingUp, ClipboardCheck, Activity,
@@ -694,6 +695,9 @@ function DashboardDueno() {
         </div>
       )}
 
+      {/* ── Revisión del día (solo si hubo movimiento hoy) ───────────────── */}
+      <RevisionDelDiaWidget />
+
       {/* ── Últimos movimientos — opcional, al final ───────────────────── */}
       {showWidget('ultimos-movimientos') && stats.ultimosMovimientos && stats.ultimosMovimientos.length > 0 && (
         <div className="bg-surface rounded-xl border border-border">
@@ -900,6 +904,9 @@ function DashboardAdmin() {
         )}
       </div>
       )}
+
+      {/* ── Revisión del día (rutina de cierre, combate robo hormiga) ──── */}
+      <RevisionDelDiaWidget />
 
       {/* ── Últimos movimientos ─────────────────────────────────────────── */}
       {showWidget('ultimos-movimientos') && <div className="bg-surface rounded-xl border border-border">
