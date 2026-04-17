@@ -25,8 +25,12 @@ export default function AppLayout() {
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <main className="flex-1 overflow-auto">
-        <div className="p-4 lg:p-6 pt-14 lg:pt-6 pb-20 lg:pb-6 max-w-7xl page-enter">
+      {/* min-w-0 es crítico: sin él, una tabla muy ancha dentro del main
+          estira el flex child y empuja/achica al sidebar, dejando el
+          contenido "pegado" al borde visible del sidebar (el desfase que
+          reportó el cliente en la pantalla de Listas de Precio). */}
+      <main className="flex-1 min-w-0 overflow-auto">
+        <div className="p-4 lg:p-6 pt-14 lg:pt-6 pb-20 lg:pb-6 w-full max-w-7xl mx-auto page-enter">
           <Outlet />
         </div>
       </main>

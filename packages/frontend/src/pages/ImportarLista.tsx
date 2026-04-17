@@ -117,9 +117,10 @@ export default function ImportarLista() {
         <Button onClick={abrirWizard}><Upload className="w-4 h-4 mr-2" /> Importar Lista</Button>
       </div>
 
-      {/* Historial de listas */}
-      <div className="bg-zinc-900 rounded-lg border border-zinc-800">
-        <table className="w-full text-sm">
+      {/* Historial de listas — overflow-x-auto para que tablas anchas no
+          empujen el layout y quede "desfasado" contra el sidebar. */}
+      <div className="bg-zinc-900 rounded-lg border border-zinc-800 overflow-x-auto">
+        <table className="w-full text-sm min-w-[720px]">
           <thead>
             <tr className="border-b border-zinc-800 text-zinc-400">
               <th className="px-4 py-3 text-left">Codigo</th>

@@ -12,12 +12,20 @@ const GEMINI_MODEL = 'gemini-3.1-flash-lite-preview';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Parse Argentine price: "17.007,31" → 17007.31 */
+/** Parse Argentine price: "17.007,31" → 17007.31. Acepta number de XLSX directo. */
 function parseArgPrice(str: string | number | null | undefined): number | null {
-  if (str == null) return null;
-  const s = String(str).replace(/[^0-9.,]/g, '');
-  if (s.includes(',')) return parseFloat(s.replace(/\./g, '').replace(',', '.'));
-  return parseFloat(s);
+  if (str == null || str === '') return null;
+  // XLSX devuelve celdas numéricas como number — no re-parsear.
+  if (typeof str === 'number') return Number.isFinite(str) ? str : null;
+  const s = String(str).replace(/[^0-9.,-]/g, '');
+  if (!s) return null;
+  // Si tiene coma, la coma es decimal (formato argentino): "17.007,31" → 17007.31
+  if (s.includes(',')) {
+    const n = parseFloat(s.replace(/\./g, '').replace(',', '.'));
+    return Number.isFinite(n) ? n : null;
+  }
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : null;
 }
 
 /** Parse presentation to base unit qty */
@@ -319,16 +327,81 @@ router.post('/importar', upload.single('archivo'), async (req: Request, res: Res
     const fechaFinal = fecha || new Date().toISOString().split('T')[0];
     const ext = file.originalname.toLowerCase().split('.').pop();
     let textLines: string[] = [];
+    const allRows: Array<{ producto: string; presentacion: string | null; precio: number; ambiguo?: boolean }> = [];
 
     // Parse file content
     if (ext === 'xlsx' || ext === 'xls') {
-      const XLSX = await import('xlsx');
-      const workbook = XLSX.read(file.buffer, { type: 'buffer' });
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-      textLines = rows
-        .filter((r: any[]) => r.some((c: any) => c != null && String(c).trim()))
-        .map((r: any[]) => r.map((c: any) => c ?? '').join(' | '));
+      // PARSER DIRECTO DE EXCEL — primero intentamos detectar columnas
+      // nombradas (Producto/Precio/Presentación). Si las encontramos,
+      // extraemos sin IA: 10× más rápido y 0 tokens. Antes el código pasaba
+      // cada fila como "A | B | C" a Gemini, y Gemini (entrenado para PDF)
+      // se confundía con ese formato tabulado → el import de xlsx fallaba
+      // en silencio devolviendo 0 productos.
+      try {
+        const XLSX = await import('xlsx');
+        const workbook = XLSX.read(file.buffer, { type: 'buffer', cellDates: false });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        if (!sheet) {
+          res.status(400).json({ error: 'El archivo Excel no tiene hojas válidas' });
+          return;
+        }
+        const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true });
+
+        // Buscar la fila de encabezados — la primera con al menos un nombre de
+        // producto Y un precio. Tolerante a variantes ("DESCRIPCION", "Articulo",
+        // "$/unidad", etc).
+        const NOMBRE_RE = /^(producto|descripci|articulo|art[íi]culo|detalle|nombre|insumo|mercader[íi]a|item|concepto)/i;
+        const PRECIO_RE = /(precio|valor|costo|p\.?\s*unit|\$)/i;
+        const PRES_RE = /(present|unid|envase|tama|medida|contenido|pack|formato)/i;
+        const CODIGO_RE = /^(c[óo]digo|cod\.?|sku|art\.?)/i;
+
+        let headerRowIdx = -1;
+        let colNombre = -1, colPrecio = -1, colPres = -1, colCodigo = -1;
+        for (let i = 0; i < Math.min(rows.length, 20); i++) {
+          const r = rows[i] || [];
+          const tmpNom = r.findIndex((c: any) => typeof c === 'string' && NOMBRE_RE.test(c.trim()));
+          const tmpPre = r.findIndex((c: any) => typeof c === 'string' && PRECIO_RE.test(c.trim()));
+          if (tmpNom >= 0 && tmpPre >= 0) {
+            headerRowIdx = i;
+            colNombre = tmpNom;
+            colPrecio = tmpPre;
+            colPres = r.findIndex((c: any) => typeof c === 'string' && PRES_RE.test(c.trim()));
+            colCodigo = r.findIndex((c: any) => typeof c === 'string' && CODIGO_RE.test(c.trim()));
+            break;
+          }
+        }
+
+        if (headerRowIdx >= 0) {
+          // Parse directo sin IA
+          for (let i = headerRowIdx + 1; i < rows.length; i++) {
+            const r = rows[i] || [];
+            const nombre = String(r[colNombre] ?? '').trim();
+            const precioRaw = r[colPrecio];
+            const precio = parseArgPrice(precioRaw as any);
+            if (!nombre || !Number.isFinite(precio as number) || !precio || precio <= 0) continue;
+            const presentacion = colPres >= 0
+              ? String(r[colPres] ?? '').trim() || null
+              : null;
+            const codigo = colCodigo >= 0 ? String(r[colCodigo] ?? '').trim() : '';
+            allRows.push({
+              producto: codigo && !/^\d+$/.test(codigo) ? `${nombre}` : nombre,
+              presentacion: presentacion ? presentacion.slice(0, 100) : null,
+              precio: precio as number,
+              ambiguo: !presentacion,
+            });
+          }
+        } else {
+          // Fallback: no detectamos columnas → mandamos a IA como texto plano
+          // (no "|" separators que confunden al modelo).
+          textLines = rows
+            .filter((r: any[]) => r.some((c: any) => c != null && String(c).trim()))
+            .map((r: any[]) => r.map((c: any) => c ?? '').filter((c: any) => String(c).trim()).join('  '));
+        }
+      } catch (xlsxErr: any) {
+        console.error('[listas-precio] XLSX parse error:', xlsxErr?.message);
+        res.status(400).json({ error: 'No se pudo leer el archivo Excel. Verificá que no esté protegido con contraseña.' });
+        return;
+      }
     } else if (ext === 'pdf') {
       const { PDFParse } = await import('pdf-parse');
       const pdf = new PDFParse({ data: file.buffer });
@@ -340,28 +413,27 @@ router.post('/importar', upload.single('archivo'), async (req: Request, res: Res
       textLines = file.buffer.toString('utf-8').split('\n').filter((l: string) => l.trim());
     }
 
-    if (!textLines.length) {
-      res.status(400).json({ error: 'No se pudo extraer contenido del archivo' });
-      return;
-    }
-
-    // AI extraction in chunks — parallel for speed
-    const CHUNK = 150;
-    const chunks: string[] = [];
-    for (let i = 0; i < textLines.length; i += CHUNK) {
-      chunks.push(textLines.slice(i, i + CHUNK).join('\n'));
-    }
-
-    const allRows: Array<{ producto: string; presentacion: string | null; precio: number; ambiguo?: boolean }> = [];
-    const chunkResults = await Promise.allSettled(
-      chunks.map(async (chunk) => {
-        const text = await callGemini(EXTRACTION_PROMPT(chunk), 8000);
-        return safeParseAIArray(text, isValidExtractedRow);
-      })
-    );
-    for (const r of chunkResults) {
-      if (r.status === 'fulfilled' && r.value.length) allRows.push(...r.value);
-      else if (r.status === 'rejected') console.warn('[listas-precio] chunk error:', r.reason?.message);
+    // AI extraction si no hubo parse directo (xlsx con header) o si es PDF/TXT.
+    if (!allRows.length) {
+      if (!textLines.length) {
+        res.status(400).json({ error: 'No se pudo extraer contenido del archivo' });
+        return;
+      }
+      const CHUNK = 150;
+      const chunks: string[] = [];
+      for (let i = 0; i < textLines.length; i += CHUNK) {
+        chunks.push(textLines.slice(i, i + CHUNK).join('\n'));
+      }
+      const chunkResults = await Promise.allSettled(
+        chunks.map(async (chunk) => {
+          const text = await callGemini(EXTRACTION_PROMPT(chunk), 8000);
+          return safeParseAIArray(text, isValidExtractedRow);
+        })
+      );
+      for (const r of chunkResults) {
+        if (r.status === 'fulfilled' && r.value.length) allRows.push(...r.value);
+        else if (r.status === 'rejected') console.warn('[listas-precio] chunk error:', r.reason?.message);
+      }
     }
 
     if (!allRows.length) {

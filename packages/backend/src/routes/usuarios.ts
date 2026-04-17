@@ -3,6 +3,13 @@ import prisma from '../lib/prisma';
 
 const router = Router();
 
+// Nota histórica: este archivo usaba `prisma.$executeRawUnsafe(... ?, ...)` para
+// leer/escribir `configuracion`, con placeholders estilo SQLite (`?`). Como la
+// DB real es Postgres (schema.prisma → provider="postgresql"), esos queries
+// FALLABAN silenciosamente o tiraban 500 → "Vista dueño" no persistía, los
+// widgets custom del dashboard volvían al default, etc. Ahora usamos el cliente
+// Prisma generado directamente — el campo está en el schema y es typesafe.
+
 // GET /api/usuarios
 router.get('/', async (req: Request, res: Response) => {
   try {
@@ -15,19 +22,11 @@ router.get('/', async (req: Request, res: Response) => {
       orderBy: { nombre: 'asc' }
     });
 
-    // Leer configuracion via raw (columna no en client generado)
-    const rawConfs = await prisma.$queryRawUnsafe<{id: number, configuracion: string | null}[]>(
-      `SELECT id, configuracion FROM usuarios`
-    );
-    const confMap: Record<number, any> = {};
-    for (const r of rawConfs) {
-      confMap[r.id] = r.configuracion ? JSON.parse(r.configuracion) : null;
-    }
-
-    // No enviar PIN en la lista
-    res.json(usuarios.map(({ pin, ...u }) => ({
+    // No enviar PIN en la lista. `configuracion` viene como string JSON; lo
+    // parseamos acá para que el frontend lo consuma como objeto.
+    res.json(usuarios.map(({ pin, configuracion, ...u }: any) => ({
       ...u,
-      configuracion: confMap[u.id] ?? null,
+      configuracion: parseConfig(configuracion),
     })));
   } catch (error) {
     res.status(500).json({ error: 'Error al obtener usuarios' });
@@ -43,12 +42,8 @@ router.get('/:id', async (req: Request, res: Response) => {
       res.status(404).json({ error: 'Usuario no encontrado' });
       return;
     }
-    const rawConf = await prisma.$queryRawUnsafe<{configuracion: string | null}[]>(
-      `SELECT configuracion FROM usuarios WHERE id = ?`, id
-    );
-    const configuracion = rawConf[0]?.configuracion ? JSON.parse(rawConf[0].configuracion) : null;
-    const { pin, ...data } = usuario;
-    res.json({ ...data, configuracion });
+    const { pin, configuracion, ...data } = usuario as any;
+    res.json({ ...data, configuracion: parseConfig(configuracion) });
   } catch (error) {
     res.status(500).json({ error: 'Error al obtener usuario' });
   }
@@ -58,15 +53,13 @@ router.get('/:id', async (req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response) => {
   try {
     const { configuracion, ...restBody } = req.body;
-    const usuario = await prisma.usuario.create({ data: restBody });
-    if (configuracion) {
-      await prisma.$executeRawUnsafe(
-        `UPDATE usuarios SET configuracion = ? WHERE id = ?`,
-        JSON.stringify(configuracion), usuario.id
-      );
+    const data: any = { ...restBody };
+    if (configuracion !== undefined) {
+      data.configuracion = configuracion ? JSON.stringify(configuracion) : null;
     }
-    const { pin, ...data } = usuario;
-    res.status(201).json({ ...data, configuracion: configuracion ?? null });
+    const usuario = await prisma.usuario.create({ data });
+    const { pin, configuracion: rawConf, ...rest } = usuario as any;
+    res.status(201).json({ ...rest, configuracion: parseConfig(rawConf) });
   } catch (error: any) {
     if (error.code === 'P2002') {
       res.status(400).json({ error: 'Ya existe un usuario con ese código' });
@@ -89,40 +82,53 @@ router.put('/:id', async (req: Request, res: Response) => {
     if (permisos !== undefined) updateData.permisos = String(permisos);
     if (depositoDefectoId !== undefined) updateData.depositoDefectoId = depositoDefectoId ? Number(depositoDefectoId) : null;
     if (activo !== undefined) updateData.activo = Boolean(activo);
+    if (configuracion !== undefined) {
+      updateData.configuracion = configuracion ? JSON.stringify(configuracion) : null;
+    }
 
     const usuario = await prisma.usuario.update({ where: { id }, data: updateData });
 
-    // Guardar configuracion via raw (columna no en client generado)
-    if (configuracion !== undefined) {
-      const confStr = configuracion ? JSON.stringify(configuracion) : null;
-      await prisma.$executeRawUnsafe(
-        `UPDATE usuarios SET configuracion = ? WHERE id = ?`,
-        confStr, id
-      );
-    }
-
-    const { pin: _pin, ...data } = usuario;
-    res.json({ ...data, configuracion: configuracion ?? null });
+    const { pin: _pin, configuracion: rawConf, ...data } = usuario as any;
+    res.json({ ...data, configuracion: parseConfig(rawConf) });
   } catch (error: any) {
     if (error.code === 'P2002') {
       res.status(400).json({ error: 'Ya existe un usuario con ese código' });
       return;
     }
+    if (error.code === 'P2025') {
+      res.status(404).json({ error: 'Usuario no encontrado' });
+      return;
+    }
+    console.error('[usuarios/put]', error);
     res.status(500).json({ error: 'Error al actualizar usuario' });
   }
 });
 
-// DELETE /api/usuarios/:id (soft delete)
+// DELETE /api/usuarios/:id  (soft delete: activo=false)
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
-    await prisma.usuario.update({
-      where: { id: parseInt(req.params.id as string) },
-      data: { activo: false }
-    });
-    res.json({ message: 'Usuario desactivado' });
-  } catch (error) {
-    res.status(500).json({ error: 'Error al desactivar usuario' });
+    const id = parseInt(req.params.id as string);
+    await prisma.usuario.update({ where: { id }, data: { activo: false } });
+    res.json({ ok: true });
+  } catch (error: any) {
+    if (error.code === 'P2025') {
+      res.status(404).json({ error: 'Usuario no encontrado' });
+      return;
+    }
+    res.status(500).json({ error: 'Error al eliminar usuario' });
   }
 });
+
+// Helper: parseo seguro de configuracion. Si el JSON quedó corrupto (legacy
+// de un escritorio viejo, encoding raro), devolvemos null en vez de crashear.
+function parseConfig(raw: string | null | undefined): any | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 
 export default router;

@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import PageTour from '../components/PageTour';
 import DrawerModal from '../components/ui/DrawerModal';
-import { Plus, Pencil, Trash2, Truck, Package, Phone, Mail, FileText } from 'lucide-react';
+import { Plus, Pencil, Trash2, Truck, Package, Phone, Mail, FileText, Search, DollarSign } from 'lucide-react';
 import ExportMenu from '../components/ui/ExportMenu';
 import type { ExportConfig } from '../lib/exportUtils';
 import { todayStr } from '../lib/exportUtils';
@@ -57,6 +57,9 @@ export default function Proveedores() {
   const [error, setError] = useState('');
   const [errorMap, setErrorMap] = useState('');
 
+  const [buscarProv, setBuscarProv] = useState('');
+  const productosSectionRef = useRef<HTMLDivElement | null>(null);
+
   const cargarProveedores = () => {
     api.getProveedores({ activo: 'true' }).then(setProveedores).catch(console.error);
   };
@@ -66,9 +69,29 @@ export default function Proveedores() {
     api.getProductos({ activo: 'true' }).then(setProductos).catch(console.error);
   }, []);
 
-  const cargarProductosProveedor = (prov: any) => {
+  // Filtrado client-side — la lista de proveedores rara vez pasa de 100,
+  // así que no vale la pena round-trip al backend.
+  const proveedoresFiltrados = useMemo(() => {
+    const q = buscarProv.trim().toLowerCase();
+    if (!q) return proveedores;
+    return proveedores.filter((p: any) => {
+      const blob = [p.codigo, p.nombre, p.rubro, p.contacto, p.telefono, p.email, p.whatsapp]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return blob.includes(q);
+    });
+  }, [proveedores, buscarProv]);
+
+  const cargarProductosProveedor = (prov: any, opts?: { scroll?: boolean }) => {
     setSelectedProveedor(prov);
     api.getProveedorProductos(prov.id).then(setProveedorProductos).catch(console.error);
+    if (opts?.scroll) {
+      // Dar un tick al render de la sección antes de scrollear
+      setTimeout(() => {
+        productosSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 80);
+    }
   };
 
   // --- Proveedor CRUD ---
@@ -182,7 +205,7 @@ export default function Proveedores() {
     <div>
       <PageTour pageKey="proveedores" />
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <div>
           <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Compras</p>
           <h1 className="text-xl font-extrabold text-foreground mt-1">Proveedores</h1>
@@ -201,12 +224,28 @@ export default function Proveedores() {
         </div>
       </div>
 
+      {/* Buscador */}
+      <div className="mb-5 relative">
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none" />
+        <Input
+          value={buscarProv}
+          onChange={e => setBuscarProv(e.target.value)}
+          placeholder="Buscar por nombre, código, rubro, contacto, teléfono…"
+          className="pl-9"
+        />
+        {buscarProv && (
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-on-surface-variant">
+            {proveedoresFiltrados.length} / {proveedores.length}
+          </span>
+        )}
+      </div>
+
       {/* Proveedores grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 stagger-children">
-        {proveedores.map(prov => (
+        {proveedoresFiltrados.map(prov => (
           <div
             key={prov.id}
-            onClick={() => cargarProductosProveedor(prov)}
+            onClick={() => cargarProductosProveedor(prov, { scroll: true })}
             className={`glass card-glow rounded-xl p-4 cursor-pointer transition-all ${
               selectedProveedor?.id === prov.id
                 ? 'ring-2 ring-primary/60'
@@ -267,32 +306,44 @@ export default function Proveedores() {
                 {prov.impuestoInterno > 0 && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/15 text-amber-400">II {prov.impuestoInterno}%</span>}
               </div>
             )}
-            <button
-              onClick={e => { e.stopPropagation(); navigate(`/facturas?proveedorId=${prov.id}`); }}
-              className="mt-3 flex items-center gap-1.5 text-[10px] font-bold text-primary/70 hover:text-primary transition-colors uppercase tracking-wider"
-            >
-              <FileText size={11} />
-              Ver facturas
-            </button>
+            <div className="mt-3 flex items-center gap-3 flex-wrap">
+              <button
+                onClick={e => { e.stopPropagation(); cargarProductosProveedor(prov, { scroll: true }); }}
+                className="flex items-center gap-1.5 text-[10px] font-bold text-primary/70 hover:text-primary transition-colors uppercase tracking-wider"
+                title="Ver lista de precios y productos de este proveedor"
+              >
+                <DollarSign size={11} />
+                Ver precios
+              </button>
+              <button
+                onClick={e => { e.stopPropagation(); navigate(`/facturas?proveedorId=${prov.id}`); }}
+                className="flex items-center gap-1.5 text-[10px] font-bold text-primary/70 hover:text-primary transition-colors uppercase tracking-wider"
+              >
+                <FileText size={11} />
+                Ver facturas
+              </button>
+            </div>
           </div>
         ))}
-        {proveedores.length === 0 && (
+        {proveedoresFiltrados.length === 0 && (
           <div className="col-span-full text-center py-12 text-on-surface-variant font-medium">
-            No hay proveedores activos
+            {buscarProv
+              ? `No hay proveedores que coincidan con "${buscarProv}"`
+              : 'No hay proveedores activos'}
           </div>
         )}
       </div>
 
       {/* Productos del proveedor seleccionado */}
       {selectedProveedor && (
-        <div>
+        <div ref={productosSectionRef} className="scroll-mt-20">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-primary/10">
                 <Package size={16} className="text-primary" />
               </div>
               <div>
-                <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Productos de</p>
+                <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Lista de precios de</p>
                 <h2 className="text-base font-extrabold text-foreground">{selectedProveedor.nombre}</h2>
               </div>
             </div>

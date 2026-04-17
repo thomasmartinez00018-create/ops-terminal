@@ -326,9 +326,11 @@ export default function Sidebar({ open = false, onClose }: SidebarProps) {
         />
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar — shrink-0 evita que un main con contenido ancho (tablas) empuje
+          el sidebar y reduzca su ancho visible, dejando el contenido del main
+          superpuesto sobre él. */}
       <aside
-        className={`fixed lg:static inset-y-0 left-0 z-40 w-64 bg-surface border-r border-white/5 flex flex-col transition-transform lg:translate-x-0 ${
+        className={`fixed lg:static inset-y-0 left-0 z-40 w-64 lg:shrink-0 bg-surface border-r border-white/5 flex flex-col transition-transform lg:translate-x-0 ${
           open ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
