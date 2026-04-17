@@ -178,11 +178,8 @@ export default function Tareas() {
                 'border-border'
               }`}
             >
-              {/* Fila principal — clickeable para expandir */}
-              <button
-                onClick={() => setExpandedId(expanded ? null : key)}
-                className="w-full p-4 text-left flex items-start gap-3"
-              >
+              {/* Fila principal — dividida: área expandir a la izq, acción rápida a la der */}
+              <div className="w-full p-4 flex items-start gap-3">
                 {/* Icono */}
                 {esOC ? (
                   <ShoppingCart size={20} className="mt-0.5 shrink-0 text-amber-500" />
@@ -192,14 +189,21 @@ export default function Tareas() {
                   <Circle size={20} className="mt-0.5 shrink-0 text-zinc-600" />
                 )}
 
-                <div className="flex-1 min-w-0">
+                <button
+                  onClick={() => setExpandedId(expanded ? null : key)}
+                  className="flex-1 min-w-0 text-left"
+                >
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className={`font-bold text-sm ${t.estado === 'completada' ? 'line-through text-on-surface-variant' : 'text-foreground'}`}>
                       {t.titulo}
                     </p>
-                    <Badge variant={prioridadBadge[t.prioridad] || 'default'}>
-                      {t.prioridad}
-                    </Badge>
+                    {/* Si está vencida, ocultamos el badge de prioridad para no
+                        competir visualmente — lo rojo manda. */}
+                    {!vencida && (
+                      <Badge variant={prioridadBadge[t.prioridad] || 'default'}>
+                        {t.prioridad}
+                      </Badge>
+                    )}
                     {esOC && <Badge variant="warning">OC</Badge>}
                     {vencida && <Badge variant="danger">Vencida</Badge>}
                     {t.estado === 'completada' && <Badge variant="success">Completada</Badge>}
@@ -217,10 +221,34 @@ export default function Tareas() {
                     </span>
                     {t.creadoPor && <span className="text-zinc-600">por {t.creadoPor.nombre}</span>}
                   </div>
-                </div>
+                </button>
 
-                <ChevronRight size={16} className={`shrink-0 text-zinc-600 transition-transform ${expanded ? 'rotate-90' : ''}`} />
-              </button>
+                {/* Acción rápida: botón ✓ inline sin expandir — le ahorra al
+                    cocinero/depósito 2 taps por cada tarea completada. El modal
+                    completar pide la nota opcional igual. */}
+                <div className="flex items-center gap-1 shrink-0">
+                  {!esOC && t.estado !== 'completada' && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setModalCompletar(t);
+                        setObsCompletar('');
+                      }}
+                      className="p-2 rounded-lg bg-emerald-600/15 hover:bg-emerald-600/25 active:bg-emerald-600/40 text-emerald-500 transition-colors"
+                      title="Marcar completada"
+                    >
+                      <Check size={16} />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setExpandedId(expanded ? null : key)}
+                    className="p-2 rounded-lg hover:bg-surface-high text-zinc-500"
+                    title={expanded ? 'Contraer' : 'Ver detalle'}
+                  >
+                    <ChevronRight size={16} className={`transition-transform ${expanded ? 'rotate-90' : ''}`} />
+                  </button>
+                </div>
+              </div>
 
               {/* Panel expandido */}
               {expanded && (
@@ -360,12 +388,21 @@ export default function Tareas() {
             <p className="text-sm text-on-surface-variant">{modalCompletar.descripcion}</p>
           )}
 
-          <Input
-            label="Nota al completar (opcional)"
-            value={obsCompletar}
-            onChange={e => setObsCompletar(e.target.value)}
-            placeholder="Ej: Se recibieron 18 de 20 cajas"
-          />
+          {/* Textarea en vez de Input — en cocina la nota suele ser "Recibí 18
+              de 20 cajas, faltan las bebidas y 2 cajas de tomate (están vencidas
+              las que sí llegaron)". No entra en un input de 1 línea. */}
+          <div>
+            <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1 block">
+              Nota al completar <span className="normal-case font-normal">(opcional)</span>
+            </label>
+            <textarea
+              value={obsCompletar}
+              onChange={e => setObsCompletar(e.target.value)}
+              placeholder="Ej: Se recibieron 18 de 20 cajas — faltan las bebidas."
+              rows={3}
+              className="w-full px-3 py-2 rounded-lg bg-surface-high border-0 text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+            />
+          </div>
 
           <Button onClick={completar} className="w-full bg-emerald-600 hover:bg-emerald-500">
             <Check size={16} /> Marcar como completada

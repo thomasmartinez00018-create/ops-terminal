@@ -334,10 +334,15 @@ function DashboardDeposito() {
 }
 
 // ─── Trend helper ─────────────────────────────────────────────────────────────
+// Compara dos números y muestra el % de cambio con flecha + color.
+// Guards contra casos raros: non-finite (null/undefined/NaN), division por
+// cero, Infinity cuando previous=0 y current>0.
 function TrendBadge({ current, previous }: { current: number; previous: number }) {
-  if (previous === 0 && current === 0) return null;
-  if (previous === 0) return <span className="flex items-center gap-0.5 text-[10px] font-bold text-success"><ArrowUpRight size={10} /> nuevo</span>;
-  const pct = Math.round(((current - previous) / previous) * 100);
+  const cur = Number.isFinite(current) ? current : 0;
+  const prev = Number.isFinite(previous) ? previous : 0;
+  if (prev === 0 && cur === 0) return null;
+  if (prev === 0) return <span className="flex items-center gap-0.5 text-[10px] font-bold text-success"><ArrowUpRight size={10} /> nuevo</span>;
+  const pct = Math.round(((cur - prev) / prev) * 100);
   if (pct === 0) return <span className="flex items-center gap-0.5 text-[10px] font-bold text-on-surface-variant"><Minus size={10} /> igual</span>;
   const up = pct > 0;
   return (

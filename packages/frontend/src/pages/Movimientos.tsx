@@ -397,6 +397,7 @@ export default function Movimientos() {
               id="cantidad"
               type="number"
               step="0.01"
+              inputMode="decimal"
               value={form.cantidad}
               onChange={e => setForm({ ...form, cantidad: e.target.value })}
             />
@@ -582,6 +583,7 @@ export default function Movimientos() {
                       id={`bq-${idx}`}
                       type="number"
                       step="0.01"
+                      inputMode="decimal"
                       value={item.cantidad}
                       onChange={e => batchUpdateItem(idx, 'cantidad', e.target.value)}
                       placeholder="0"

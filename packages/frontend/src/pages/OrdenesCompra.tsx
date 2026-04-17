@@ -153,9 +153,21 @@ export default function OrdenesCompra() {
 
   const handleRecibir = async () => {
     setError('');
-    // Validar que items con diferencia tengan atribución
+    // Validación 1: cantidad recibida debe ser un número válido (no NaN).
+    // Si el usuario borró el input, parseFloat devuelve NaN y la atribución
+    // se rompía silenciosamente — ahora la frenamos acá.
+    const sinCantidad = recepcionItems.filter(i => {
+      const n = parseFloat(i.cantidadRecibida);
+      return !Number.isFinite(n) || n < 0;
+    });
+    if (sinCantidad.length > 0) {
+      setError(`Falta completar la cantidad recibida en: ${sinCantidad.map(i => i.nombre).join(', ')}`);
+      return;
+    }
+    // Validación 2: items con diferencia contra lo pedido requieren atribución
+    // (quién se hace cargo del faltante/excedente).
     const sinAtribucion = recepcionItems.filter(i => {
-      const dif = parseFloat(i.cantidadRecibida) - i.cantidadPedida;
+      const dif = (parseFloat(i.cantidadRecibida) || 0) - i.cantidadPedida;
       return Math.abs(dif) > 0.001 && !i.atribucion;
     });
     if (sinAtribucion.length > 0) {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import Badge from '../components/ui/Badge';
 import { AlertTriangle, Search, RefreshCw, Package } from 'lucide-react';
@@ -45,6 +45,19 @@ export default function Stock() {
     api.getDepositos({ activo: 'true' }).then(setDepositos).catch(console.error);
   }, []);
 
+  // Filtro único centralizado — antes estaba duplicado 3 veces (render, empty
+  // state, export), lo que es fuente típica de bugs de "la tabla dice X pero
+  // el contador dice Y".
+  const filtrado = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    return stock.filter((s: any) => {
+      if (q && !(s.nombre || '').toLowerCase().includes(q) && !(s.codigo || '').toLowerCase().includes(q)) return false;
+      if (filtroRubro && s.rubro !== filtroRubro) return false;
+      if (filtroSubrubro && s.subrubro !== filtroSubrubro) return false;
+      return true;
+    });
+  }, [stock, busqueda, filtroRubro, filtroSubrubro]);
+
   return (
     <div>
       <PageTour pageKey="stock" />
@@ -53,37 +66,23 @@ export default function Stock() {
           <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Control</p>
           <h1 className="text-xl font-extrabold text-foreground mt-1">Stock Actual</h1>
         </div>
-        <ExportMenu size="sm" disabled={stock.length === 0} getConfig={() => {
-          const filtered = stock.filter(s => {
-            if (busqueda && !s.nombre.toLowerCase().includes(busqueda.toLowerCase()) && !s.codigo.toLowerCase().includes(busqueda.toLowerCase())) return false;
-            if (filtroRubro && s.rubro !== filtroRubro) return false;
-            if (filtroSubrubro && s.subrubro !== filtroSubrubro) return false;
-            return true;
-          });
-          return {
-            title: 'Stock Actual',
-            filename: `stock-${todayStr()}`,
-            subtitle: filtroRubro ? `Rubro: ${filtroRubro}` : undefined,
-            headers: ['Codigo', 'Producto', 'Rubro', 'Stock', 'Unidad', 'Minimo', 'Bajo minimo'],
-            rows: filtered.map(s => [s.codigo, s.nombre, s.rubro, s.stockTotal, s.unidad, s.stockMinimo, s.bajoMinimo ? 'SI' : '']),
-            summary: [
-              { label: 'Productos', value: filtered.length },
-              { label: 'Bajo minimo', value: filtered.filter(s => s.bajoMinimo).length },
-            ],
-            numberColumns: [3, 5],
-          } as ExportConfig;
-        }} />
+        <ExportMenu size="sm" disabled={stock.length === 0} getConfig={() => ({
+          title: 'Stock Actual',
+          filename: `stock-${todayStr()}`,
+          subtitle: filtroRubro ? `Rubro: ${filtroRubro}` : undefined,
+          headers: ['Codigo', 'Producto', 'Rubro', 'Stock', 'Unidad', 'Minimo', 'Bajo minimo'],
+          rows: filtrado.map((s: any) => [s.codigo, s.nombre, s.rubro, s.stockTotal, s.unidad, s.stockMinimo, s.bajoMinimo ? 'SI' : '']),
+          summary: [
+            { label: 'Productos', value: filtrado.length },
+            { label: 'Bajo minimo', value: filtrado.filter((s: any) => s.bajoMinimo).length },
+          ],
+          numberColumns: [3, 5],
+        } as ExportConfig)} />
       </div>
 
       {/* Mini-cards resumen */}
       {!loading && stock.length > 0 && (() => {
-        const filtrado = stock.filter(s => {
-          if (busqueda && !s.nombre.toLowerCase().includes(busqueda.toLowerCase()) && !s.codigo.toLowerCase().includes(busqueda.toLowerCase())) return false;
-          if (filtroRubro && s.rubro !== filtroRubro) return false;
-          if (filtroSubrubro && s.subrubro !== filtroSubrubro) return false;
-          return true;
-        });
-        const bajosCount = filtrado.filter(s => s.bajoMinimo).length;
+        const bajosCount = filtrado.filter((s: any) => s.bajoMinimo).length;
         return (
           <div className="flex gap-3 mb-4">
             <button
@@ -165,87 +164,130 @@ export default function Stock() {
         </button>
       </div>
 
-      <div className="bg-surface rounded-xl border border-border overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border">
-                <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Código</th>
-                <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Producto</th>
-                <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden sm:table-cell">Rubro</th>
-                <th className="text-right p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Stock</th>
-                <th className="text-right p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden md:table-cell">Mínimo</th>
-                <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden lg:table-cell">Por depósito</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {loading && (
-                <tr>
-                  <td colSpan={6} className="p-8 text-center">
-                    <div className="flex items-center justify-center gap-2 text-on-surface-variant">
-                      <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-                      <span className="text-sm font-medium">Cargando stock...</span>
-                    </div>
-                  </td>
-                </tr>
-              )}
-              {!loading && stock.filter(s => {
-                if (busqueda && !s.nombre.toLowerCase().includes(busqueda.toLowerCase()) && !s.codigo.toLowerCase().includes(busqueda.toLowerCase())) return false;
-                if (filtroRubro && s.rubro !== filtroRubro) return false;
-                if (filtroSubrubro && s.subrubro !== filtroSubrubro) return false;
-                return true;
-              }).map(s => (
-                <tr key={s.productoId} className={`hover:bg-surface-high/50 transition-colors ${s.bajoMinimo ? 'bg-destructive/5' : ''}`}>
-                  <td className="p-3 font-mono text-xs text-primary">{s.codigo}</td>
-                  <td className="p-3 font-semibold text-foreground">
-                    <div className="flex items-center gap-2">
-                      {s.nombre}
-                      {s.bajoMinimo && <AlertTriangle size={14} className="text-destructive" />}
-                    </div>
-                  </td>
-                  <td className="p-3 hidden sm:table-cell">
-                    <div className="flex flex-wrap gap-1">
-                      <Badge>{s.rubro}</Badge>
-                      {s.subrubro && <Badge variant="secondary">{s.subrubro}</Badge>}
-                    </div>
-                  </td>
-                  <td className={`p-3 text-right font-extrabold ${s.bajoMinimo ? 'text-destructive' : 'text-foreground'}`}>
-                    {s.stockTotal} <span className="font-normal text-on-surface-variant">{s.unidad}</span>
-                  </td>
-                  <td className="p-3 text-right hidden md:table-cell text-on-surface-variant">
-                    {s.stockMinimo} {s.unidad}
-                  </td>
-                  <td className="p-3 hidden lg:table-cell">
-                    <div className="flex flex-wrap gap-1">
-                      {s.porDeposito.map((d: any) => (
-                        <span key={d.depositoId} className="text-[10px] font-bold bg-surface-high px-2 py-0.5 rounded uppercase tracking-wider">
-                          {d.depositoNombre}: <span className="text-primary">{d.cantidad}</span>
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {!loading && stock.filter(s => {
-                if (busqueda && !s.nombre.toLowerCase().includes(busqueda.toLowerCase()) && !s.codigo.toLowerCase().includes(busqueda.toLowerCase())) return false;
-                if (filtroRubro && s.rubro !== filtroRubro) return false;
-                if (filtroSubrubro && s.subrubro !== filtroSubrubro) return false;
-                return true;
-              }).length === 0 && (
-                <tr>
-                  <td colSpan={6} className="p-8 text-center text-on-surface-variant font-medium">
-                    {busqueda
-                      ? `Sin resultados para "${busqueda}"`
-                      : filtroBajoMinimo
-                        ? 'Todos los productos están por encima del stock mínimo'
-                        : 'Sin datos de stock. Registrá movimientos para ver el stock.'}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+      {/* Loading shared */}
+      {loading && (
+        <div className="bg-surface rounded-xl border border-border p-10 text-center">
+          <div className="flex items-center justify-center gap-2 text-on-surface-variant">
+            <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+            <span className="text-sm font-medium">Cargando stock...</span>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Empty state cuando no hay resultados */}
+      {!loading && filtrado.length === 0 && (
+        <div className="bg-surface rounded-xl border border-border p-10 text-center text-on-surface-variant font-medium">
+          {busqueda
+            ? `Sin resultados para "${busqueda}"`
+            : filtroBajoMinimo
+              ? 'Todos los productos están por encima del stock mínimo ✓'
+              : 'Sin datos de stock. Registrá movimientos para ver el stock.'}
+        </div>
+      )}
+
+      {/* Mobile: cards grandes con stock destacado y desglose por depósito */}
+      {!loading && filtrado.length > 0 && (
+        <div className="sm:hidden space-y-2.5">
+          {filtrado.map((s: any) => (
+            <div
+              key={s.productoId}
+              className={`bg-surface rounded-xl border p-3.5 ${s.bajoMinimo ? 'border-destructive/40 bg-destructive/[0.03]' : 'border-border'}`}
+            >
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <div className="flex-1 min-w-0">
+                  <p className="font-mono text-[10px] text-primary">{s.codigo}</p>
+                  <p className="font-bold text-foreground text-sm leading-tight mt-0.5 flex items-center gap-1.5">
+                    <span className="truncate">{s.nombre}</span>
+                    {s.bajoMinimo && <AlertTriangle size={13} className="text-destructive shrink-0" />}
+                  </p>
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    <Badge>{s.rubro || 'Sin rubro'}</Badge>
+                    {s.subrubro && <Badge variant="secondary">{s.subrubro}</Badge>}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-[9px] font-bold text-on-surface-variant uppercase tracking-wider">Stock</p>
+                  <p className={`font-mono text-xl font-extrabold tabular-nums leading-tight ${s.bajoMinimo ? 'text-destructive' : 'text-foreground'}`}>
+                    {s.stockTotal}
+                  </p>
+                  <p className="text-[10px] text-on-surface-variant">
+                    {s.unidad} · min {s.stockMinimo}
+                  </p>
+                </div>
+              </div>
+              {/* Desglose por depósito con guard contra array vacío */}
+              {Array.isArray(s.porDeposito) && s.porDeposito.length > 0 && (
+                <div className="flex flex-wrap gap-1 pt-2 border-t border-border/50">
+                  {s.porDeposito.map((d: any) => (
+                    <span key={d.depositoId} className="text-[10px] font-bold bg-surface-high px-2 py-0.5 rounded uppercase tracking-wider">
+                      {d.depositoNombre}: <span className="text-primary">{d.cantidad}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Desktop: tabla */}
+      {!loading && filtrado.length > 0 && (
+        <div className="hidden sm:block bg-surface rounded-xl border border-border overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Código</th>
+                  <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Producto</th>
+                  <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Rubro</th>
+                  <th className="text-right p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Stock</th>
+                  <th className="text-right p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden md:table-cell">Mínimo</th>
+                  <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden lg:table-cell">Por depósito</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {filtrado.map((s: any) => (
+                  <tr key={s.productoId} className={`hover:bg-surface-high/50 transition-colors ${s.bajoMinimo ? 'bg-destructive/5' : ''}`}>
+                    <td className="p-3 font-mono text-xs text-primary">{s.codigo}</td>
+                    <td className="p-3 font-semibold text-foreground">
+                      <div className="flex items-center gap-2">
+                        {s.nombre}
+                        {s.bajoMinimo && <AlertTriangle size={14} className="text-destructive" />}
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      <div className="flex flex-wrap gap-1">
+                        <Badge>{s.rubro}</Badge>
+                        {s.subrubro && <Badge variant="secondary">{s.subrubro}</Badge>}
+                      </div>
+                    </td>
+                    <td className={`p-3 text-right font-extrabold ${s.bajoMinimo ? 'text-destructive' : 'text-foreground'}`}>
+                      {s.stockTotal} <span className="font-normal text-on-surface-variant">{s.unidad}</span>
+                    </td>
+                    <td className="p-3 text-right hidden md:table-cell text-on-surface-variant">
+                      {s.stockMinimo} {s.unidad}
+                    </td>
+                    <td className="p-3 hidden lg:table-cell">
+                      {/* Guard contra porDeposito no-array/vacío (bug histórico) */}
+                      {Array.isArray(s.porDeposito) && s.porDeposito.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {s.porDeposito.map((d: any) => (
+                            <span key={d.depositoId} className="text-[10px] font-bold bg-surface-high px-2 py-0.5 rounded uppercase tracking-wider">
+                              {d.depositoNombre}: <span className="text-primary">{d.cantidad}</span>
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-on-surface-variant/60 text-xs">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
