@@ -37,6 +37,16 @@ export function setToken(token: string | null) {
 // ruta de la app cierra sesión y vuelve al login automáticamente.
 export const AUTH_ERROR_EVENT = 'ops:auth-error';
 
+// ── Evento global para backend/DB caído ────────────────────────────────────
+// Se dispara cuando el backend devuelve 5xx o el fetch no puede conectarse
+// (DNS fail, network error). AppLayout muestra un banner discreto que le
+// avisa al cliente que hay un problema de infraestructura, en vez de ver
+// empty states silenciosos ("Todavía no hay listas de precios") que
+// confunden — parece que perdió datos cuando en realidad la DB está
+// temporalmente inaccesible.
+export const BACKEND_DOWN_EVENT = 'ops:backend-down';
+export const BACKEND_UP_EVENT   = 'ops:backend-up';
+
 // ── JWT stage decoder (client-side, sin firma) ──────────────────────────────
 // El backend firma tokens en 3 "stages": cuenta, org, staff. Lo usamos para
 // decidir qué pantalla mostrar al cargar la app (login / workspaces / staff
@@ -93,7 +103,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  } catch (netErr: any) {
+    // Error de red (DNS fail, offline, CORS bloqueado) — el backend ni
+    // responde. Marcamos como caído globalmente para mostrar el banner.
+    window.dispatchEvent(new CustomEvent(BACKEND_DOWN_EVENT, { detail: { kind: 'network' } }));
+    throw new Error('No se puede conectar al servidor. Revisá tu conexión o reintentá en un minuto.');
+  }
   if (res.status === 401) {
     // Token inválido o expirado → disparar evento global
     setToken(null);
@@ -101,10 +119,23 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const err = await res.json().catch(() => ({ error: 'Sesión expirada' }));
     throw new Error(err.error || 'Sesión expirada');
   }
+  if (res.status >= 500) {
+    // 5xx = problema del backend o DB. Notificar globalmente para el banner.
+    // Intentamos parsear el body para mostrar detalle (útil si el backend
+    // devuelve algo como { error, db: 'down' }).
+    const payload = await res.json().catch(() => ({ error: `Error ${res.status}` }));
+    const isDbDown = payload?.db === 'down' || /database|prisma|ECONNREFUSED|reach database/i.test(payload?.error || '');
+    window.dispatchEvent(new CustomEvent(BACKEND_DOWN_EVENT, {
+      detail: { kind: isDbDown ? 'db' : 'server', status: res.status, message: payload?.error },
+    }));
+    throw new Error(payload?.error || `Error ${res.status} del servidor`);
+  }
   if (!res.ok) {
     const error = await res.json().catch(() => ({ error: 'Error de servidor' }));
     throw new Error(error.error || `Error ${res.status}`);
   }
+  // Request OK → si había banner de caído, notificar que volvió.
+  window.dispatchEvent(new CustomEvent(BACKEND_UP_EVENT));
   return res.json();
 }
 

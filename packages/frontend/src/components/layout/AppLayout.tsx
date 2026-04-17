@@ -8,6 +8,7 @@ import Onboarding from '../Onboarding';
 import AIAssistant from '../AIAssistant';
 import QuickMovimiento from '../QuickMovimiento';
 import CommandPalette, { useCommandPaletteShortcut } from '../CommandPalette';
+import BackendStatusBanner from '../BackendStatusBanner';
 
 export default function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -50,6 +51,9 @@ export default function AppLayout() {
       <QuickMovimiento open={quickMovOpen} onClose={() => setQuickMovOpen(false)} tipoInicial={quickMovTipo} />
       <Onboarding />
       <AIAssistant />
+      {/* Banner de estado del backend/DB (fixed top). Solo visible cuando
+          hay problemas de infraestructura. */}
+      <BackendStatusBanner />
     </div>
   );
 }
