@@ -53,12 +53,34 @@ EXPOSE 3001
 
 # Healthcheck: Railway también pega a /api/health pero tener esto acá
 # ayuda para debug local con docker run.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+# start-period ampliado a 60s para darle tiempo al retry loop de migrate.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD node -e "require('http').get('http://127.0.0.1:3001/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
 
 # Entrypoint: correr migrate deploy ANTES de arrancar el server.
 # Usamos el binario de prisma directo (no npx) porque en monorepos con
 # workspaces npx a veces descarga una copia fresca en vez de usar la
 # hoisteada, lo que hace que tarde mucho o falle.
+#
+# Retry loop: Neon puede estar en "cold start" (autosuspendido) cuando el
+# container arranca. El primer intento de conexión despierta el compute
+# (~1-5 seg). Reintentamos hasta 8 veces con 5 seg de espera entre cada
+# intento (total máx ~40 seg) antes de rendirnos. Esto evita que Railway
+# marque el deploy como fallido por un cold start transitorio.
 WORKDIR /app
-CMD ["sh", "-c", "echo '[entrypoint] corriendo prisma migrate deploy...' && node /app/node_modules/prisma/build/index.js migrate deploy --schema=/app/packages/backend/prisma/schema.prisma && echo '[entrypoint] migraciones ok, arrancando server...' && node /app/packages/backend/dist/server.js"]
+CMD ["sh", "-c", "\
+  PRISMA=/app/node_modules/prisma/build/index.js; \
+  SCHEMA=/app/packages/backend/prisma/schema.prisma; \
+  n=0; MAX=8; WAIT=5; \
+  until node $PRISMA migrate deploy --schema=$SCHEMA; do \
+    n=$((n+1)); \
+    if [ $n -ge $MAX ]; then \
+      echo \"[entrypoint] ERROR: migrate deploy falló $MAX veces. Verificá que Neon esté activo.\"; \
+      exit 1; \
+    fi; \
+    echo \"[entrypoint] intento $n/$MAX falló (Neon cold start?) — reintentando en ${WAIT}s...\"; \
+    sleep $WAIT; \
+  done && \
+  echo '[entrypoint] migraciones ok, arrancando server...' && \
+  node /app/packages/backend/dist/server.js \
+"]

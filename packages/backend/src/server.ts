@@ -218,6 +218,22 @@ async function start() {
     console.log(`│  CORS origins: ${allowedOrigins.length ? allowedOrigins.join(', ') : '(permisivo dev)'}`);
     console.log('└─────────────────────────────────────────────────┘');
     console.log('');
+
+    // ── Keep-alive para Neon ────────────────────────────────────────────────
+    // Neon (free y Launch) suspende el compute después de N minutos de
+    // inactividad. Un ping liviano cada 4 min evita que entre en autosuspend.
+    // En dev no hace falta — la DB local no duerme.
+    // Nota: 4 min < 5 min (umbral de Neon por default) → siempre vivo.
+    if (IS_PROD) {
+      setInterval(async () => {
+        try {
+          await prisma.$queryRaw`SELECT 1`;
+        } catch (e: any) {
+          console.warn('[keep-alive] Neon ping failed:', e?.message?.slice(0, 120));
+        }
+      }, 4 * 60 * 1000);
+      console.log('[server] keep-alive activo — pinga Neon cada 4 min para evitar autosuspend');
+    }
   });
 
   server.on('error', (err: any) => {
