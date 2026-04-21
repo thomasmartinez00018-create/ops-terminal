@@ -206,7 +206,14 @@ export default function Equivalencias() {
             {!loading && paged.length === 0 && <tr><td colSpan={5} className="py-8 text-center text-zinc-500">Sin items</td></tr>}
             {paged.map((item: any) => (
               <tr key={item.id} className="border-b border-zinc-800/50 hover:bg-zinc-800/30">
-                <td className="px-4 py-2 text-white">{item.productoOriginal}</td>
+                <td className="px-4 py-2 text-white">
+                  {item.productoOriginal}
+                  {item.codigoOriginal && (
+                    <span className="ml-2 font-mono text-[10px] text-primary/80" title="Código original del archivo">
+                      {item.codigoOriginal}
+                    </span>
+                  )}
+                </td>
                 <td className="px-4 py-2 text-zinc-400 text-xs">{item.presentacionOriginal || '-'}</td>
                 <td className="px-4 py-2 text-right text-zinc-300">${item.precioInformado?.toLocaleString('es-AR')}</td>
                 <td className="px-4 py-2 text-center">

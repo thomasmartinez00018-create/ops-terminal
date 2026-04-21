@@ -765,6 +765,7 @@ model ListaPrecioItem {
   id                   Int     @id @default(autoincrement())
   listaPrecioId        Int     @map("lista_precio_id")
   productoOriginal     String  @map("producto_original")
+  codigoOriginal       String? @map("codigo_original") // SKU del proveedor (columna CODIGO del XLSX). Puede coincidir con Producto.codigo interno cuando el proveedor exporta desde Maxirest u otra fuente que usa los mismos códigos del cliente.
   presentacionOriginal String? @map("presentacion_original")
   tipoCompra           String  @default("UNIDAD") @map("tipo_compra") // UNIDAD|CAJA
   unidadesPorCaja      Int     @default(1) @map("unidades_por_caja")

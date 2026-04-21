@@ -372,7 +372,10 @@ router.post('/importar', upload.single('archivo'), async (req: Request, res: Res
         }
 
         if (headerRowIdx >= 0) {
-          // Parse directo sin IA
+          // Parse directo sin IA. Preservamos el código del proveedor
+          // (columna CODIGO/SKU/ART) — antes se extraía y se tiraba porque
+          // el ternario `codigo && ... ? nombre : nombre` era código muerto.
+          // Ahora lo guardamos: lo usa el auto-match por código más abajo.
           for (let i = headerRowIdx + 1; i < rows.length; i++) {
             const r = rows[i] || [];
             const nombre = String(r[colNombre] ?? '').trim();
@@ -384,11 +387,12 @@ router.post('/importar', upload.single('archivo'), async (req: Request, res: Res
               : null;
             const codigo = colCodigo >= 0 ? String(r[colCodigo] ?? '').trim() : '';
             allRows.push({
-              producto: codigo && !/^\d+$/.test(codigo) ? `${nombre}` : nombre,
+              producto: nombre,
+              codigo: codigo || null,
               presentacion: presentacion ? presentacion.slice(0, 100) : null,
               precio: precio as number,
               ambiguo: !presentacion,
-            });
+            } as any);
           }
         } else {
           // Fallback: no detectamos columnas → mandamos a IA como texto plano
@@ -471,26 +475,65 @@ router.post('/importar', upload.single('archivo'), async (req: Request, res: Res
         },
       });
 
-      // Try auto-match by name against existing ProveedorProducto
-      const existingMaps = await tx.proveedorProducto.findMany({
-        where: { organizacionId, proveedorId: Number(proveedorId) },
-        select: { id: true, nombreProveedor: true },
-      });
-      const nameIndex: Record<string, number> = {};
-      existingMaps.forEach((m: any) => {
-        nameIndex[m.nombreProveedor.toLowerCase().trim()] = m.id;
-      });
+      // ── AUTO-MATCH INDICES ──────────────────────────────────────────────
+      // Buscamos 3 fuentes de matching en orden de confianza:
+      //   1. Código del ítem en la lista coincide con Producto.codigo interno
+      //      (ej: MAX-344 en el XLSX → Producto.codigo MAX-344 interno). Esto
+      //      es lo que el cliente llama "antes me salía desde Maxirest":
+      //      cuando el proveedor exporta con los códigos del cliente (el
+      //      proveedor vende a un cliente que usa Maxirest POS), matcheamos
+      //      automáticamente.
+      //   2. Código del ítem coincide con ProveedorProducto.codigoProveedor
+      //      de una carga previa del mismo proveedor. Típico cuando el
+      //      proveedor usa sus propios SKUs y los mantiene estables.
+      //   3. Nombre exacto del ítem coincide con ProveedorProducto.nombreProveedor
+      //      de una carga previa del mismo proveedor (fallback de siempre).
+      const [productosInternos, existingMaps] = await Promise.all([
+        tx.producto.findMany({
+          where: { organizacionId, activo: true },
+          select: { id: true, codigo: true },
+        }),
+        tx.proveedorProducto.findMany({
+          where: { organizacionId, proveedorId: Number(proveedorId) },
+          select: { id: true, productoId: true, nombreProveedor: true, codigoProveedor: true },
+        }),
+      ]);
+
+      // Normalizador: mayúsculas, sin espacios extras, sin separadores comunes.
+      // "MAX-344", "max 344", "max_344" → "MAX344" (matchea los 3 variantes).
+      const normalizarCodigo = (s: string | null | undefined): string => {
+        if (!s) return '';
+        return String(s).toUpperCase().replace(/[\s\-_./]/g, '').trim();
+      };
+
+      const prodByCodigo = new Map<string, number>();
+      for (const p of productosInternos as any[]) {
+        const k = normalizarCodigo(p.codigo);
+        if (k) prodByCodigo.set(k, p.id);
+      }
+
+      const mapByCodigoProv = new Map<string, { id: number; productoId: number }>();
+      const mapByNombre: Record<string, number> = {};
+      for (const m of existingMaps as any[]) {
+        const kcod = normalizarCodigo(m.codigoProveedor);
+        if (kcod) mapByCodigoProv.set(kcod, { id: m.id, productoId: m.productoId });
+        const kname = (m.nombreProveedor || '').toLowerCase().trim();
+        if (kname) mapByNombre[kname] = m.id;
+      }
+
+      // Cache de ProveedorProducto creados durante este import — evita que
+      // dos ítems con el mismo productoId intenten crear dos mappings.
+      const ppCreadoPorProducto = new Map<number, number>();
 
       // Create items
       for (const row of allRows) {
         const nombre = String(row.producto).trim();
+        const codigoItem = (row as any).codigo ? String((row as any).codigo).trim() : null;
         const pres = row.presentacion || null;
         const precio = Number(row.precio);
         const tipoCompra = pres && /caja/i.test(pres) ? 'CAJA' : 'UNIDAD';
 
         // Calculate derived prices.
-        // `unidades_por_caja` no es parte del schema validado (opcional/legacy);
-        // lo leemos defensivamente como any para mantener compat.
         const unidadesPorCaja = Number((row as any).unidades_por_caja);
         const parsed = parsePresentacion(pres);
         const precioPorUnidad = tipoCompra === 'CAJA' && Number.isFinite(unidadesPorCaja) && unidadesPorCaja > 0
@@ -500,13 +543,68 @@ router.post('/importar', upload.single('archivo'), async (req: Request, res: Res
           ? precioPorUnidad / parsed.totalQty
           : null;
 
-        // Auto-match
-        const matchedId = nameIndex[nombre.toLowerCase()];
+        // ── AUTO-MATCH — en orden: código interno, código proveedor, nombre ─
+        let matchedPPId: number | null = null;
+        const codNorm = normalizarCodigo(codigoItem);
+
+        if (codNorm) {
+          // (1) ¿El código matchea un Producto interno? Crear o buscar el
+          //     ProveedorProducto para ese (proveedor, producto) combo.
+          const prodId = prodByCodigo.get(codNorm);
+          if (prodId) {
+            // Primero ver si ya lo creamos en este mismo import
+            matchedPPId = ppCreadoPorProducto.get(prodId) || null;
+            if (!matchedPPId) {
+              // Buscar si ya existe un mapping para este producto con este proveedor
+              const existing = (existingMaps as any[]).find(m => m.productoId === prodId);
+              if (existing) {
+                matchedPPId = existing.id;
+                // Actualizar codigoProveedor si no estaba seteado — el código
+                // de la lista es data valiosa.
+                if (!existing.codigoProveedor && codigoItem) {
+                  await tx.proveedorProducto.update({
+                    where: { id: existing.id },
+                    data: { codigoProveedor: codigoItem.slice(0, 50) },
+                  });
+                }
+              } else {
+                // Crear nuevo mapping
+                const nuevo = await tx.proveedorProducto.create({
+                  data: {
+                    organizacionId,
+                    proveedorId: Number(proveedorId),
+                    productoId: prodId,
+                    nombreProveedor: nombre.slice(0, 200),
+                    codigoProveedor: codigoItem ? codigoItem.slice(0, 50) : null,
+                    ultimoPrecio: precioPorUnidad,
+                    fechaPrecio: fechaFinal,
+                  },
+                });
+                matchedPPId = nuevo.id;
+              }
+              if (matchedPPId) ppCreadoPorProducto.set(prodId, matchedPPId);
+            }
+          }
+
+          // (2) Si no matcheó por código interno pero sí por codigoProveedor
+          //     de una carga anterior, usar ese mapping.
+          if (!matchedPPId) {
+            const prev = mapByCodigoProv.get(codNorm);
+            if (prev) matchedPPId = prev.id;
+          }
+        }
+
+        // (3) Fallback: match por nombre exacto (lógica original).
+        if (!matchedPPId) {
+          const kname = nombre.toLowerCase();
+          if (mapByNombre[kname]) matchedPPId = mapByNombre[kname];
+        }
 
         await tx.listaPrecioItem.create({
           data: {
             listaPrecioId: lista.id,
             productoOriginal: nombre,
+            codigoOriginal: codigoItem ? codigoItem.slice(0, 50) : null,
             presentacionOriginal: pres,
             tipoCompra,
             precioInformado: precio,
@@ -514,8 +612,8 @@ router.post('/importar', upload.single('archivo'), async (req: Request, res: Res
             precioPorMedidaBase,
             unidadMedida: parsed?.baseUnit || null,
             cantidadPorUnidad: parsed?.totalQty || null,
-            proveedorProductoId: matchedId || null,
-            estadoMatch: matchedId ? 'OK' : 'PENDIENTE',
+            proveedorProductoId: matchedPPId,
+            estadoMatch: matchedPPId ? 'OK' : 'PENDIENTE',
           },
         });
       }
