@@ -11,7 +11,7 @@ import SearchableSelect from '../components/ui/SearchableSelect';
 import { useToast } from '../context/ToastContext';
 import { useRecentProducts } from '../hooks/useRecentProducts';
 import { tiposPermitidos, TIPOS_MOVIMIENTO } from '../lib/permisosMovimiento';
-import { Plus, ScanLine, Layers, ScanBarcode } from 'lucide-react';
+import { Plus, ScanLine, Layers, ScanBarcode, MoreHorizontal } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import ExportMenu from '../components/ui/ExportMenu';
 import type { ExportConfig } from '../lib/exportUtils';
@@ -71,6 +71,24 @@ export default function Movimientos() {
   const [scanInput, setScanInput] = useState('');
   const [scanStatus, setScanStatus] = useState('');
   const scanRef = useRef<HTMLInputElement>(null);
+  // Menú "Más" del header — colapsamos acciones secundarias (Exportar, Múltiple)
+  // para que en la vista inicial el usuario vea solo las 2 acciones comunes
+  // (Registrar movimiento + Escanear factura). Mejora usabilidad en mobile.
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onClickOut = (e: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false);
+    };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setMoreOpen(false); };
+    document.addEventListener('mousedown', onClickOut);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onClickOut);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [moreOpen]);
 
   // fetchToken para evitar que una respuesta de un filtro anterior pise la
   // respuesta del filtro actual (race de red lenta + cambio rápido de filtro).
@@ -314,37 +332,73 @@ export default function Movimientos() {
           <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Operaciones</p>
           <h1 className="text-xl font-extrabold text-foreground mt-1">Movimientos</h1>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <ExportMenu size="sm" disabled={movimientos.length === 0} getConfig={() => ({
-            title: 'Movimientos',
-            filename: `movimientos-${todayStr()}`,
-            subtitle: filtroTipo ? `Tipo: ${filtroTipo}` : undefined,
-            headers: ['Fecha', 'Hora', 'Tipo', 'Producto', 'Cantidad', 'Unidad', 'Deposito', 'Usuario'],
-            rows: movimientos.map((m: any) => [
-              m.fecha, m.hora || '', m.tipo, m.producto?.nombre || '',
-              m.cantidad, m.unidad, m.depositoOrigen?.nombre || m.depositoDestino?.nombre || '',
-              m.usuario?.nombre || '',
-            ]),
-            summary: [
-              { label: 'Total movimientos', value: movimientos.length },
-            ],
-            numberColumns: [4],
-          } as ExportConfig)} />
+        {/* Header simplificado — solo 2 acciones visibles: Registrar (90%
+            del uso) y Escanear factura (signature move). "Múltiple" y
+            Exportar viven en el menú "Más" (⋯) para no saturar al usuario
+            no-técnico. Audit UX: "5 botones visibles ciegan al cocinero
+            con manos sucias". */}
+        <div className="flex gap-2 flex-wrap items-center">
           <button
             onClick={() => navigate('/escanear-factura')}
             className="flex items-center gap-2 px-4 py-2.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-500 font-semibold rounded-lg text-sm transition border border-amber-600/30"
           >
             <ScanLine size={16} /> Escanear factura
           </button>
-          <button
-            onClick={abrirBatch}
-            className="flex items-center gap-2 px-4 py-2.5 bg-primary/10 hover:bg-primary/20 text-primary font-semibold rounded-lg text-sm transition border border-primary/20"
-          >
-            <Layers size={16} /> Múltiple
-          </button>
           <Button onClick={() => abrirNuevo()}>
             <Plus size={16} /> Registrar movimiento
           </Button>
+
+          {/* ⋯ Más: dropdown con acciones secundarias */}
+          <div ref={moreRef} className="relative">
+            <button
+              onClick={() => setMoreOpen(o => !o)}
+              className="flex items-center justify-center w-10 h-10 rounded-lg bg-surface-high/70 hover:bg-surface-high text-on-surface-variant hover:text-foreground border border-border/40 transition"
+              title="Más acciones"
+              aria-label="Más acciones"
+              aria-expanded={moreOpen}
+            >
+              <MoreHorizontal size={18} />
+            </button>
+            {moreOpen && (
+              <div className="absolute right-0 top-full mt-1 w-56 bg-surface border border-border rounded-xl shadow-2xl z-40 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                <button
+                  onClick={() => { setMoreOpen(false); abrirBatch(); }}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-foreground hover:bg-surface-high transition-colors"
+                >
+                  <Layers size={16} className="text-primary shrink-0" />
+                  <span>
+                    <div className="font-semibold">Carga múltiple</div>
+                    <div className="text-[11px] text-on-surface-variant">Registrar varios a la vez</div>
+                  </span>
+                </button>
+                <div className="border-t border-border/50" />
+                <div className="px-2 py-1.5">
+                  {/* ExportMenu ya trae su propio dropdown — para mantener
+                      la UI simple, lo ponemos como un trigger dentro del
+                      menú "Más". Cuando no hay movimientos, queda disabled. */}
+                  <ExportMenu
+                    size="sm"
+                    disabled={movimientos.length === 0}
+                    getConfig={() => ({
+                      title: 'Movimientos',
+                      filename: `movimientos-${todayStr()}`,
+                      subtitle: filtroTipo ? `Tipo: ${filtroTipo}` : undefined,
+                      headers: ['Fecha', 'Hora', 'Tipo', 'Producto', 'Cantidad', 'Unidad', 'Deposito', 'Usuario'],
+                      rows: movimientos.map((m: any) => [
+                        m.fecha, m.hora || '', m.tipo, m.producto?.nombre || '',
+                        m.cantidad, m.unidad, m.depositoOrigen?.nombre || m.depositoDestino?.nombre || '',
+                        m.usuario?.nombre || '',
+                      ]),
+                      summary: [
+                        { label: 'Total movimientos', value: movimientos.length },
+                      ],
+                      numberColumns: [4],
+                    } as ExportConfig)}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

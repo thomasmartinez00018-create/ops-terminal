@@ -58,6 +58,141 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// GET /api/recetas/disponibilidad — "86 list" anti-quiebre-de-servicio
+// ---------------------------------------------------------------------------
+// "86" es jerga de cocina para "no hay más" — se grita cuando un plato se
+// terminó. Este endpoint devuelve un vistazo de arranque de día que responde
+// dos preguntas operativas:
+//
+//   1. ¿Qué platos NO puedo hacer ahora mismo? (0 porciones posibles)
+//   2. ¿Qué platos me quedan al límite? (1-5 porciones posibles, le avisa
+//      al encargado que tiene que reponer hoy o mañana)
+//
+// Cálculo: por cada receta activa, miramos sus ingredientes:
+//   stock_total = sumatoria de movimientos del producto (todos los depósitos)
+//   cantidad_neta_por_porcion = ing.cantidad / receta.porciones
+//   factor_merma = 1 / (1 - merma%/100)
+//   cantidad_bruta_por_porcion = cantidad_neta_por_porcion * factor_merma
+//   porciones_posibles_ing = stock_total / cantidad_bruta_por_porcion
+// La cantidad que "manda" la receta = min de porciones_posibles_ing.
+// Cuando eso es 0 → no se puede hacer; bajo → quedan pocas.
+//
+// IMPORTANTE: esta ruta tiene que declararse ANTES de /:id, porque Express
+// matchea en orden y /:id atraparía /disponibilidad como id='disponibilidad'.
+// Además, el param validator global rechaza ids no numéricos con 400.
+// ═══════════════════════════════════════════════════════════════════════════
+router.get('/disponibilidad', async (_req: Request, res: Response) => {
+  try {
+    const recetas = await prisma.receta.findMany({
+      where: { activo: true },
+      select: {
+        id: true,
+        codigo: true,
+        nombre: true,
+        categoria: true,
+        porciones: true,
+        ingredientes: {
+          select: {
+            productoId: true,
+            cantidad: true,
+            unidad: true,
+            mermaEsperada: true,
+            producto: { select: { id: true, codigo: true, nombre: true, unidadUso: true } },
+          },
+        },
+      },
+      orderBy: { nombre: 'asc' },
+    });
+
+    if (recetas.length === 0) {
+      res.json({ sinStock: [], bajoStock: [], totalRecetas: 0 });
+      return;
+    }
+
+    // Stock agregado por producto (todos los depósitos). Filtramos a los
+    // productos que aparecen en alguna receta para no inflar el heap con
+    // movimientos irrelevantes.
+    const productoIds = new Set<number>();
+    for (const r of recetas) {
+      for (const ing of r.ingredientes) productoIds.add(ing.productoId);
+    }
+
+    const movs = await prisma.movimiento.findMany({
+      where: { productoId: { in: Array.from(productoIds) } },
+      select: { tipo: true, productoId: true, cantidad: true },
+    });
+
+    const TIPOS_SUMA = new Set(['ingreso', 'elaboracion', 'devolucion', 'ajuste']);
+    const TIPOS_RESTA = new Set(['merma', 'consumo_interno', 'venta']);
+    const stockPorProducto: Record<number, number> = {};
+    for (const m of movs) {
+      const pid = m.productoId;
+      const qty = Number(m.cantidad) || 0;
+      if (TIPOS_SUMA.has(m.tipo)) stockPorProducto[pid] = (stockPorProducto[pid] || 0) + qty;
+      else if (TIPOS_RESTA.has(m.tipo)) stockPorProducto[pid] = (stockPorProducto[pid] || 0) - qty;
+      // 'transferencia' es neutral en el total global.
+    }
+
+    const sinStock: any[] = [];
+    const bajoStock: any[] = [];
+    const UMBRAL_BAJO = 5;
+
+    for (const r of recetas) {
+      if (!r.ingredientes.length || r.porciones <= 0) continue;
+
+      let porcionesPosibles = Infinity;
+      let ingredienteLimitante: any = null;
+
+      for (const ing of r.ingredientes) {
+        const stock = stockPorProducto[ing.productoId] || 0;
+        const cantidadNetaPorPorcion = Number(ing.cantidad) / r.porciones;
+        if (!Number.isFinite(cantidadNetaPorPorcion) || cantidadNetaPorPorcion <= 0) continue;
+
+        const mermaSafe = Math.min(Math.max(Number(ing.mermaEsperada) || 0, 0), 99);
+        const factor = mermaSafe > 0 ? 1 / (1 - mermaSafe / 100) : 1;
+        const cantidadBrutaPorPorcion = cantidadNetaPorPorcion * factor;
+
+        const porcionesDeEsteIng = stock > 0 ? stock / cantidadBrutaPorPorcion : 0;
+
+        if (porcionesDeEsteIng < porcionesPosibles) {
+          porcionesPosibles = porcionesDeEsteIng;
+          ingredienteLimitante = {
+            productoId: ing.productoId,
+            codigo: ing.producto?.codigo ?? '',
+            nombre: ing.producto?.nombre ?? '',
+            stockActual: Math.max(0, stock),
+            unidad: ing.producto?.unidadUso ?? ing.unidad,
+            cantidadNecesariaPorPorcion: cantidadBrutaPorPorcion,
+          };
+        }
+      }
+
+      const porcionesPosiblesInt = Math.floor(porcionesPosibles);
+      const entry = {
+        recetaId: r.id,
+        codigo: r.codigo,
+        nombre: r.nombre,
+        categoria: r.categoria,
+        porciones: r.porciones,
+        porcionesPosibles: porcionesPosiblesInt,
+        ingredienteLimitante,
+      };
+
+      if (porcionesPosiblesInt === 0) sinStock.push(entry);
+      else if (porcionesPosiblesInt <= UMBRAL_BAJO) bajoStock.push(entry);
+    }
+
+    sinStock.sort((a, b) => a.nombre.localeCompare(b.nombre));
+    bajoStock.sort((a, b) => a.porcionesPosibles - b.porcionesPosibles);
+
+    res.json({ sinStock, bajoStock, totalRecetas: recetas.length });
+  } catch (error: any) {
+    console.error('[recetas/disponibilidad]', error);
+    res.status(500).json({ error: 'Error al calcular disponibilidad de recetas' });
+  }
+});
+
 // GET /api/recetas/:id
 router.get('/:id', async (req: Request, res: Response) => {
   try {

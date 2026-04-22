@@ -26,7 +26,11 @@ export default function AppLayout() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        onOpenSearch={() => setSearchOpen(true)}
+      />
       {/* min-w-0 es crítico: sin él, una tabla muy ancha dentro del main
           estira el flex child y empuja/achica al sidebar, dejando el
           contenido "pegado" al borde visible del sidebar (el desfase que

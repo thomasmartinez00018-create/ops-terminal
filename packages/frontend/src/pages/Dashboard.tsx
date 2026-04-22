@@ -8,6 +8,7 @@ import SugerenciaCompraWidget from '../components/SugerenciaCompraWidget';
 import MargenCriticoWidget from '../components/MargenCriticoWidget';
 import RevisionDelDiaWidget from '../components/RevisionDelDiaWidget';
 import MermaCategoriaWidget from '../components/MermaCategoriaWidget';
+import DisponibilidadRecetasWidget from '../components/DisponibilidadRecetasWidget';
 import {
   Package, Warehouse, ArrowRightLeft, AlertTriangle,
   TrendingDown, TrendingUp, ClipboardCheck, Activity,
@@ -487,6 +488,10 @@ function DashboardDueno() {
 
       {/* ── "Te estás quedando corto de..." — sugerencia inteligente arriba,
             porque el dueño quiere ver a la mañana qué comprar primero. */}
+      {/* "86 list" — platos que no se pueden hacer o al límite. Va arriba
+          del todo porque es lo primero que un chef quiere saber al abrir
+          la app a la mañana, antes que cualquier otro widget. */}
+      {showWidget('alertas') && <DisponibilidadRecetasWidget />}
       {showWidget('alertas') && <SugerenciaCompraWidget />}
       {showWidget('alertas') && <MargenCriticoWidget />}
 
@@ -834,6 +839,10 @@ function DashboardAdmin() {
       {/* ── "Te estás quedando corto de..." — sugerencia inteligente de
             compra. Usa Reposición (stock bajo) + Comparador (mejor
             proveedor). Solo aparece si hay productos que requieren compra. */}
+      {/* "86 list" — platos que no se pueden hacer o al límite. Va arriba
+          del todo porque es lo primero que un chef quiere saber al abrir
+          la app a la mañana, antes que cualquier otro widget. */}
+      {showWidget('alertas') && <DisponibilidadRecetasWidget />}
       {showWidget('alertas') && <SugerenciaCompraWidget />}
       {showWidget('alertas') && <MargenCriticoWidget />}
 

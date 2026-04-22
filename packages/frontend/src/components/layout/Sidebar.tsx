@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Package, Warehouse, Users, ArrowRightLeft,
   ClipboardList, LogOut, ChefHat, Truck, ClipboardCheck,
   Upload, BarChart3, Link2, ShoppingCart, ScanBarcode, AlertTriangle, ScanLine, ListTodo, FlaskConical,
-  FileText, DollarSign, TrendingUp, Settings, ChevronDown, Crown, Repeat
+  FileText, DollarSign, TrendingUp, Settings, ChevronDown, Crown, Repeat, Search
 } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 
@@ -96,9 +96,12 @@ const navGroups: NavGroup[] = [
 interface SidebarProps {
   open?: boolean;
   onClose?: () => void;
+  /** Callback para abrir el CommandPalette. Si no se pasa, se oculta el
+   *  botón de búsqueda (compat con tests u otros layouts). */
+  onOpenSearch?: () => void;
 }
 
-export default function Sidebar({ open = false, onClose }: SidebarProps) {
+export default function Sidebar({ open = false, onClose, onOpenSearch }: SidebarProps) {
   const { user, logout, tienePermiso } = useAuth();
   const { workspace, workspaces, backToWorkspaces } = useSession();
   const location = useLocation();
@@ -200,6 +203,25 @@ export default function Sidebar({ open = false, onClose }: SidebarProps) {
         </p>
         <div className="mt-3 h-px bg-gradient-to-r from-primary/30 via-primary/10 to-transparent" />
       </div>
+
+      {/* ── Buscar (CommandPalette) ───────────────────────────
+          Botón EXPLÍCITO para que usuarios no-técnicos descubran el buscador.
+          Antes solo estaba Cmd+K, que un dueño de 55 años nunca va a usar.
+          En mobile ya está el icono lupa en MobileHeader. */}
+      {onOpenSearch && (
+        <div className="px-3 mb-3 shrink-0">
+          <button
+            onClick={() => { onOpenSearch(); onClose?.(); }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-surface-high/60 hover:bg-surface-high text-on-surface-variant hover:text-foreground text-sm font-medium transition-colors border border-border/40"
+          >
+            <Search size={15} className="opacity-70" />
+            <span className="flex-1 text-left">Buscar…</span>
+            <kbd className="hidden lg:inline-block text-[10px] font-mono font-bold text-on-surface-variant/70 bg-background/70 px-1.5 py-0.5 rounded border border-border/40">
+              ⌘K
+            </kbd>
+          </button>
+        </div>
+      )}
 
       {/* ── Navigation ────────────────────────────────────── */}
       <nav className="flex-1 px-3 overflow-y-auto min-h-0 pb-2">

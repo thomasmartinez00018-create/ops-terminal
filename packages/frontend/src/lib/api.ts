@@ -399,6 +399,8 @@ export const api = {
   deleteReceta: (id: number) =>
     request<any>(`/recetas/${id}`, { method: 'DELETE' }),
   getRecetaCosto: (id: number) => request<any>(`/recetas/${id}/costo`),
+  getDisponibilidadRecetas: () =>
+    request<{ sinStock: any[]; bajoStock: any[]; totalRecetas: number }>('/recetas/disponibilidad'),
 
   // Proveedores
   getProveedores: (params?: Record<string, string>) => request<any[]>(`/proveedores${qs(params)}`),
