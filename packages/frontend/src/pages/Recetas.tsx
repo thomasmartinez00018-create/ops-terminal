@@ -9,6 +9,7 @@ import DrawerModal from '../components/ui/DrawerModal';
 import Badge from '../components/ui/Badge';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import HelpHint from '../components/ui/HelpHint';
+import ConfirmDialog, { useConfirm } from '../components/ui/ConfirmDialog';
 import {
   Plus, Pencil, Trash2, ChefHat, DollarSign, X, Package, Calculator, Info,
   Copy, ChevronDown, ChevronUp, Send, Sliders, Search, Printer,
@@ -292,6 +293,7 @@ async function comprimirImagen(file: File, maxDim = 800, quality = 0.75): Promis
 
 export default function Recetas() {
   const { addToast } = useToast();
+  const { confirm, dialogProps } = useConfirm();
   const [recetas, setRecetas] = useState<any[]>([]);
   const [productos, setProductos] = useState<any[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
@@ -424,7 +426,13 @@ export default function Recetas() {
   };
 
   const eliminar = async (id: number, nombre: string) => {
-    if (!confirm(`¿Desactivar la receta "${nombre}"? Esta acción se puede revertir.`)) return;
+    const ok = await confirm({
+      title: `¿Desactivar la receta "${nombre}"?`,
+      detalle: 'Va a desaparecer de la lista de platos. Los datos se guardan — la podés reactivar desde los filtros.',
+      variant: 'warning',
+      confirmLabel: 'Sí, desactivar',
+    });
+    if (!ok) return;
     try {
       await api.deleteReceta(id);
       addToast('Receta desactivada');
@@ -1532,6 +1540,7 @@ export default function Recetas() {
           </div>
         </div>
       </Modal>
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }

@@ -111,11 +111,14 @@ export default function Reportes() {
       .finally(() => setLoadingHistorial(false));
   };
 
+  // Nombres en lenguaje humano — "Stock valorizado" / "Historial producto" son
+  // jerga que el dueño de 55 años no procesa. Le preguntamos lo que él quiere
+  // saber: "¿cuánta plata tengo guardada?", "¿qué pasó con este producto?".
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
-    { key: 'movimientos', label: 'Movimientos por tipo', icon: <BarChart3 size={14} /> },
-    { key: 'mermas', label: 'Mermas', icon: <TrendingDown size={14} /> },
-    { key: 'valorizado', label: 'Stock valorizado', icon: <DollarSign size={14} /> },
-    { key: 'historial', label: 'Historial producto', icon: <Package size={14} /> },
+    { key: 'movimientos', label: '¿Qué hicimos?', icon: <BarChart3 size={14} /> },
+    { key: 'mermas', label: 'Pérdidas y mermas', icon: <TrendingDown size={14} /> },
+    { key: 'valorizado', label: 'Plata en mercadería', icon: <DollarSign size={14} /> },
+    { key: 'historial', label: 'Seguir un producto', icon: <Package size={14} /> },
   ];
 
   const isCurrentTabLoading = tab === 'movimientos' ? loadingMov

@@ -283,6 +283,18 @@ model Movimiento {
   unidad            String
   lote              String?
   motivo            String?
+  // Categoría de merma — solo relevante cuando tipo='merma' o 'consumo_interno'.
+  // Permite distinguir merma "buena" (preparación normal, cáscara) de merma
+  // "mala" (vencimiento, rotura) y de la que el dueño debería auditar
+  // (cortesía, staff meal, sin explicación). El dashboard agrupa por esta
+  // categoría para que salga a la luz el robo hormiga vs la pérdida natural.
+  //   'preparacion' — cáscara, hueso, recorte (esperada según receta/merma)
+  //   'vencimiento' — se venció antes de usarse
+  //   'rotura'      — se rompió, se cayó
+  //   'cortesia'    — regalo al cliente/amigo
+  //   'staff_meal'  — comida del personal
+  //   'sin_explicacion' — no sabe qué pasó (flag crítico)
+  categoriaMerma    String?  @map("categoria_merma")
   costoUnitario     Float?   @map("costo_unitario")
   proveedorId       Int?     @map("proveedor_id")
   documentoRef      String?  @map("documento_ref")

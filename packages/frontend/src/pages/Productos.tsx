@@ -6,6 +6,7 @@ import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import Modal from '../components/ui/Modal';
+import ConfirmDialog, { useConfirm } from '../components/ui/ConfirmDialog';
 import Badge from '../components/ui/Badge';
 import ExportMenu from '../components/ui/ExportMenu';
 import type { ExportConfig } from '../lib/exportUtils';
@@ -45,6 +46,7 @@ const emptyForm = {
 
 export default function Productos() {
   const navigate = useNavigate();
+  const { confirm, dialogProps } = useConfirm();
   const [productos, setProductos] = useState<any[]>([]);
   const [depositos, setDepositos] = useState<any[]>([]);
   const [buscar, setBuscar] = useState('');
@@ -132,7 +134,7 @@ export default function Productos() {
     // producto aparecía (NaN/Infinity).
     const factor = Number(form.factorConversion);
     if (!Number.isFinite(factor) || factor <= 0) {
-      setError('El factor de conversión debe ser mayor a cero.');
+      setError(`La equivalencia entre ${form.unidadCompra} y ${form.unidadUso} debe ser mayor a cero. Ej: 1 caja = 12 unidades, no 0.`);
       return;
     }
     if (!form.nombre.trim()) {
@@ -162,7 +164,13 @@ export default function Productos() {
   };
 
   const eliminar = async (id: number, nombre: string) => {
-    if (!confirm(`¿Desactivar el producto "${nombre}"? Esta acción se puede revertir.`)) return;
+    const ok = await confirm({
+      title: `¿Desactivar el producto "${nombre}"?`,
+      detalle: 'Va a dejar de aparecer en movimientos nuevos y en la lista. Lo podés reactivar después desde los filtros si aparece de nuevo.',
+      variant: 'warning',
+      confirmLabel: 'Sí, desactivar',
+    });
+    if (!ok) return;
     await api.deleteProducto(id);
     cargar();
   };
@@ -505,6 +513,7 @@ export default function Productos() {
           </div>
         </div>
       </Modal>
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }

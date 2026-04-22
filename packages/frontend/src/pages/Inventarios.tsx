@@ -9,6 +9,7 @@ import Select from '../components/ui/Select';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
 import HelpHint from '../components/ui/HelpHint';
+import ConfirmDialog, { useConfirm } from '../components/ui/ConfirmDialog';
 import { Plus, ClipboardCheck, Lock, Trash2, AlertTriangle, ScanBarcode, X, Minus, Zap, Delete, Check, Hash } from 'lucide-react';
 
 interface DetalleRow {
@@ -24,6 +25,7 @@ interface DetalleRow {
 export default function Inventarios() {
   const { user } = useAuth();
   const { addToast } = useToast();
+  const { confirm, dialogProps } = useConfirm();
   const [view, setView] = useState<'list' | 'detail'>('list');
   const [selectedInventarioId, setSelectedInventarioId] = useState<number | null>(null);
 
@@ -253,12 +255,23 @@ export default function Inventarios() {
 
   // ─── Delete inventario ───
   const eliminar = async (id: number, descripcion: string) => {
-    if (!confirm(`¿Eliminar el inventario "${descripcion}"? Esta acción no se puede deshacer.`)) return;
+    const ok = await confirm({
+      title: `¿Eliminar el inventario "${descripcion}"?`,
+      detalle: (
+        <>
+          Los ajustes de stock que generó <b className="text-foreground">se mantienen</b> —
+          solo se borra el registro del conteo. No se puede deshacer.
+        </>
+      ),
+      variant: 'danger',
+      confirmLabel: 'Sí, eliminar',
+    });
+    if (!ok) return;
     try {
       await api.deleteInventario(id);
       cargarLista();
     } catch (e: any) {
-      alert(e.message);
+      addToast(e.message || 'Error al eliminar', 'error');
     }
   };
 
@@ -833,6 +846,7 @@ export default function Inventarios() {
           </div>
         </div>
       </Modal>
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }

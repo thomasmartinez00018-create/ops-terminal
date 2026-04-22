@@ -87,6 +87,14 @@ router.post('/', async (req: Request, res: Response) => {
         depositoDestinoId: toNumOrNull(req.body.depositoDestinoId),
         lote: req.body.lote || null,
         motivo: req.body.motivo || null,
+        // Categoría de merma — solo se persiste cuando el tipo es merma o
+        // consumo_interno. Valores válidos: preparacion, vencimiento, rotura,
+        // cortesia, staff_meal, sin_explicacion. Cualquier otro valor se
+        // ignora para no ensuciar los reportes.
+        categoriaMerma: ['merma', 'consumo_interno'].includes(req.body.tipo) &&
+          ['preparacion', 'vencimiento', 'rotura', 'cortesia', 'staff_meal', 'sin_explicacion'].includes(String(req.body.categoriaMerma))
+          ? req.body.categoriaMerma
+          : null,
         costoUnitario: toNumOrNull(req.body.costoUnitario),
         proveedorId: toNumOrNull(req.body.proveedorId),
         documentoRef: req.body.documentoRef || null,
@@ -171,6 +179,10 @@ router.post('/batch', async (req: Request, res: Response) => {
             depositoDestinoId: item.depositoDestinoId ? Number(item.depositoDestinoId) : (depositoDestinoId ? Number(depositoDestinoId) : null),
             lote: item.lote || null,
             motivo: item.motivo || null,
+            categoriaMerma: ['merma', 'consumo_interno'].includes(tipo) &&
+              ['preparacion', 'vencimiento', 'rotura', 'cortesia', 'staff_meal', 'sin_explicacion'].includes(String(item.categoriaMerma))
+              ? item.categoriaMerma
+              : null,
             costoUnitario: item.costoUnitario ? Number(item.costoUnitario) : null,
             observacion: observacion || null,
           },
@@ -217,6 +229,63 @@ router.get('/motivos/:tipo', (req: Request, res: Response) => {
     venta: ['Venta al público', 'Venta mayorista', 'Delivery', 'Catering', 'Venta a empleado', 'Otro'],
   };
   res.json(motivos[req.params.tipo as string] || []);
+});
+
+// GET /api/movimientos/mermas-por-categoria - Reporte de mermas agrupadas por
+// categoría. Es el endpoint clave para el dashboard anti-robo-hormiga: el
+// dueño ve cuánto de su merma es "esperada" (preparación) vs cuánto es
+// "oscura" (sin_explicacion, cortesía sin control, rotura sospechosa).
+//
+// Devuelve por categoría:
+//   - cantidad de movimientos
+//   - sumatoria de cantidades
+//   - valorización aproximada (cant × costoUnitario)
+// Filtros opcionales:
+//   - desde, hasta: YYYY-MM-DD
+router.get('/mermas-por-categoria', async (req: Request, res: Response) => {
+  try {
+    const { desde, hasta } = req.query;
+    const where: any = { tipo: { in: ['merma', 'consumo_interno'] } };
+    if (desde || hasta) {
+      where.fecha = {};
+      if (desde) where.fecha.gte = desde as string;
+      if (hasta) where.fecha.lte = hasta as string;
+    }
+
+    const movs = await prisma.movimiento.findMany({
+      where,
+      select: {
+        tipo: true,
+        categoriaMerma: true,
+        cantidad: true,
+        costoUnitario: true,
+      },
+    });
+
+    type Bucket = { tipo: string; categoria: string; cantidad: number; valor: number; count: number };
+    const bucket: Record<string, Bucket> = {};
+    let totalValor = 0;
+    for (const m of movs) {
+      const cat = (m as any).categoriaMerma || 'sin_categorizar';
+      const key = `${m.tipo}::${cat}`;
+      if (!bucket[key]) {
+        bucket[key] = { tipo: m.tipo, categoria: cat, cantidad: 0, valor: 0, count: 0 };
+      }
+      const qty = Number(m.cantidad) || 0;
+      const cu = Number(m.costoUnitario) || 0;
+      bucket[key].cantidad += qty;
+      bucket[key].valor += qty * cu;
+      bucket[key].count += 1;
+      totalValor += qty * cu;
+    }
+
+    // Orden: mayor valor primero (lo que más duele al bolsillo).
+    const grupos = Object.values(bucket).sort((a, b) => b.valor - a.valor);
+    res.json({ totalValor, totalMovimientos: movs.length, grupos });
+  } catch (error: any) {
+    console.error('[movimientos/mermas-por-categoria]', error);
+    res.status(500).json({ error: 'Error al obtener reporte de mermas' });
+  }
 });
 
 export default router;

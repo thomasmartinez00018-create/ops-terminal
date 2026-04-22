@@ -383,6 +383,8 @@ export const api = {
     request<any>('/movimientos', { method: 'POST', body: JSON.stringify(data) }),
   createMovimientosBatch: (data: any) =>
     request<any>('/movimientos/batch', { method: 'POST', body: JSON.stringify(data) }),
+  getMermasPorCategoria: (params?: Record<string, string>) =>
+    request<{ totalValor: number; totalMovimientos: number; grupos: any[] }>(`/movimientos/mermas-por-categoria${qs(params)}`),
 
   // Stock
   getStock: (params?: Record<string, string>) => request<any[]>(`/stock${qs(params)}`),

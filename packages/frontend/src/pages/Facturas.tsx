@@ -5,6 +5,7 @@ import { useToast } from '../context/ToastContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
+import ConfirmDialog, { useConfirm } from '../components/ui/ConfirmDialog';
 import ExportMenu from '../components/ui/ExportMenu';
 import type { ExportConfig } from '../lib/exportUtils';
 import { todayStr, formatCurrency } from '../lib/exportUtils';
@@ -36,6 +37,7 @@ const MEDIOS_PAGO = [
 export default function Facturas() {
   const { user } = useAuth();
   const { addToast } = useToast();
+  const { confirm, dialogProps } = useConfirm();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -128,7 +130,20 @@ export default function Facturas() {
   };
 
   const anular = async (id: number, codigo: string) => {
-    if (!confirm(`¿Anular la factura ${codigo}? Esta acción no se puede revertir.`)) return;
+    const ok = await confirm({
+      title: `¿Anular la factura ${codigo}?`,
+      detalle: (
+        <>
+          Esto <b className="text-foreground">no se puede deshacer</b>. Los movimientos de ingreso
+          que generó la factura también se van a anular — si ya mermaste o usaste
+          esa mercadería, el stock te va a quedar mal.
+        </>
+      ),
+      variant: 'danger',
+      confirmLabel: 'Sí, anular factura',
+      cancelLabel: 'No, volver',
+    });
+    if (!ok) return;
     try {
       await api.anularFactura(id);
       addToast(`Factura ${codigo} anulada`);
@@ -509,6 +524,7 @@ export default function Facturas() {
           </div>
         </div>
       </Modal>
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }

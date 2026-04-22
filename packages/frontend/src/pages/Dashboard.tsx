@@ -7,6 +7,7 @@ import QuickMovimiento from '../components/QuickMovimiento';
 import SugerenciaCompraWidget from '../components/SugerenciaCompraWidget';
 import MargenCriticoWidget from '../components/MargenCriticoWidget';
 import RevisionDelDiaWidget from '../components/RevisionDelDiaWidget';
+import MermaCategoriaWidget from '../components/MermaCategoriaWidget';
 import {
   Package, Warehouse, ArrowRightLeft, AlertTriangle,
   TrendingDown, TrendingUp, ClipboardCheck, Activity,
@@ -697,6 +698,9 @@ function DashboardDueno() {
 
       {/* ── Revisión del día (solo si hubo movimiento hoy) ───────────────── */}
       <RevisionDelDiaWidget />
+
+      {/* ── ¿Dónde se va la mercadería? (últimos 30 días, por categoría) ─ */}
+      <MermaCategoriaWidget />
 
       {/* ── Últimos movimientos — opcional, al final ───────────────────── */}
       {showWidget('ultimos-movimientos') && stats.ultimosMovimientos && stats.ultimosMovimientos.length > 0 && (

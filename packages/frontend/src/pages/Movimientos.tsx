@@ -50,7 +50,8 @@ export default function Movimientos() {
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState({
     tipo: 'ingreso', productoId: '', depositoOrigenId: '', depositoDestinoId: '',
-    cantidad: '', unidad: '', lote: '', motivo: '', observacion: '', responsableId: ''
+    cantidad: '', unidad: '', lote: '', motivo: '', observacion: '', responsableId: '',
+    categoriaMerma: '', // obligatoria cuando tipo=merma o consumo_interno
   });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -126,6 +127,7 @@ export default function Movimientos() {
       motivo: '',
       observacion: '',
       responsableId: '',
+      categoriaMerma: '',
     });
     setError('');
     setModalOpen(true);
@@ -166,6 +168,14 @@ export default function Movimientos() {
     setSaving(true);
     const now = new Date();
     try {
+      // Validación específica para merma/consumo_interno: la categoría es
+      // obligatoria — si no la piden, toda merma termina en un solo bucket
+      // opaco y el dashboard anti-robo-hormiga pierde valor.
+      if (['merma', 'consumo_interno'].includes(form.tipo) && !form.categoriaMerma) {
+        setError('Tenés que elegir por qué se va esta mercadería — preparación, vencimiento, rotura, cortesía, comida de staff o sin explicación.');
+        setSaving(false);
+        return;
+      }
       await api.createMovimiento({
         tipo: form.tipo,
         productoId: Number(form.productoId),
@@ -178,6 +188,7 @@ export default function Movimientos() {
         unidad: form.unidad,
         lote: form.lote || null,
         motivo: form.motivo || null,
+        categoriaMerma: form.categoriaMerma || null,
         observacion: form.observacion || null,
         responsableId: form.responsableId ? Number(form.responsableId) : null,
       });
@@ -492,14 +503,59 @@ export default function Movimientos() {
               placeholder="Seleccionar..."
             />
           )}
+          {/* Categoría obligatoria para merma y consumo interno — el picker
+              grande con emojis hace que sea imposible saltearla sin querer.
+              El reporte de dashboard agrupa por categoría para separar merma
+              "buena" de merma oscura. Ver backend:
+              /api/movimientos/mermas-por-categoria. */}
+          {['merma', 'consumo_interno'].includes(form.tipo) && (
+            <div>
+              <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1.5 block">
+                ¿Por qué se va? <span className="text-destructive">*</span>
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {[
+                  { value: 'preparacion',     label: 'Preparación',        desc: 'cáscara, hueso, recorte', emoji: '🥬' },
+                  { value: 'vencimiento',     label: 'Se venció',          desc: 'caducó antes de usarse',  emoji: '📅' },
+                  { value: 'rotura',          label: 'Se rompió',          desc: 'caída, derrame',          emoji: '💥' },
+                  { value: 'cortesia',        label: 'Cortesía',           desc: 'regalo al cliente',       emoji: '🎁' },
+                  { value: 'staff_meal',      label: 'Comida del staff',   desc: 'comió el personal',       emoji: '🍽️' },
+                  { value: 'sin_explicacion', label: 'No sé qué pasó',     desc: 'faltó sin motivo claro',  emoji: '❓' },
+                ].map(opt => {
+                  const selected = form.categoriaMerma === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setForm({ ...form, categoriaMerma: opt.value })}
+                      className={`p-3 rounded-xl border text-left transition-all active:scale-[0.98] ${
+                        selected
+                          ? 'bg-primary/10 border-primary text-foreground shadow-sm'
+                          : 'bg-surface border-border/60 text-on-surface-variant hover:border-border'
+                      }`}
+                    >
+                      <div className="text-xl mb-0.5">{opt.emoji}</div>
+                      <p className={`text-xs font-bold ${selected ? 'text-foreground' : 'text-foreground'}`}>{opt.label}</p>
+                      <p className="text-[10px] text-on-surface-variant leading-tight mt-0.5">{opt.desc}</p>
+                    </button>
+                  );
+                })}
+              </div>
+              {form.categoriaMerma === 'sin_explicacion' && (
+                <div className="mt-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-xs text-amber-500">
+                  <b>Ojo:</b> las mermas sin explicación suelen esconder errores de carga o pérdidas que conviene auditar. Al dueño le va a aparecer destacado en el dashboard.
+                </div>
+              )}
+            </div>
+          )}
           {form.tipo === 'merma' && (
             <Select
-              label="Motivo"
+              label="Motivo específico (opcional)"
               id="motivo"
               value={form.motivo}
               onChange={e => setForm({ ...form, motivo: e.target.value })}
               options={MOTIVOS_MERMA.map(m => ({ value: m, label: m }))}
-              placeholder="Seleccionar motivo..."
+              placeholder="Detalle adicional (opcional)"
             />
           )}
           {form.tipo === 'venta' && (

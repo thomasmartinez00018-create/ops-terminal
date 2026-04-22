@@ -5,6 +5,7 @@ import { useToast } from '../context/ToastContext';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
+import ConfirmDialog, { useConfirm } from '../components/ui/ConfirmDialog';
 import TabBar from '../components/ui/TabBar';
 import {
   ArrowRight,
@@ -49,6 +50,7 @@ const ESTADO_BADGE: Record<string, { label: string; variant: 'default' | 'succes
 export default function Reposicion() {
   const { user } = useAuth();
   const { addToast } = useToast();
+  const { confirm, dialogProps } = useConfirm();
   const [tab, setTab] = useState<Tab>('alertas');
   const [loading, setLoading] = useState(false);
   const [generando, setGenerando] = useState(false);
@@ -101,9 +103,18 @@ export default function Reposicion() {
   }, [tab, filtroEstado]);
 
   const generarOrdenes = async () => {
-    if (!confirm('Se crearán órdenes de reposición internas en estado "sugerida". Nada se descontará del stock hasta que un humano ejecute cada orden. ¿Continuar?')) {
-      return;
-    }
+    const ok = await confirm({
+      title: '¿Generar órdenes de reposición?',
+      detalle: (
+        <>
+          Se crean órdenes internas en estado <b className="text-foreground">"sugerida"</b>.
+          Todavía <b className="text-foreground">no se mueve stock</b> — después alguien revisa
+          cada orden y la ejecuta manualmente.
+        </>
+      ),
+      confirmLabel: 'Sí, generar',
+    });
+    if (!ok) return;
     setGenerando(true);
     try {
       const res = await api.generarOrdenesReposicion();
@@ -160,9 +171,19 @@ export default function Reposicion() {
 
   const ejecutarOrden = async () => {
     if (!detalleOrden) return;
-    if (!confirm('Esto creará los movimientos de transferencia en el stock. Esta acción no se puede deshacer. ¿Continuar?')) {
-      return;
-    }
+    const ok = await confirm({
+      title: '¿Ejecutar la orden?',
+      detalle: (
+        <>
+          Se van a crear los movimientos de transferencia en el stock ahora.
+          <br />
+          <b className="text-foreground">Esto no se puede deshacer.</b>
+        </>
+      ),
+      variant: 'warning',
+      confirmLabel: 'Sí, ejecutar',
+    });
+    if (!ok) return;
     // Si hay cantidades editadas sin guardar, guardamos primero.
     const hayCambios = detalleOrden.items.some((it: any) =>
       Number(editItems[it.id] ?? 0) !== (it.cantidadConfirmada ?? it.cantidadSugerida),
@@ -192,7 +213,14 @@ export default function Reposicion() {
   };
 
   const cancelarOrden = async (id: number) => {
-    if (!confirm('¿Cancelar esta orden de reposición?')) return;
+    const ok = await confirm({
+      title: '¿Cancelar esta orden?',
+      detalle: 'La orden queda archivada en estado "cancelada". No se mueve stock.',
+      variant: 'warning',
+      confirmLabel: 'Sí, cancelar la orden',
+      cancelLabel: 'No, volver',
+    });
+    if (!ok) return;
     try {
       await api.cancelarOrdenReposicion(id);
       addToast('Orden cancelada', 'success');
@@ -567,6 +595,7 @@ export default function Reposicion() {
           </div>
         </Modal>
       )}
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }

@@ -127,9 +127,9 @@ export default function ImportarLista() {
               <th className="px-4 py-3 text-left">Proveedor</th>
               <th className="px-4 py-3 text-left">Fecha</th>
               <th className="px-4 py-3 text-left">Archivo</th>
-              <th className="px-4 py-3 text-center">Items</th>
-              <th className="px-4 py-3 text-center">Matcheados</th>
-              <th className="px-4 py-3 text-center">Pendientes</th>
+              <th className="px-4 py-3 text-center">Productos</th>
+              <th className="px-4 py-3 text-center">Vinculados</th>
+              <th className="px-4 py-3 text-center">Falta vincular</th>
               <th className="px-4 py-3 text-right">Acciones</th>
             </tr>
           </thead>
