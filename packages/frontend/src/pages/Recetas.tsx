@@ -347,9 +347,25 @@ export default function Recetas() {
 
   // ── Form helpers ──────────────────────────────────────────────────────────
 
-  const abrir = (receta?: any, opts?: { duplicar?: boolean }) => {
+  const abrir = async (receta?: any, opts?: { duplicar?: boolean }) => {
     if (receta) {
       setEditId(opts?.duplicar ? null : receta.id);
+      // IMPORTANTE: GET /recetas (list) NO trae imagenBase64 para evitar OOM
+      // en el backend (cada imagen pesa hasta 500KB; 30 recetas × 500KB
+      // revientan el heap de Node al hacer JSON.stringify). Solo el detalle
+      // trae la foto, así que si estamos editando, pegamos al detail para
+      // recuperar la imagen existente y no sobreescribirla con null al
+      // guardar.
+      let imagenBase64 = '';
+      if (!opts?.duplicar) {
+        try {
+          const full = await api.getReceta(receta.id);
+          imagenBase64 = full.imagenBase64 ?? '';
+        } catch {
+          // Si falla, seguimos sin imagen — peor caso, el usuario tiene
+          // que volver a subirla. No frenamos la edición.
+        }
+      }
       setForm({
         codigo: opts?.duplicar ? `${receta.codigo}-COPIA` : receta.codigo,
         nombre: opts?.duplicar ? `${receta.nombre} (copia)` : receta.nombre,
@@ -370,7 +386,7 @@ export default function Recetas() {
         metodoPreparacion: receta.metodoPreparacion ?? '',
         tiempoPreparacion: receta.tiempoPreparacion ?? '',
         notasChef: receta.notasChef ?? '',
-        imagenBase64: receta.imagenBase64 ?? '',
+        imagenBase64,
       });
     } else {
       setEditId(null);

@@ -4,6 +4,15 @@ import prisma from '../lib/prisma';
 const router = Router();
 
 // GET /api/recetas - Listar recetas
+//
+// CRÍTICO: este endpoint NO devuelve `imagenBase64`. Cada imagen puede pesar
+// hasta 500KB en base64. Con 30-50 recetas, devolver esto en la lista empuja
+// la respuesta a 10-25MB, y el proceso Node (heap ~500MB en Railway)
+// revienta con "FATAL ERROR: Reached heap limit" al hacer JSON.stringify().
+//
+// La lista solo necesita metadata — nombre, costos, margen. La foto se
+// carga bajo demanda en GET /recetas/:id cuando el usuario abre el detalle
+// o el modo cocina. Misma estrategia usan Instagram/Shopify para feeds.
 router.get('/', async (req: Request, res: Response) => {
   try {
     const { activo } = req.query;
@@ -13,7 +22,27 @@ router.get('/', async (req: Request, res: Response) => {
 
     const recetas = await prisma.receta.findMany({
       where,
-      include: {
+      // select explícito — listamos TODOS los campos excepto imagenBase64.
+      // Así el frontend sigue recibiendo toda la metadata que necesitaba
+      // antes (precio, margen, notas, método) sin los bytes de la foto.
+      select: {
+        id: true,
+        organizacionId: true,
+        codigo: true,
+        nombre: true,
+        categoria: true,
+        sector: true,
+        porciones: true,
+        productoResultadoId: true,
+        cantidadProducida: true,
+        unidadProducida: true,
+        activo: true,
+        precioVenta: true,
+        margenObjetivo: true,
+        metodoPreparacion: true,
+        tiempoPreparacion: true,
+        notasChef: true,
+        // imagenBase64 — OMITIDO a propósito. Se carga en GET /recetas/:id.
         productoResultado: { select: { id: true, nombre: true, unidadUso: true } },
         ingredientes: {
           include: {
