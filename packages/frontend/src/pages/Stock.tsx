@@ -6,6 +6,7 @@ import PageTour from '../components/PageTour';
 import ExportMenu from '../components/ui/ExportMenu';
 import type { ExportConfig } from '../lib/exportUtils';
 import { todayStr } from '../lib/exportUtils';
+import { useToast } from '../context/ToastContext';
 
 const RUBROS_STOCK = [
   'Verduras', 'Frutas', 'Carnes', 'Pescados', 'Lácteos', 'Fiambres',
@@ -14,6 +15,7 @@ const RUBROS_STOCK = [
 ];
 
 export default function Stock() {
+  const { addToast } = useToast();
   const [stock, setStock] = useState<any[]>([]);
   const [depositos, setDepositos] = useState<any[]>([]);
   const [filtroDeposito, setFiltroDeposito] = useState('');
@@ -38,7 +40,18 @@ export default function Stock() {
     if (filtroBajoMinimo) params.bajosDeMinimo = 'true';
     api.getStock(params)
       .then(data => { if (myToken === fetchTokenRef.current) setStock(data); })
-      .catch(console.error)
+      .catch((e: any) => {
+        if (myToken !== fetchTokenRef.current) return; // respuesta stale
+        console.error('[stock/cargar]', e);
+        // Silencioso si es "Sesión expirada" (el evento AUTH_ERROR_EVENT
+        // ya disparó el flujo de logout — otro toast sería ruido). Para
+        // cualquier otro error, avisar en lugar de dejar la pantalla
+        // vacía sin feedback.
+        const msg = String(e?.message || '');
+        if (!/sesi[oó]n expirada/i.test(msg)) {
+          addToast('No se pudo cargar el stock. Reintentá en un momento.', 'error');
+        }
+      })
       .finally(() => { if (myToken === fetchTokenRef.current) setLoading(false); });
   };
 

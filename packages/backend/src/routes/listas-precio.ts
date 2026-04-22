@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import prisma from '../lib/prisma';
 import { getTenant } from '../lib/tenantContext';
+import { generarConCodigoUnico } from '../lib/generarCodigo';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const router = Router();
@@ -451,23 +452,15 @@ router.post('/importar', upload.single('archivo'), async (req: Request, res: Res
     // al principio del handler (línea ~231) y lo inyectamos explícitamente en
     // cada operación tenant-aware dentro de la transacción.
     const resultado = await prisma.$transaction(async (tx: any) => {
-      // Auto-generate code LP-XXX (scoped to this org)
-      const last = await tx.listaPrecio.findFirst({
-        where: { organizacionId },
-        orderBy: { id: 'desc' },
-        select: { codigo: true },
-      });
-      let nextNum = 1;
-      if (last) {
-        const m = last.codigo.match(/LP-(\d+)/);
-        if (m) nextNum = parseInt(m[1]) + 1;
-      }
-      const codigo = `LP-${String(nextNum).padStart(3, '0')}`;
-
-      const lista = await tx.listaPrecio.create({
+      // Crear ListaPrecio con código LP-NNN único y retry-safe. Antes
+      // (`findFirst` + `create` manual) dos imports simultáneos podían
+      // generar el mismo código → P2002 en el segundo. Ahora el helper
+      // reintenta hasta 8 veces incrementando el número si choca.
+      const lista = await generarConCodigoUnico<any>({
+        prefix: 'LP',
+        delegate: tx.listaPrecio,
+        organizacionId,
         data: {
-          organizacionId,
-          codigo,
           proveedorId: Number(proveedorId),
           fecha: fechaFinal,
           archivoOrigen: file.originalname,

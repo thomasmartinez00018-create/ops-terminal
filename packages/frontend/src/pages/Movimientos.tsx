@@ -81,7 +81,14 @@ export default function Movimientos() {
     if (filtroTipo) params.tipo = filtroTipo;
     api.getMovimientos(params)
       .then(data => { if (myToken === fetchTokenRef.current) setMovimientos(data); })
-      .catch(console.error)
+      .catch((e: any) => {
+        if (myToken !== fetchTokenRef.current) return;
+        console.error('[movimientos/cargar]', e);
+        const msg = String(e?.message || '');
+        if (!/sesi[oó]n expirada/i.test(msg)) {
+          addToast('No se pudieron cargar los movimientos. Reintentá en un momento.', 'error');
+        }
+      })
       .finally(() => { if (myToken === fetchTokenRef.current) setLoading(false); });
   };
 
