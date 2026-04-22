@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import Badge from '../components/ui/Badge';
 import { AlertTriangle, Search, RefreshCw, Package } from 'lucide-react';
@@ -24,12 +24,22 @@ export default function Stock() {
   const [busqueda, setBusqueda] = useState('');
   const [loading, setLoading] = useState(true);
 
+  // fetchToken: cada `cargar()` incrementa un token; solo la respuesta con
+  // el token más reciente "gana" y actualiza el estado. Esto previene que
+  // una respuesta lenta de un filtro anterior pise una respuesta rápida del
+  // filtro actual (ej: usuario cambia filtroDeposito 2 veces seguidas y
+  // termina viendo el stock del primer depósito aunque seleccionó el segundo).
+  const fetchTokenRef = useRef(0);
   const cargar = () => {
+    const myToken = ++fetchTokenRef.current;
     setLoading(true);
     const params: Record<string, string> = {};
     if (filtroDeposito) params.depositoId = filtroDeposito;
     if (filtroBajoMinimo) params.bajosDeMinimo = 'true';
-    api.getStock(params).then(setStock).catch(console.error).finally(() => setLoading(false));
+    api.getStock(params)
+      .then(data => { if (myToken === fetchTokenRef.current) setStock(data); })
+      .catch(console.error)
+      .finally(() => { if (myToken === fetchTokenRef.current) setLoading(false); });
   };
 
   useEffect(() => { cargar(); }, [filtroDeposito, filtroBajoMinimo]);

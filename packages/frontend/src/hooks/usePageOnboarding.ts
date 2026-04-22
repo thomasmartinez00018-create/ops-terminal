@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { scopedKey } from '../lib/scopedStorage';
 
+// Scope por workspace + usuario para evitar que el onboarding de página se
+// "herede" entre dos organizaciones distintas abiertas en el mismo browser.
 function storageKey(userId: number, pageKey: string) {
-  return `page_ob_v1_${userId}_${pageKey}`;
+  return scopedKey(`page_ob_v1_${pageKey}`, userId);
 }
 
 export function usePageOnboarding(pageKey: string) {

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
+import { getTenant } from '../lib/tenantContext';
 import { detectarVariaciones, persistirAlertas, type VariacionDetectada } from '../lib/alertasPrecio';
 
 const router = Router();
@@ -577,9 +578,19 @@ router.get('/cogs/detalle', async (req: Request, res: Response) => {
 // ── GET /api/contabilidad/historial-precios/:productoId ────────────────────
 router.get('/historial-precios/:productoId', async (req: Request, res: Response) => {
   try {
+    // SECURITY: FacturaItem NO es tenant-aware (es child de Factura). Sin
+    // filtro explícito por `factura.organizacionId`, un usuario autenticado
+    // podría pedir /historial-precios/<cualquier-producto-id> y ver precios
+    // de facturas de OTRAS organizaciones. Filtramos explícitamente.
+    const { organizacionId } = getTenant();
     const productoId = parseInt(req.params.productoId as string);
+    if (!Number.isFinite(productoId)) {
+      res.status(400).json({ error: 'productoId inválido' });
+      return;
+    }
 
-    // Precios desde movimientos de ingreso
+    // Precios desde movimientos de ingreso (Movimiento SÍ es tenant-aware —
+    // la extensión filtra por org automáticamente)
     const movimientos = await prisma.movimiento.findMany({
       where: {
         productoId,
@@ -593,9 +604,12 @@ router.get('/historial-precios/:productoId', async (req: Request, res: Response)
       take: 50,
     });
 
-    // Precios desde items de facturas
+    // Precios desde items de facturas — filtrado por factura.organizacionId
     const facturaItems = await prisma.facturaItem.findMany({
-      where: { productoId },
+      where: {
+        productoId,
+        factura: { organizacionId },
+      },
       include: {
         factura: {
           select: { fecha: true, proveedor: { select: { nombre: true } } },

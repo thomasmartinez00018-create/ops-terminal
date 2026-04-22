@@ -138,6 +138,23 @@ app.use('/api/auth', authRouter);
 const businessApi = express.Router();
 businessApi.use(requireStaff);
 businessApi.use(requireSuscripcionActiva);
+
+// Validador automático del param :id — si es NaN o <= 0, cortamos con 400
+// en vez de dejar que Prisma tire PrismaClientValidationError → 500. Aplica
+// a TODAS las rutas de negocio porque todas usan :id numérico.
+// Algunas rutas usan :productoId, :itemId, :facturaId, etc. Registramos
+// handlers individuales para esos también.
+const validateNumericParam = (paramName: string) => (req: any, res: any, next: any, value: any) => {
+  const n = parseInt(String(value), 10);
+  if (!Number.isInteger(n) || n <= 0) {
+    return res.status(400).json({ error: `Parámetro ${paramName} inválido` });
+  }
+  req.params[paramName] = String(n); // normalizar
+  next();
+};
+for (const p of ['id', 'productoId', 'itemId', 'facturaId', 'listaId', 'ordenId', 'recepcionId', 'proveedorId', 'depositoId', 'usuarioId', 'recetaId', 'elaboracionId', 'inventarioId', 'tareaId', 'alertaId']) {
+  businessApi.param(p, validateNumericParam(p));
+}
 businessApi.use('/productos', productosRouter);
 businessApi.use('/depositos', depositosRouter);
 businessApi.use('/usuarios', usuariosRouter);
@@ -190,10 +207,33 @@ if (IS_PROD && process.env.SERVE_FRONTEND === 'true') {
 // ── Error handler global ────────────────────────────────────────────────────
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('[server] unhandled error:', err?.message || err);
+
   // Errores de CORS vienen acá
   if (err?.message?.startsWith('CORS:')) {
     return res.status(403).json({ error: err.message });
   }
+
+  // Errores de validación de Prisma (ej: NaN en un where, tipo incorrecto en
+  // data). Antes terminaban en un 500 genérico — el usuario veía "error
+  // interno" cuando en realidad el input del request estaba mal formado.
+  // Devolver 400 es más honesto y no spamea los logs como si fuera una
+  // caída del servidor.
+  if (err?.name === 'PrismaClientValidationError' ||
+      (err?.message && typeof err.message === 'string' && err.message.includes('PrismaClientValidationError'))) {
+    return res.status(400).json({ error: 'Datos inválidos en la request' });
+  }
+
+  // Errores de runtime de Prisma con códigos conocidos (P2xxx).
+  //   P2025 → "Registro no encontrado" en un update/delete.
+  //   P2002 → violación de unique constraint (duplicate).
+  //   P2003 → violación de foreign key.
+  if (err?.code === 'P2025') {
+    return res.status(404).json({ error: 'Registro no encontrado' });
+  }
+  if (err?.code === 'P2002') {
+    return res.status(409).json({ error: 'Ya existe un registro con esos datos únicos' });
+  }
+
   res.status(500).json({ error: 'Error interno del servidor' });
 });
 

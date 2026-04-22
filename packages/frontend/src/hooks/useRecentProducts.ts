@@ -1,9 +1,13 @@
 import { useCallback } from 'react';
+import { scopedKey } from '../lib/scopedStorage';
 
 const MAX_RECENT = 6;
 
+// IMPORTANTE: la clave incluye el workspace además del userId — si no lo
+// hiciéramos, un usuario que entra a dos organizaciones distintas vería
+// mezclados los productos recientes entre orgs.
 function storageKey(userId: number) {
-  return `recent_products_${userId}`;
+  return scopedKey('recent_products', userId);
 }
 
 export function useRecentProducts(userId: number) {

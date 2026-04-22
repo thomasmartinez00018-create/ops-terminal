@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
+import { getTenant } from '../lib/tenantContext';
 
 // ============================================================================
 // Router /api/alertas-precio — bandeja de variaciones detectadas en facturas
@@ -257,14 +258,17 @@ router.get('/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    // Historial: últimas 10 compras del mismo producto × proveedor
+    // Historial: últimas 10 compras del mismo producto × proveedor.
+    // SECURITY: FacturaItem no es tenant-aware, hay que filtrar por
+    // factura.organizacionId para no leakear historial de otras orgs.
+    const { organizacionId } = getTenant();
     const historial = await prisma.facturaItem.findMany({
       where: {
         productoId: alerta.productoId,
         precioUnitario: { gt: 0 },
-        ...(alerta.proveedorId
-          ? { factura: { proveedorId: alerta.proveedorId } }
-          : {}),
+        factura: alerta.proveedorId
+          ? { organizacionId, proveedorId: alerta.proveedorId }
+          : { organizacionId },
       },
       include: {
         factura: {

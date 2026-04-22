@@ -141,8 +141,12 @@ const STEPS_POR_ROL: Record<string, Step[]> = {
   ],
 };
 
+// Scope por workspace + usuario — si un staff de Org A se llama igual que
+// uno de Org B (o comparten id=1), el onboarding se saltaría erróneamente
+// en la segunda org.
+import { scopedKey } from '../lib/scopedStorage';
 function storageKey(userId: number) {
-  return `onboarding_done_v1_${userId}`;
+  return scopedKey('onboarding_done_v1', userId);
 }
 
 export default function Onboarding() {

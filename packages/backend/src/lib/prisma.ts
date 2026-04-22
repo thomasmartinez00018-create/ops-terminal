@@ -43,6 +43,11 @@ const TENANT_MODELS = new Set([
   'StockParametro',
   'OrdenReposicion',
   'AlertaPrecio',
+  // Porcionado tiene organizacionId directo en el schema pero no estaba acá
+  // — cualquier findMany SIN filtro explícito devolvía porcionados de TODAS
+  // las orgs. Leak cross-tenant confirmado. PorcionadoItem es child y se
+  // escopea vía parent (igual que RecetaIngrediente).
+  'Porcionado',
 ]);
 
 const READ_OPS = new Set([

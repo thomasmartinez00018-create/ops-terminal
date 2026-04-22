@@ -71,11 +71,18 @@ export default function Movimientos() {
   const [scanStatus, setScanStatus] = useState('');
   const scanRef = useRef<HTMLInputElement>(null);
 
+  // fetchToken para evitar que una respuesta de un filtro anterior pise la
+  // respuesta del filtro actual (race de red lenta + cambio rápido de filtro).
+  const fetchTokenRef = useRef(0);
   const cargar = () => {
+    const myToken = ++fetchTokenRef.current;
     setLoading(true);
     const params: Record<string, string> = {};
     if (filtroTipo) params.tipo = filtroTipo;
-    api.getMovimientos(params).then(setMovimientos).catch(console.error).finally(() => setLoading(false));
+    api.getMovimientos(params)
+      .then(data => { if (myToken === fetchTokenRef.current) setMovimientos(data); })
+      .catch(console.error)
+      .finally(() => { if (myToken === fetchTokenRef.current) setLoading(false); });
   };
 
   useEffect(() => { cargar(); }, [filtroTipo]);

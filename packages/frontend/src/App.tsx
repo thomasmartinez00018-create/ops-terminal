@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import { AuthProvider } from './context/AuthContext';
 import { SessionProvider, useSession } from './context/SessionContext';
 import { ToastProvider } from './context/ToastContext';
@@ -15,7 +16,6 @@ import Stock from './pages/Stock';
 import Recetas from './pages/Recetas';
 import Proveedores from './pages/Proveedores';
 import Inventarios from './pages/Inventarios';
-import Importar from './pages/Importar';
 import Reportes from './pages/Reportes';
 import Vincular from './pages/Vincular';
 import OrdenesCompra from './pages/OrdenesCompra';
@@ -28,7 +28,6 @@ import Configuracion from './pages/Configuracion';
 import Facturas from './pages/Facturas';
 import CuentasPorPagar from './pages/CuentasPorPagar';
 import ReportesCostos from './pages/ReportesCostos';
-import ImportarLista from './pages/ImportarLista';
 import Equivalencias from './pages/Equivalencias';
 import ComparadorPrecios from './pages/ComparadorPrecios';
 import Landing from './pages/Landing';
@@ -36,6 +35,25 @@ import Suscripcion from './pages/Suscripcion';
 import VincularDispositivo from './pages/VincularDispositivo';
 import Reposicion from './pages/Reposicion';
 import AlertasPrecio from './pages/AlertasPrecio';
+
+// Code-splitting: Importar e ImportarLista arrastran la librería `xlsx`
+// (~900KB). La mayoría de usuarios nunca toca estas pantallas — cargarlas
+// on-demand saca ~30% del bundle inicial y acelera el LCP del Dashboard.
+const Importar = lazy(() => import('./pages/Importar'));
+const ImportarLista = lazy(() => import('./pages/ImportarLista'));
+
+// Spinner mínimo mientras se carga el chunk de la ruta lazy — mantiene
+// consistente con el loading de SessionGate.
+function PageLazyFallback() {
+  return (
+    <div className="min-h-[60vh] flex items-center justify-center">
+      <p className="text-on-surface-variant text-sm">Cargando…</p>
+    </div>
+  );
+}
+const Lazy = ({ children }: { children: React.ReactNode }) => (
+  <Suspense fallback={<PageLazyFallback />}>{children}</Suspense>
+);
 
 // ============================================================================
 // SessionGate — decide qué pantalla mostrar según el stage del token
@@ -100,7 +118,7 @@ function SessionGate() {
             <Route path="/recetas" element={<Recetas />} />
             <Route path="/proveedores" element={<Proveedores />} />
             <Route path="/inventarios" element={<Inventarios />} />
-            <Route path="/importar" element={<Importar />} />
+            <Route path="/importar" element={<Lazy><Importar /></Lazy>} />
             <Route path="/ordenes-compra" element={<OrdenesCompra />} />
             <Route path="/control-scanner" element={<ControlScanner />} />
             <Route path="/discrepancias" element={<Discrepancias />} />
@@ -114,7 +132,7 @@ function SessionGate() {
             <Route path="/configuracion" element={<Configuracion />} />
             <Route path="/tareas" element={<Tareas />} />
             <Route path="/elaboraciones" element={<Elaboraciones />} />
-            <Route path="/importar-lista" element={<ImportarLista />} />
+            <Route path="/importar-lista" element={<Lazy><ImportarLista /></Lazy>} />
             <Route path="/equivalencias" element={<Equivalencias />} />
             <Route path="/comparador" element={<ComparadorPrecios />} />
             <Route path="/suscripcion" element={<Suscripcion />} />
