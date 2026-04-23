@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
+import { getTenant } from '../lib/tenantContext';
 import { calcularStockPorProducto, calcularStockTeorico } from '../utils/stockCalculator';
 
 const router = Router();
@@ -210,17 +211,28 @@ router.get('/stock-valorizado', async (_req: Request, res: Response) => {
       }
     });
 
-    // Obtener último costo unitario de cada producto (último ingreso)
-    const ultimosIngresos = await prisma.movimiento.findMany({
-      where: { tipo: 'ingreso' },
-      orderBy: [{ fecha: 'desc' }, { hora: 'desc' }],
-      select: { productoId: true, costoUnitario: true }
-    });
+    // Último costo unitario por producto — DISTINCT ON en lugar de findMany+loop
+    // La versión anterior cargaba TODOS los ingresos ordenados en Node.js.
+    // Con DISTINCT ON (producto_id) PostgreSQL devuelve solo 1 fila por producto.
+    const { organizacionId } = getTenant();
+    const ultimosCostos = await prisma.$queryRaw<Array<{
+      producto_id: bigint;
+      costo_unitario: number | null;
+    }>>`
+      SELECT DISTINCT ON (producto_id)
+        producto_id,
+        costo_unitario
+      FROM movimientos
+      WHERE tipo = 'ingreso'
+        AND costo_unitario IS NOT NULL
+        AND organizacion_id = ${organizacionId}
+      ORDER BY producto_id, fecha DESC, hora DESC
+    `;
 
     const costoMap = new Map<number, number>();
-    for (const ing of ultimosIngresos) {
-      if (!costoMap.has(ing.productoId) && ing.costoUnitario !== null) {
-        costoMap.set(ing.productoId, ing.costoUnitario);
+    for (const row of ultimosCostos) {
+      if (row.costo_unitario !== null) {
+        costoMap.set(Number(row.producto_id), Number(row.costo_unitario));
       }
     }
 
@@ -349,8 +361,6 @@ router.get('/comparar-periodos', async (req: Request, res: Response) => {
 // GET /api/reportes/discrepancias - Discrepancias por depósito
 router.get('/discrepancias', async (_req: Request, res: Response) => {
   try {
-    const TIPOS_ENTRADA = ['ingreso', 'elaboracion', 'devolucion'];
-    const TIPOS_SALIDA = ['merma', 'consumo_interno', 'venta'];
 
     const depositos = await prisma.deposito.findMany({
       where: { activo: true },
@@ -387,39 +397,52 @@ router.get('/discrepancias', async (_req: Request, res: Response) => {
         continue;
       }
 
-      // Build current theoretical stock map for this depot from all movements
-      const movimientosDeposito = await prisma.movimiento.findMany({
-        where: {
-          OR: [
-            { depositoDestinoId: dep.id },
-            { depositoOrigenId: dep.id }
-          ]
-        },
-        select: {
-          tipo: true,
-          productoId: true,
-          depositoOrigenId: true,
-          depositoDestinoId: true,
-          cantidad: true
-        }
-      });
+      // Stock por producto en este depósito — agregado en PostgreSQL
+      // (antes: findMany de TODOS los movimientos del depósito → potencial OOM)
+      const depOrgId = getTenant().organizacionId;
+      const depId = dep.id;
+      const stockDepRows = await prisma.$queryRaw<Array<{
+        producto_id: bigint;
+        stock: string;
+      }>>`
+        SELECT sub.producto_id, ROUND(SUM(sub.delta)::numeric, 4) AS stock
+        FROM (
+          SELECT producto_id, cantidad AS delta
+          FROM movimientos
+          WHERE tipo IN ('ingreso', 'elaboracion', 'devolucion')
+            AND deposito_destino_id = ${depId}
+            AND organizacion_id = ${depOrgId}
+          UNION ALL
+          SELECT producto_id, -cantidad AS delta
+          FROM movimientos
+          WHERE tipo IN ('merma', 'consumo_interno', 'venta')
+            AND deposito_origen_id = ${depId}
+            AND organizacion_id = ${depOrgId}
+          UNION ALL
+          SELECT producto_id, cantidad AS delta
+          FROM movimientos
+          WHERE tipo = 'ajuste'
+            AND deposito_destino_id = ${depId}
+            AND organizacion_id = ${depOrgId}
+          UNION ALL
+          SELECT producto_id, cantidad AS delta
+          FROM movimientos
+          WHERE tipo = 'transferencia'
+            AND deposito_destino_id = ${depId}
+            AND organizacion_id = ${depOrgId}
+          UNION ALL
+          SELECT producto_id, -cantidad AS delta
+          FROM movimientos
+          WHERE tipo = 'transferencia'
+            AND deposito_origen_id = ${depId}
+            AND organizacion_id = ${depOrgId}
+        ) sub
+        GROUP BY sub.producto_id
+      `;
 
       const stockDepMap = new Map<number, number>();
-      for (const mov of movimientosDeposito) {
-        const { tipo, productoId, depositoOrigenId, depositoDestinoId, cantidad } = mov;
-        const cur = stockDepMap.get(productoId) || 0;
-        if (tipo === 'transferencia') {
-          if (depositoOrigenId === dep.id) stockDepMap.set(productoId, cur - cantidad);
-          if (depositoDestinoId === dep.id) stockDepMap.set(productoId, cur + cantidad);
-        } else if (tipo === 'ajuste') {
-          if (depositoDestinoId === dep.id) stockDepMap.set(productoId, cur + cantidad);
-        } else if (TIPOS_ENTRADA.includes(tipo)) {
-          const depId = depositoDestinoId ?? depositoOrigenId;
-          if (depId === dep.id) stockDepMap.set(productoId, cur + cantidad);
-        } else if (TIPOS_SALIDA.includes(tipo)) {
-          const depId = depositoOrigenId ?? depositoDestinoId;
-          if (depId === dep.id) stockDepMap.set(productoId, cur - cantidad);
-        }
+      for (const row of stockDepRows) {
+        stockDepMap.set(Number(row.producto_id), parseFloat(row.stock));
       }
 
       const discrepancias = ultimoInventario.detalles

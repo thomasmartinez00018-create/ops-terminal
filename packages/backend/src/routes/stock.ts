@@ -1,69 +1,87 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
+import { getTenant } from '../lib/tenantContext';
 
 const router = Router();
 
-// Tipos que suman stock a un depósito destino
-const TIPOS_ENTRADA = ['ingreso', 'elaboracion', 'devolucion'];
-// Tipos que restan stock de un depósito origen
-const TIPOS_SALIDA = ['merma', 'consumo_interno', 'venta'];
-// Transferencia: resta de origen, suma a destino
-
-// GET /api/stock - Stock actual por producto y depósito
+// GET /api/stock — Stock actual por producto y depósito
+//
+// ─── OPTIMIZACIÓN ANTI-OOM ───────────────────────────────────────────────────
+// Versión anterior: cargaba TODOS los movimientos en Node.js y calculaba el
+// stock allí con un loop JS. Con miles de movimientos, el heap de Node (768MB
+// en Railway) explotaba → "FATAL ERROR: Reached heap limit" → Killed.
+//
+// Versión actual: la agregación se delega a PostgreSQL con UNION ALL + GROUP BY.
+// Node.js recibe solo las filas ya sumadas (1 por producto+depósito con stock ≠ 0),
+// no el historial completo. Mismo resultado, fracción de la memoria.
+//
+// Tipos de retorno de $queryRaw con PostgreSQL:
+//   - IDs (integer / bigint) → bigint en JS → convertir con Number()
+//   - ROUND(…::numeric, N)  → string en JS → convertir con parseFloat()
 router.get('/', async (req: Request, res: Response) => {
   try {
     const { depositoId, rubro, soloConStock, bajosDeMinimo } = req.query;
+    const { organizacionId } = getTenant();
 
-    // Obtener todos los movimientos
-    const movimientos = await prisma.movimiento.findMany({
-      select: {
-        tipo: true,
-        productoId: true,
-        depositoOrigenId: true,
-        depositoDestinoId: true,
-        cantidad: true
-      }
-    });
+    // ── Paso 1: stock agregado en DB ─────────────────────────────────────────
+    const stockRows = await prisma.$queryRaw<Array<{
+      producto_id: bigint;
+      deposito_id: bigint;
+      stock: string; // ROUND devuelve numeric → Prisma lo serializa como string
+    }>>`
+      SELECT
+        sub.producto_id,
+        sub.deposito_id,
+        ROUND(SUM(sub.delta)::numeric, 4) AS stock
+      FROM (
+        -- Entradas → depósito destino
+        SELECT producto_id, deposito_destino_id AS deposito_id, cantidad AS delta
+        FROM movimientos
+        WHERE tipo IN ('ingreso', 'elaboracion', 'devolucion')
+          AND deposito_destino_id IS NOT NULL
+          AND organizacion_id = ${organizacionId}
+        UNION ALL
+        -- Salidas → depósito origen (resta)
+        SELECT producto_id, deposito_origen_id AS deposito_id, -cantidad AS delta
+        FROM movimientos
+        WHERE tipo IN ('merma', 'consumo_interno', 'venta')
+          AND deposito_origen_id IS NOT NULL
+          AND organizacion_id = ${organizacionId}
+        UNION ALL
+        -- Ajuste → depósito destino (puede ser correctivo positivo o negativo)
+        SELECT producto_id, deposito_destino_id AS deposito_id, cantidad AS delta
+        FROM movimientos
+        WHERE tipo = 'ajuste'
+          AND deposito_destino_id IS NOT NULL
+          AND organizacion_id = ${organizacionId}
+        UNION ALL
+        -- Transferencia: suma en destino
+        SELECT producto_id, deposito_destino_id AS deposito_id, cantidad AS delta
+        FROM movimientos
+        WHERE tipo = 'transferencia'
+          AND deposito_destino_id IS NOT NULL
+          AND organizacion_id = ${organizacionId}
+        UNION ALL
+        -- Transferencia: resta en origen
+        SELECT producto_id, deposito_origen_id AS deposito_id, -cantidad AS delta
+        FROM movimientos
+        WHERE tipo = 'transferencia'
+          AND deposito_origen_id IS NOT NULL
+          AND organizacion_id = ${organizacionId}
+      ) sub
+      GROUP BY sub.producto_id, sub.deposito_id
+    `;
 
-    // Calcular stock por producto+depósito
+    // Mapa en memoria: solo las filas sumadas (mucho menos que el historial completo)
     const stockMap = new Map<string, number>();
-
-    for (const mov of movimientos) {
-      const { tipo, productoId, depositoOrigenId, depositoDestinoId, cantidad } = mov;
-
-      if (tipo === 'transferencia') {
-        // Resta de origen
-        if (depositoOrigenId) {
-          const keyOrigen = `${productoId}-${depositoOrigenId}`;
-          stockMap.set(keyOrigen, (stockMap.get(keyOrigen) || 0) - cantidad);
-        }
-        // Suma a destino
-        if (depositoDestinoId) {
-          const keyDestino = `${productoId}-${depositoDestinoId}`;
-          stockMap.set(keyDestino, (stockMap.get(keyDestino) || 0) + cantidad);
-        }
-      } else if (tipo === 'ajuste') {
-        // Ajuste puede ser positivo o negativo, va a depósito destino
-        if (depositoDestinoId) {
-          const key = `${productoId}-${depositoDestinoId}`;
-          stockMap.set(key, (stockMap.get(key) || 0) + cantidad);
-        }
-      } else if (TIPOS_ENTRADA.includes(tipo)) {
-        const depId = depositoDestinoId || depositoOrigenId;
-        if (depId) {
-          const key = `${productoId}-${depId}`;
-          stockMap.set(key, (stockMap.get(key) || 0) + cantidad);
-        }
-      } else if (TIPOS_SALIDA.includes(tipo)) {
-        const depId = depositoOrigenId || depositoDestinoId;
-        if (depId) {
-          const key = `${productoId}-${depId}`;
-          stockMap.set(key, (stockMap.get(key) || 0) - cantidad);
-        }
-      }
+    for (const row of stockRows) {
+      stockMap.set(
+        `${Number(row.producto_id)}-${Number(row.deposito_id)}`,
+        parseFloat(row.stock)
+      );
     }
 
-    // Obtener info de productos y depósitos
+    // ── Paso 2: info de productos y depósitos ─────────────────────────────────
     const productosWhere: any = { activo: true };
     if (rubro) productosWhere.rubro = rubro;
 
@@ -80,12 +98,9 @@ router.get('/', async (req: Request, res: Response) => {
       select: { id: true, codigo: true, nombre: true }
     });
 
-    const depositoMap = new Map(depositos.map(d => [d.id, d]));
-
-    // Armar resultado
-    let resultado = [];
+    // ── Paso 3: armar resultado ───────────────────────────────────────────────
+    const resultado = [];
     for (const prod of productos) {
-      // Stock total del producto (suma de todos los depósitos)
       let stockTotal = 0;
       const porDeposito = [];
 
@@ -105,7 +120,6 @@ router.get('/', async (req: Request, res: Response) => {
 
       stockTotal = Math.round(stockTotal * 100) / 100;
 
-      // Filtros
       if (soloConStock === 'true' && stockTotal === 0) continue;
       if (depositoId) {
         const depStock = porDeposito.find(d => d.depositoId === parseInt(depositoId as string));

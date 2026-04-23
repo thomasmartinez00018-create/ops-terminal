@@ -118,19 +118,29 @@ router.get('/disponibilidad', async (_req: Request, res: Response) => {
       for (const ing of r.ingredientes) productoIds.add(ing.productoId);
     }
 
-    const movs = await prisma.movimiento.findMany({
-      where: { productoId: { in: Array.from(productoIds) } },
-      select: { tipo: true, productoId: true, cantidad: true },
+    // ── Stock agregado en DB — anti-OOM ──────────────────────────────────────
+    // Versión anterior: findMany cargaba todos los movimientos en Node.js.
+    // Con miles de registros por producto, el heap explotaba.
+    // Versión actual: groupBy con _sum delega la agregación a PostgreSQL.
+    // Node.js recibe solo (productoId, tipo, suma_cantidad) — muchas menos filas.
+    // El tenant extension (prisma.ts) inyecta organizacionId automáticamente.
+    const stockAgg = await prisma.movimiento.groupBy({
+      by: ['productoId', 'tipo'],
+      where: {
+        productoId: { in: Array.from(productoIds) },
+        tipo: { in: ['ingreso', 'elaboracion', 'devolucion', 'ajuste', 'merma', 'consumo_interno', 'venta'] },
+      },
+      _sum: { cantidad: true },
     });
 
     const TIPOS_SUMA = new Set(['ingreso', 'elaboracion', 'devolucion', 'ajuste']);
     const TIPOS_RESTA = new Set(['merma', 'consumo_interno', 'venta']);
     const stockPorProducto: Record<number, number> = {};
-    for (const m of movs) {
-      const pid = m.productoId;
-      const qty = Number(m.cantidad) || 0;
-      if (TIPOS_SUMA.has(m.tipo)) stockPorProducto[pid] = (stockPorProducto[pid] || 0) + qty;
-      else if (TIPOS_RESTA.has(m.tipo)) stockPorProducto[pid] = (stockPorProducto[pid] || 0) - qty;
+    for (const agg of stockAgg) {
+      const pid = agg.productoId;
+      const qty = Number(agg._sum.cantidad) || 0;
+      if (TIPOS_SUMA.has(agg.tipo)) stockPorProducto[pid] = (stockPorProducto[pid] || 0) + qty;
+      else if (TIPOS_RESTA.has(agg.tipo)) stockPorProducto[pid] = (stockPorProducto[pid] || 0) - qty;
       // 'transferencia' es neutral en el total global.
     }
 

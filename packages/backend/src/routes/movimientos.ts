@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
+import { getTenant } from '../lib/tenantContext';
 
 const router = Router();
 
@@ -245,43 +246,45 @@ router.get('/motivos/:tipo', (req: Request, res: Response) => {
 router.get('/mermas-por-categoria', async (req: Request, res: Response) => {
   try {
     const { desde, hasta } = req.query;
-    const where: any = { tipo: { in: ['merma', 'consumo_interno'] } };
-    if (desde || hasta) {
-      where.fecha = {};
-      if (desde) where.fecha.gte = desde as string;
-      if (hasta) where.fecha.lte = hasta as string;
-    }
+    const { organizacionId } = getTenant();
 
-    const movs = await prisma.movimiento.findMany({
-      where,
-      select: {
-        tipo: true,
-        categoriaMerma: true,
-        cantidad: true,
-        costoUnitario: true,
-      },
-    });
+    // ── Agregación en DB — anti-OOM ───────────────────────────────────────────
+    // Versión anterior: findMany cargaba todas las filas de merma en Node.js y
+    // calculaba la valorización en JS. Con muchos movimientos, agotaba el heap.
+    // Versión actual: $queryRawUnsafe delega todo a PostgreSQL — Node recibe
+    // solo el resumen por categoría (≤ 14 filas: 7 categorías × 2 tipos).
+    // Los parámetros de fecha son positionales ($2, $3) para evitar inyección.
+    const params: any[] = [organizacionId];
+    let paramN = 2;
+    const conditions: string[] = [];
+    if (desde) { conditions.push(`fecha >= $${paramN++}`); params.push(desde); }
+    if (hasta)  { conditions.push(`fecha <= $${paramN++}`); params.push(hasta); }
+    const extraWhere = conditions.length ? ' AND ' + conditions.join(' AND ') : '';
 
-    type Bucket = { tipo: string; categoria: string; cantidad: number; valor: number; count: number };
-    const bucket: Record<string, Bucket> = {};
-    let totalValor = 0;
-    for (const m of movs) {
-      const cat = (m as any).categoriaMerma || 'sin_categorizar';
-      const key = `${m.tipo}::${cat}`;
-      if (!bucket[key]) {
-        bucket[key] = { tipo: m.tipo, categoria: cat, cantidad: 0, valor: 0, count: 0 };
-      }
-      const qty = Number(m.cantidad) || 0;
-      const cu = Number(m.costoUnitario) || 0;
-      bucket[key].cantidad += qty;
-      bucket[key].valor += qty * cu;
-      bucket[key].count += 1;
-      totalValor += qty * cu;
-    }
+    const rows = await prisma.$queryRawUnsafe<Array<{
+      tipo: string;
+      categoria: string;
+      count: number;
+      cantidad: number;
+      valor: number;
+    }>>(`
+      SELECT
+        tipo,
+        COALESCE(categoria_merma, 'sin_categorizar') AS categoria,
+        COUNT(*)::int                                 AS count,
+        SUM(cantidad)::float                          AS cantidad,
+        SUM(cantidad * COALESCE(costo_unitario, 0))::float AS valor
+      FROM movimientos
+      WHERE tipo IN ('merma', 'consumo_interno')
+        AND organizacion_id = $1
+        ${extraWhere}
+      GROUP BY tipo, COALESCE(categoria_merma, 'sin_categorizar')
+      ORDER BY SUM(cantidad * COALESCE(costo_unitario, 0)) DESC
+    `, ...params);
 
-    // Orden: mayor valor primero (lo que más duele al bolsillo).
-    const grupos = Object.values(bucket).sort((a, b) => b.valor - a.valor);
-    res.json({ totalValor, totalMovimientos: movs.length, grupos });
+    const totalValor        = rows.reduce((s, r) => s + r.valor, 0);
+    const totalMovimientos  = rows.reduce((s, r) => s + r.count, 0);
+    res.json({ totalValor, totalMovimientos, grupos: rows });
   } catch (error: any) {
     console.error('[movimientos/mermas-por-categoria]', error);
     res.status(500).json({ error: 'Error al obtener reporte de mermas' });
