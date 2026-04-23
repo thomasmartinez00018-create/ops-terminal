@@ -61,6 +61,14 @@ export default function Inventarios() {
   const [numpadRow, setNumpadRow] = useState<DetalleRow | null>(null);
   const [numpadValue, setNumpadValue] = useState('');
 
+  // ─── Filtros de tabla de detalle ───
+  // `verTodoCatalogo`: por default mostramos solo productos del depósito.
+  // Si el usuario necesita contar algo que no pertenece al depósito, activa
+  // este toggle y ve todo el catálogo.
+  // `searchDetalle`: filtro de texto para buscar rápido en la lista.
+  const [verTodoCatalogo, setVerTodoCatalogo] = useState(false);
+  const [searchDetalle, setSearchDetalle] = useState('');
+
   // ─── Load depositos once ───
   useEffect(() => {
     api.getDepositos({ activo: 'true' }).then(setDepositos).catch(console.error);
@@ -79,6 +87,13 @@ export default function Inventarios() {
   }, [view, filtroEstado, filtroDeposito]);
 
   // ─── Load detail ───
+  // Regla de filtrado por depósito:
+  // - CERRADO: mostrar SOLO lo que se contó (detalles reales del backend).
+  //   Antes mostraba todo el catálogo con "-" por todos lados, confundiendo
+  //   al usuario que había contado un depósito específico.
+  // - ABIERTO: productos del depósito (depositoDefectoId === depositoId) +
+  //   los que ya se contaron. El toggle `verTodoCatalogo` permite ver todo
+  //   si el usuario necesita contar algo que no es del depósito default.
   const cargarDetalle = async (id: number) => {
     try {
       const [inv, productos] = await Promise.all([
@@ -93,18 +108,40 @@ export default function Inventarios() {
         inv.detalles.forEach((d: any) => detallesMap.set(d.productoId, d));
       }
 
-      const rows: DetalleRow[] = productos.map((p: any) => {
-        const det = detallesMap.get(p.id);
-        return {
-          productoId: p.id,
-          codigo: p.codigo,
-          nombre: p.nombre,
-          stockTeorico: det ? det.stockTeorico : null,
-          cantidadFisica: det ? det.cantidadFisica : null,
-          diferencia: det ? det.diferencia : null,
-          counted: !!det,
-        };
-      });
+      let rows: DetalleRow[];
+      if (inv.estado === 'cerrado') {
+        // Solo los productos contados — tal como quedaron registrados.
+        rows = (inv.detalles || []).map((d: any) => ({
+          productoId: d.productoId,
+          codigo: d.producto?.codigo || '',
+          nombre: d.producto?.nombre || '',
+          stockTeorico: d.stockTeorico,
+          cantidadFisica: d.cantidadFisica,
+          diferencia: d.diferencia,
+          counted: true,
+        }));
+      } else {
+        // Abierto: filtrar por depósito salvo que el usuario pida ver todo.
+        const depId = inv.depositoId;
+        const productosFiltrados = productos.filter((p: any) => {
+          if (verTodoCatalogo) return true;
+          // Mostrar si pertenece al depósito por defecto del producto
+          // O si ya fue contado (evita ocultar cargas previas)
+          return p.depositoDefectoId === depId || detallesMap.has(p.id);
+        });
+        rows = productosFiltrados.map((p: any) => {
+          const det = detallesMap.get(p.id);
+          return {
+            productoId: p.id,
+            codigo: p.codigo,
+            nombre: p.nombre,
+            stockTeorico: det ? det.stockTeorico : null,
+            cantidadFisica: det ? det.cantidadFisica : null,
+            diferencia: det ? det.diferencia : null,
+            counted: !!det,
+          };
+        });
+      }
 
       setDetalles(rows);
 
@@ -212,8 +249,37 @@ export default function Inventarios() {
   const abrirDetalle = (id: number) => {
     setSelectedInventarioId(id);
     setView('detail');
+    setVerTodoCatalogo(false);
+    setSearchDetalle('');
     cargarDetalle(id);
   };
+
+  // Re-ejecuta el filtro por depósito cuando el usuario toggle "ver todo".
+  // Usamos allProductos para no re-pegar la API — solo recalculamos las rows.
+  useEffect(() => {
+    if (view !== 'detail' || !inventario || inventario.estado === 'cerrado') return;
+    if (allProductos.length === 0) return;
+    const detallesMap = new Map<number, any>();
+    (inventario.detalles || []).forEach((d: any) => detallesMap.set(d.productoId, d));
+    const depId = inventario.depositoId;
+    const productosFiltrados = allProductos.filter((p: any) => {
+      if (verTodoCatalogo) return true;
+      return p.depositoDefectoId === depId || detallesMap.has(p.id);
+    });
+    const rows: DetalleRow[] = productosFiltrados.map((p: any) => {
+      const det = detallesMap.get(p.id);
+      return {
+        productoId: p.id,
+        codigo: p.codigo,
+        nombre: p.nombre,
+        stockTeorico: det ? det.stockTeorico : null,
+        cantidadFisica: det ? det.cantidadFisica : null,
+        diferencia: det ? det.diferencia : null,
+        counted: !!det,
+      };
+    });
+    setDetalles(rows);
+  }, [verTodoCatalogo, inventario, allProductos, view]);
 
   const volverALista = () => {
     setView('list');
@@ -222,7 +288,17 @@ export default function Inventarios() {
     setDetalles([]);
     setResumen(null);
     setConfirmCerrar(false);
+    setVerTodoCatalogo(false);
+    setSearchDetalle('');
   };
+
+  // Filtrado por texto: aplica sobre las rows ya filtradas por depósito.
+  const detallesVisibles = searchDetalle.trim()
+    ? detalles.filter(d => {
+        const q = searchDetalle.toLowerCase();
+        return d.nombre.toLowerCase().includes(q) || d.codigo.toLowerCase().includes(q);
+      })
+    : detalles;
 
   // ─── Create inventario ───
   const abrirNuevo = () => {
@@ -511,6 +587,48 @@ export default function Inventarios() {
           </div>
         )}
 
+        {/* Filtros tabla: búsqueda + toggle ver todo el catálogo.
+            Por default solo se muestran productos del depósito — evita que
+            al contar un depósito chico el usuario se encuentre scrolleando
+            miles de productos irrelevantes. El toggle queda oculto cuando el
+            inventario está cerrado porque no tiene sentido ahí. */}
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <div className="flex-1 min-w-[200px] relative">
+            <input
+              type="text"
+              value={searchDetalle}
+              onChange={e => setSearchDetalle(e.target.value)}
+              placeholder="Buscar producto por nombre o código..."
+              className="w-full px-3 py-2 rounded-lg bg-surface-high border-0 text-foreground text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary/50 placeholder:text-on-surface-variant/50"
+            />
+            {searchDetalle && (
+              <button
+                onClick={() => setSearchDetalle('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-surface text-on-surface-variant"
+                title="Limpiar búsqueda"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+          {isOpen && (
+            <button
+              onClick={() => setVerTodoCatalogo(v => !v)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold transition-all border ${
+                verTodoCatalogo
+                  ? 'bg-primary/10 text-primary border-primary/30'
+                  : 'bg-surface-high text-on-surface-variant border-border hover:text-foreground'
+              }`}
+              title={verTodoCatalogo ? 'Mostrando todo el catálogo' : `Mostrando solo productos de ${inventario.deposito?.nombre || 'este depósito'}`}
+            >
+              {verTodoCatalogo ? 'Ver solo del depósito' : 'Ver todo el catálogo'}
+            </button>
+          )}
+          <span className="text-[11px] text-on-surface-variant font-semibold">
+            {detallesVisibles.length} de {detalles.length} productos
+          </span>
+        </div>
+
         {/* Counting table */}
         <div className="bg-surface rounded-xl border border-border overflow-hidden">
           <div className="overflow-x-auto">
@@ -525,7 +643,7 @@ export default function Inventarios() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {detalles.map(row => (
+                {detallesVisibles.map(row => (
                   <DetalleRowComp
                     key={row.productoId}
                     row={row}
@@ -536,10 +654,14 @@ export default function Inventarios() {
                     onOpenNumpad={() => abrirNumpad(row)}
                   />
                 ))}
-                {detalles.length === 0 && (
+                {detallesVisibles.length === 0 && (
                   <tr>
                     <td colSpan={5} className="p-8 text-center text-on-surface-variant font-medium">
-                      Sin productos cargados
+                      {searchDetalle
+                        ? `Sin resultados para "${searchDetalle}"`
+                        : inventario.estado === 'cerrado'
+                          ? 'Este inventario no tiene productos contados'
+                          : 'No hay productos en este depósito. Activá "Ver todo el catálogo" para contar otros.'}
                     </td>
                   </tr>
                 )}
