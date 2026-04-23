@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
+import { getTenant } from '../lib/tenantContext';
 
 const router = Router();
 
@@ -412,43 +413,59 @@ router.get('/:id/costo', async (req: Request, res: Response) => {
       return;
     }
 
-    const ingredientesConCosto = await Promise.all(
-      receta.ingredientes.map(async (ing) => {
-        const ultimoIngreso = await prisma.movimiento.findFirst({
-          where: {
-            productoId: ing.productoId,
-            tipo: 'ingreso'
-          },
-          orderBy: [{ fecha: 'desc' }, { hora: 'desc' }],
-          select: { costoUnitario: true }
-        });
+    // Pool-safe: un solo `DISTINCT ON` en lugar de un findFirst por ingrediente.
+    // Con 20 ingredientes el patrón anterior (Promise.all sobre findFirst)
+    // disparaba 20 queries paralelas saturando el pool de Prisma.
+    const ingredienteIds = receta.ingredientes.map(i => i.productoId);
+    const costoMap = new Map<number, number>();
+    if (ingredienteIds.length > 0) {
+      const { organizacionId } = getTenant();
+      const placeholders = ingredienteIds.map((_, i) => `$${i + 2}`).join(', ');
+      const costoRows = await prisma.$queryRawUnsafe<Array<{
+        producto_id: number;
+        costo_unitario: number | null;
+      }>>(
+        `SELECT DISTINCT ON (producto_id) producto_id, costo_unitario
+         FROM movimientos
+         WHERE tipo = 'ingreso'
+           AND costo_unitario IS NOT NULL
+           AND organizacion_id = $1
+           AND producto_id IN (${placeholders})
+         ORDER BY producto_id, fecha DESC, hora DESC`,
+        organizacionId,
+        ...ingredienteIds
+      );
+      for (const row of costoRows) {
+        costoMap.set(Number(row.producto_id), Number(row.costo_unitario) || 0);
+      }
+    }
 
-        const costoUnitario = Number(ultimoIngreso?.costoUnitario ?? 0);
-        const cantidadNeta = Number(ing.cantidad);
-        const mermaPct = Number(ing.mermaEsperada) || 0;
-        // Factor de desperdicio (estándar gastronómico):
-        // Si merma = %desperdicio sobre peso BRUTO, entonces:
-        //   factor = 1 / (1 - merma/100)  ≡  (merma / (100 - merma)) + 1
-        // Clamp: merma ∈ [0, 99) para evitar div/0.
-        const mermaSafe = Math.min(Math.max(mermaPct, 0), 99);
-        const factor = mermaSafe > 0 ? 1 / (1 - mermaSafe / 100) : 1;
-        const cantidadBruta = cantidadNeta * factor;
-        const costoTotal = cantidadBruta * costoUnitario;
+    const ingredientesConCosto = receta.ingredientes.map((ing) => {
+      const costoUnitario = costoMap.get(ing.productoId) ?? 0;
+      const cantidadNeta = Number(ing.cantidad);
+      const mermaPct = Number(ing.mermaEsperada) || 0;
+      // Factor de desperdicio (estándar gastronómico):
+      // Si merma = %desperdicio sobre peso BRUTO, entonces:
+      //   factor = 1 / (1 - merma/100)  ≡  (merma / (100 - merma)) + 1
+      // Clamp: merma ∈ [0, 99) para evitar div/0.
+      const mermaSafe = Math.min(Math.max(mermaPct, 0), 99);
+      const factor = mermaSafe > 0 ? 1 / (1 - mermaSafe / 100) : 1;
+      const cantidadBruta = cantidadNeta * factor;
+      const costoTotal = cantidadBruta * costoUnitario;
 
-        return {
-          productoId: ing.productoId,
-          codigo: ing.producto?.codigo ?? '',
-          nombre: ing.producto?.nombre ?? '',
-          cantidad: cantidadNeta,
-          unidad: ing.unidad,
-          mermaEsperada: mermaPct,
-          factor,
-          cantidadBruta,
-          costoUnitario,
-          costoTotal
-        };
-      })
-    );
+      return {
+        productoId: ing.productoId,
+        codigo: ing.producto?.codigo ?? '',
+        nombre: ing.producto?.nombre ?? '',
+        cantidad: cantidadNeta,
+        unidad: ing.unidad,
+        mermaEsperada: mermaPct,
+        factor,
+        cantidadBruta,
+        costoUnitario,
+        costoTotal
+      };
+    });
 
     const costoTotal = ingredientesConCosto.reduce((sum, ing) => sum + ing.costoTotal, 0);
     const costoPorPorcion = receta.porciones > 0 ? costoTotal / receta.porciones : 0;

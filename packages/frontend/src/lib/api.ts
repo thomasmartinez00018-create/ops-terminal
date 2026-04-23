@@ -508,7 +508,8 @@ export const api = {
   getPorcionado: (id: number) => request<any>(`/porcionado/${id}`),
 
   // Contabilidad — Facturas
-  getFacturas: (params?: Record<string, string>) => request<any[]>(`/contabilidad/facturas${qs(params)}`),
+  getFacturas: (params?: Record<string, string>) =>
+    request<{ facturas: any[]; total: number; limit: number; offset: number; desde?: string; hasta?: string } | any[]>(`/contabilidad/facturas${qs(params)}`),
   getFactura: (id: number) => request<any>(`/contabilidad/facturas/${id}`),
   createFacturaManual: (data: any) =>
     request<any>('/contabilidad/facturas', { method: 'POST', body: JSON.stringify(data) }),

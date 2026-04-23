@@ -77,7 +77,9 @@ export default function Facturas() {
       if (filtroDesde) params.desde = filtroDesde;
       if (filtroHasta) params.hasta = filtroHasta;
       const data = await api.getFacturas(params);
-      setFacturas(data);
+      // Backend ahora pagina: { facturas, total, limit, offset, desde, hasta }
+      // Fallback a array plano para compat con un build viejo del backend.
+      setFacturas(Array.isArray(data) ? data : (data?.facturas || []));
     } catch { }
     setLoading(false);
   };

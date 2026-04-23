@@ -6,43 +6,84 @@ import { detectarVariaciones, persistirAlertas, type VariacionDetectada } from '
 const router = Router();
 
 // ── GET /api/contabilidad/facturas ─────────────────────────────────────────
+// OOM-safe: paginación obligatoria + rango fecha default últimos 90 días si
+// no viene `desde`. La versión previa cargaba TODAS las facturas históricas
+// con `include: items + pagos + _count` — con cientos de facturas y sus
+// pagos inlineados, la response a /facturas mataba el contenedor Railway
+// en cuanto el cliente entraba a esa pantalla.
+//
+// Además: el totalPagado se calcula en SQL con un subquery agregado, no
+// cargando todos los pagos a Node.
 router.get('/facturas', async (req: Request, res: Response) => {
   try {
-    const { proveedorId, estado, tipo, desde, hasta } = req.query;
+    const { proveedorId, estado, tipo, limit, offset } = req.query;
+    let { desde, hasta } = req.query as { desde?: string; hasta?: string };
     const where: any = {};
 
-    if (proveedorId) where.proveedorId = parseInt(proveedorId as string);
+    if (proveedorId) {
+      const pid = parseInt(proveedorId as string);
+      if (Number.isFinite(pid)) where.proveedorId = pid;
+    }
     if (estado) where.estado = estado;
     if (tipo) where.tipoComprobante = tipo;
+    if (!desde && !hasta) {
+      // Default: últimos 90 días. El usuario puede pasar desde="" para forzar
+      // ver todo, pero ese camino requiere confirmar que el volumen es sano.
+      desde = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    }
     if (desde || hasta) {
       where.fecha = {};
       if (desde) where.fecha.gte = desde;
       if (hasta) where.fecha.lte = hasta;
     }
 
-    const facturas = await prisma.factura.findMany({
-      where,
-      include: {
-        proveedor: { select: { nombre: true } },
-        creadoPor: { select: { nombre: true } },
-        _count: { select: { items: true, pagos: true } },
-        pagos: { select: { monto: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const takeN = Math.min(Math.max(parseInt(limit as string) || 100, 1), 500);
+    const skipN = Math.max(parseInt(offset as string) || 0, 0);
 
-    // Calcular saldo pendiente
+    const [facturas, total] = await Promise.all([
+      prisma.factura.findMany({
+        where,
+        select: {
+          id: true, codigo: true, tipoComprobante: true, numero: true,
+          fecha: true, fechaVencimiento: true, proveedorId: true,
+          subtotal: true, iva: true, total: true, estado: true,
+          observacion: true, createdAt: true,
+          proveedor: { select: { nombre: true } },
+          creadoPor: { select: { nombre: true } },
+          _count: { select: { items: true, pagos: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: takeN,
+        skip: skipN,
+      }),
+      prisma.factura.count({ where }),
+    ]);
+
+    // Agregar totalPagado de cada factura con un solo groupBy en DB,
+    // no cargando todos los pagos a Node.
+    const facturaIds = facturas.map(f => f.id);
+    const pagosAgg = facturaIds.length
+      ? await prisma.pago.groupBy({
+          by: ['facturaId'],
+          where: { facturaId: { in: facturaIds } },
+          _sum: { monto: true },
+        })
+      : [];
+    const pagadoMap = new Map<number, number>();
+    for (const p of pagosAgg) {
+      pagadoMap.set(p.facturaId, Number(p._sum.monto) || 0);
+    }
+
     const result = facturas.map(f => {
-      const totalPagado = f.pagos.reduce((s, p) => s + p.monto, 0);
+      const totalPagado = pagadoMap.get(f.id) || 0;
       return {
         ...f,
-        pagos: undefined,
         totalPagado,
         saldoPendiente: f.total - totalPagado,
       };
     });
 
-    res.json(result);
+    res.json({ facturas: result, total, limit: takeN, offset: skipN, desde, hasta });
   } catch (error: any) {
     console.error('[contabilidad/facturas]', error);
     res.status(500).json({ error: error.message });
@@ -349,54 +390,67 @@ router.delete('/pagos/:id', async (req: Request, res: Response) => {
 });
 
 // ── GET /api/contabilidad/cuentas-por-pagar ────────────────────────────────
+// OOM-safe: un solo raw SQL con JOIN + GROUP BY + aging buckets calculados
+// en PostgreSQL (CASE WHEN sobre DATE_PART). Antes cargaba TODAS las
+// facturas pendientes/parciales al heap con sus pagos y agrupaba en JS.
 router.get('/cuentas-por-pagar', async (_req: Request, res: Response) => {
   try {
-    const facturas = await prisma.factura.findMany({
-      where: { estado: { in: ['pendiente', 'parcial'] } },
-      include: {
-        proveedor: { select: { id: true, nombre: true } },
-        pagos: { select: { monto: true } },
-      },
-    });
+    const { organizacionId } = getTenant();
 
-    const hoy = new Date();
-    // Agrupar por proveedor
-    const porProveedor: Record<number, {
-      proveedorId: number; nombre: string;
-      totalFacturado: number; totalPagado: number; saldo: number;
-      corriente: number; dias31_60: number; dias61_90: number; dias90plus: number;
-      cantFacturas: number;
-    }> = {};
+    const rows = await prisma.$queryRawUnsafe<Array<{
+      proveedor_id: number;
+      nombre: string;
+      total_facturado: number;
+      total_pagado: number;
+      saldo: number;
+      corriente: number;
+      dias31_60: number;
+      dias61_90: number;
+      dias90plus: number;
+      cant_facturas: number;
+    }>>(`
+      SELECT
+        f.proveedor_id,
+        pr.nombre,
+        SUM(f.total)::float AS total_facturado,
+        SUM(COALESCE(pg.pagado, 0))::float AS total_pagado,
+        SUM(f.total - COALESCE(pg.pagado, 0))::float AS saldo,
+        SUM(CASE WHEN dias <= 30 THEN f.total - COALESCE(pg.pagado, 0) ELSE 0 END)::float AS corriente,
+        SUM(CASE WHEN dias > 30 AND dias <= 60 THEN f.total - COALESCE(pg.pagado, 0) ELSE 0 END)::float AS dias31_60,
+        SUM(CASE WHEN dias > 60 AND dias <= 90 THEN f.total - COALESCE(pg.pagado, 0) ELSE 0 END)::float AS dias61_90,
+        SUM(CASE WHEN dias > 90 THEN f.total - COALESCE(pg.pagado, 0) ELSE 0 END)::float AS dias90plus,
+        COUNT(*)::int AS cant_facturas
+      FROM (
+        SELECT f.*,
+               EXTRACT(EPOCH FROM (CURRENT_DATE - COALESCE(f.fecha_vencimiento, f.fecha)::date)) / 86400 AS dias
+        FROM facturas f
+        WHERE f.organizacion_id = $1
+          AND f.estado IN ('pendiente', 'parcial')
+      ) f
+      JOIN proveedores pr ON pr.id = f.proveedor_id
+      LEFT JOIN (
+        SELECT factura_id, SUM(monto)::float AS pagado
+        FROM pagos
+        WHERE organizacion_id = $1
+        GROUP BY factura_id
+      ) pg ON pg.factura_id = f.id
+      GROUP BY f.proveedor_id, pr.nombre
+      ORDER BY SUM(f.total - COALESCE(pg.pagado, 0)) DESC
+    `, organizacionId);
 
-    for (const f of facturas) {
-      const pid = f.proveedorId;
-      if (!porProveedor[pid]) {
-        porProveedor[pid] = {
-          proveedorId: pid,
-          nombre: f.proveedor.nombre,
-          totalFacturado: 0, totalPagado: 0, saldo: 0,
-          corriente: 0, dias31_60: 0, dias61_90: 0, dias90plus: 0,
-          cantFacturas: 0,
-        };
-      }
+    const resultado = rows.map(r => ({
+      proveedorId: Number(r.proveedor_id),
+      nombre: r.nombre,
+      totalFacturado: Number(r.total_facturado) || 0,
+      totalPagado: Number(r.total_pagado) || 0,
+      saldo: Number(r.saldo) || 0,
+      corriente: Number(r.corriente) || 0,
+      dias31_60: Number(r.dias31_60) || 0,
+      dias61_90: Number(r.dias61_90) || 0,
+      dias90plus: Number(r.dias90plus) || 0,
+      cantFacturas: Number(r.cant_facturas) || 0,
+    }));
 
-      const pagado = f.pagos.reduce((s, p) => s + p.monto, 0);
-      const saldo = f.total - pagado;
-      const fechaRef = f.fechaVencimiento || f.fecha;
-      const dias = Math.floor((hoy.getTime() - new Date(fechaRef).getTime()) / (1000 * 60 * 60 * 24));
-
-      porProveedor[pid].totalFacturado += f.total;
-      porProveedor[pid].totalPagado += pagado;
-      porProveedor[pid].saldo += saldo;
-      porProveedor[pid].cantFacturas += 1;
-
-      if (dias <= 30) porProveedor[pid].corriente += saldo;
-      else if (dias <= 60) porProveedor[pid].dias31_60 += saldo;
-      else if (dias <= 90) porProveedor[pid].dias61_90 += saldo;
-      else porProveedor[pid].dias90plus += saldo;
-    }
-
-    const resultado = Object.values(porProveedor).sort((a, b) => b.saldo - a.saldo);
     const totales = resultado.reduce((acc, p) => ({
       totalAdeudado: acc.totalAdeudado + p.saldo,
       totalFacturas: acc.totalFacturas + p.cantFacturas,
@@ -414,32 +468,62 @@ router.get('/cuentas-por-pagar', async (_req: Request, res: Response) => {
 });
 
 // ── GET /api/contabilidad/saldo-proveedor/:id ──────────────────────────────
+// OOM-safe: `take: 200` últimas facturas para mostrar + totales calculados
+// en SQL sobre TODO el histórico del proveedor (no carga miles de filas).
 router.get('/saldo-proveedor/:id', async (req: Request, res: Response) => {
   try {
+    const { organizacionId } = getTenant();
     const proveedorId = parseInt(req.params.id as string);
+    if (!Number.isFinite(proveedorId)) return res.status(400).json({ error: 'id inválido' });
+
     const proveedor = await prisma.proveedor.findUnique({ where: { id: proveedorId } });
     if (!proveedor) return res.status(404).json({ error: 'Proveedor no encontrado' });
 
+    // Totales en SQL — agregación sin cargar filas a Node
+    const totalesRows = await prisma.$queryRaw<Array<{
+      total_facturado: number;
+      total_pagado: number;
+    }>>`
+      SELECT
+        COALESCE(SUM(f.total), 0)::float AS total_facturado,
+        COALESCE(SUM((SELECT COALESCE(SUM(p.monto), 0) FROM pagos p WHERE p.factura_id = f.id AND p.organizacion_id = ${organizacionId})), 0)::float AS total_pagado
+      FROM facturas f
+      WHERE f.proveedor_id = ${proveedorId}
+        AND f.organizacion_id = ${organizacionId}
+        AND f.estado != 'anulada'
+    `;
+
+    const totalFacturado = Number(totalesRows[0]?.total_facturado) || 0;
+    const totalPagado = Number(totalesRows[0]?.total_pagado) || 0;
+
+    // Últimas 200 facturas con select explícito (sin `pagos` inlineados)
     const facturas = await prisma.factura.findMany({
       where: { proveedorId, estado: { not: 'anulada' } },
-      include: {
-        pagos: { select: { monto: true, fecha: true, medioPago: true } },
+      select: {
+        id: true, codigo: true, tipoComprobante: true, numero: true,
+        fecha: true, fechaVencimiento: true, total: true, estado: true,
         _count: { select: { items: true } },
       },
       orderBy: { fecha: 'desc' },
+      take: 200,
     });
+
+    // Agregar totalPagado por factura vía groupBy
+    const facturaIds = facturas.map(f => f.id);
+    const pagosAgg = facturaIds.length
+      ? await prisma.pago.groupBy({
+          by: ['facturaId'],
+          where: { facturaId: { in: facturaIds } },
+          _sum: { monto: true },
+        })
+      : [];
+    const pagadoMap = new Map<number, number>();
+    for (const p of pagosAgg) pagadoMap.set(p.facturaId, Number(p._sum.monto) || 0);
 
     const resumen = facturas.map(f => {
-      const totalPagado = f.pagos.reduce((s, p) => s + p.monto, 0);
-      return {
-        ...f,
-        totalPagado,
-        saldoPendiente: f.total - totalPagado,
-      };
+      const pagado = pagadoMap.get(f.id) || 0;
+      return { ...f, totalPagado: pagado, saldoPendiente: f.total - pagado };
     });
-
-    const totalFacturado = facturas.reduce((s, f) => s + f.total, 0);
-    const totalPagado = facturas.reduce((s, f) => s + f.pagos.reduce((sp, p) => sp + p.monto, 0), 0);
 
     res.json({
       proveedor,
@@ -449,6 +533,7 @@ router.get('/saldo-proveedor/:id', async (req: Request, res: Response) => {
       saldo: totalFacturado - totalPagado,
     });
   } catch (error: any) {
+    console.error('[contabilidad/saldo-proveedor]', error);
     res.status(500).json({ error: error.message });
   }
 });

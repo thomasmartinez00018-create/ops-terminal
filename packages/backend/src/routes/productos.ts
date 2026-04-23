@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
+import { getTenant } from '../lib/tenantContext';
 
 const router = Router();
 
@@ -33,33 +34,51 @@ router.get('/', async (req: Request, res: Response) => {
 
 // GET /api/productos/ultimos-costos?ids=1,2,3
 // Devuelve último costo de compra por producto. Uso en formulario de recetas (preview live).
+// OOM-safe + pool-safe: un solo `DISTINCT ON (producto_id)` en lugar de N
+// findFirst paralelos. La versión previa hacía Promise.all sobre findFirst
+// por cada id — con 20 ingredientes saturaba el pool de conexiones Prisma.
 router.get('/ultimos-costos', async (req: Request, res: Response) => {
   try {
     const idsParam = (req.query.ids as string) || '';
     const ids = idsParam
       .split(',')
       .map(s => parseInt(s.trim()))
-      .filter(n => !isNaN(n));
+      .filter(n => Number.isFinite(n));
     if (ids.length === 0) {
       res.json({});
       return;
     }
-    // Para cada producto, traer el último ingreso
-    const results: Record<number, { costoUnitario: number; fecha: string }> = {};
-    await Promise.all(
-      ids.map(async (id) => {
-        const mov = await prisma.movimiento.findFirst({
-          where: { productoId: id, tipo: 'ingreso' },
-          orderBy: [{ fecha: 'desc' }, { hora: 'desc' }],
-          select: { costoUnitario: true, fecha: true }
-        });
-        if (mov && mov.costoUnitario != null) {
-          results[id] = { costoUnitario: Number(mov.costoUnitario), fecha: mov.fecha };
-        }
-      })
+
+    const { organizacionId } = getTenant();
+    const placeholders = ids.map((_, i) => `$${i + 2}`).join(', ');
+    const rows = await prisma.$queryRawUnsafe<Array<{
+      producto_id: number;
+      costo_unitario: number | null;
+      fecha: string;
+    }>>(
+      `SELECT DISTINCT ON (producto_id) producto_id, costo_unitario, fecha
+       FROM movimientos
+       WHERE tipo = 'ingreso'
+         AND costo_unitario IS NOT NULL
+         AND organizacion_id = $1
+         AND producto_id IN (${placeholders})
+       ORDER BY producto_id, fecha DESC, hora DESC`,
+      organizacionId,
+      ...ids
     );
+
+    const results: Record<number, { costoUnitario: number; fecha: string }> = {};
+    for (const row of rows) {
+      if (row.costo_unitario != null) {
+        results[Number(row.producto_id)] = {
+          costoUnitario: Number(row.costo_unitario),
+          fecha: row.fecha,
+        };
+      }
+    }
     res.json(results);
   } catch (error) {
+    console.error('[productos/ultimos-costos]', error);
     res.status(500).json({ error: 'Error al obtener últimos costos' });
   }
 });
