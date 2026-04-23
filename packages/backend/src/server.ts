@@ -273,6 +273,24 @@ async function start() {
         }
       }, 4 * 60 * 1000);
       console.log('[server] keep-alive activo — pinga Neon cada 4 min para evitar autosuspend');
+
+      // ── Memory monitor ────────────────────────────────────────────────────
+      // Loguea uso de heap cada 60s. En contenedores chicos (Railway 512MB),
+      // si el proceso muere por "Killed" del kernel no hay stack trace — este
+      // log es la ÚNICA forma de ver el drift del heap antes del crash.
+      // Formato: rss/heapUsed/heapTotal/external (todo en MB).
+      // - rss   = total de memoria del proceso (incluye code, stack, buffers).
+      // - heapUsed = V8 heap en uso (los datos JS vivos).
+      // - external = buffers nativos (Prisma engine, Node sockets).
+      // Si rss se acerca a 450MB, estamos cerca del límite del container.
+      const MB = (n: number) => Math.round(n / 1024 / 1024);
+      setInterval(() => {
+        const m = process.memoryUsage();
+        console.log(
+          `[mem] rss=${MB(m.rss)}MB heapUsed=${MB(m.heapUsed)}MB heapTotal=${MB(m.heapTotal)}MB external=${MB(m.external)}MB`
+        );
+      }, 60 * 1000);
+      console.log('[server] memory monitor activo — log cada 60s');
     }
   });
 

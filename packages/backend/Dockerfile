@@ -49,12 +49,16 @@ USER ops
 
 ENV NODE_ENV=production
 ENV PORT=3001
-# Heap máximo de Node — por default ~500MB en containers pequeños. Con
-# respuestas grandes (lista de facturas, recetas con imágenes, export de
-# stock), JSON.stringify puede empujar al heap al límite y crashear el
-# proceso con "FATAL ERROR: Reached heap limit". 768MB es un número sano
-# para containers de 1GB en Railway Starter — deja colchón para el runtime.
-ENV NODE_OPTIONS=--max-old-space-size=768
+# Heap máximo de Node — CRÍTICO que sea MENOR que la RAM real del container.
+# Si `max-old-space-size` supera la RAM disponible, el kernel mata el
+# proceso con SIGKILL antes que Node pueda hacer GC y emitir "Reached heap
+# limit" — el síntoma es "Killed" silencioso en los logs sin stack trace.
+#
+# Railway Starter = 512MB RAM. 400MB de heap deja ~100MB para runtime Node,
+# buffers de socket, code cache y stack — colchón justo pero seguro.
+# Si se migra a plan con más RAM (1GB+), subir este valor proporcionalmente
+# (heap ~= RAM_container - 150MB).
+ENV NODE_OPTIONS=--max-old-space-size=400
 EXPOSE 3001
 
 # Healthcheck: Railway también pega a /api/health pero tener esto acá
