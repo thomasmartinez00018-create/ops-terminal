@@ -83,6 +83,45 @@ router.get('/ultimos-costos', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/productos/tipos-circuito
+// Devuelve los IDs de productos según su rol en el circuito de
+// elaboración/porcionado:
+//   - porcion: productos que son output de un porcionado (PorcionadoItem)
+//   - elaborado: productos que son output de una elaboración (ElaboracionLote)
+// Un mismo producto puede estar en ambas (es raro pero posible).
+// Uso: el frontend marca visualmente los ingredientes de receta que
+// vienen de estas fuentes, para que el chef entienda el circuito
+// bruto → elaboración → porción → receta.
+router.get('/tipos-circuito', async (_req: Request, res: Response) => {
+  try {
+    const { organizacionId } = getTenant();
+
+    // Porciones: productos usados en PorcionadoItem (porcionado.organizacion_id
+    // filtra por tenant).
+    const porcionRows = await prisma.$queryRaw<Array<{ producto_id: number }>>`
+      SELECT DISTINCT pi.producto_id
+      FROM porcionado_items pi
+      JOIN porcionados p ON p.id = pi.porcionado_id
+      WHERE p.organizacion_id = ${organizacionId}
+    `;
+    // Elaborados: productos que son resultado de elaboraciones (producto_resultado_id).
+    const elaboradoRows = await prisma.$queryRaw<Array<{ producto_id: number }>>`
+      SELECT DISTINCT producto_resultado_id AS producto_id
+      FROM elaboracion_lotes
+      WHERE organizacion_id = ${organizacionId}
+        AND producto_resultado_id IS NOT NULL
+    `;
+
+    res.json({
+      porcion: porcionRows.map(r => Number(r.producto_id)),
+      elaborado: elaboradoRows.map(r => Number(r.producto_id)),
+    });
+  } catch (error) {
+    console.error('[productos/tipos-circuito]', error);
+    res.status(500).json({ error: 'Error al obtener tipos de circuito' });
+  }
+});
+
 // GET /api/productos/:id
 router.get('/:id', async (req: Request, res: Response) => {
   try {

@@ -13,6 +13,7 @@ import ConfirmDialog, { useConfirm } from '../components/ui/ConfirmDialog';
 import {
   Plus, Pencil, Trash2, ChefHat, DollarSign, X, Package, Calculator, Info,
   Copy, ChevronDown, ChevronUp, Send, Sliders, Search, Printer,
+  Utensils, Scissors, Flame, ArrowRight,
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { factorDesperdicio, porcentajeDesperdicio } from '../lib/merma';
@@ -72,6 +73,9 @@ const emptyForm = {
   productoResultadoId: null as number | null,
   cantidadProducida: '' as string | number,
   unidadProducida: '',
+  // salidaACarta: plato final que va al menú del cliente (true) vs
+  // preparación intermedia como masa, caldo, salsa base (false).
+  salidaACarta: false,
   ingredientes: [] as Ingrediente[],
   // Pricing (opcional)
   precioVenta: '' as string | number,
@@ -296,6 +300,14 @@ export default function Recetas() {
   const { confirm, dialogProps } = useConfirm();
   const [recetas, setRecetas] = useState<any[]>([]);
   const [productos, setProductos] = useState<any[]>([]);
+  // Circuito: IDs de productos que son "porción" (output de porcionado) o
+  // "elaborado" (output de elaboración). Los usamos para pintar íconos
+  // visuales en el selector de ingredientes — el chef entiende de un
+  // vistazo si el ingrediente es bruto, elaborado o una porción lista.
+  const [tiposCircuito, setTiposCircuito] = useState<{ porcion: Set<number>; elaborado: Set<number> }>({
+    porcion: new Set(),
+    elaborado: new Set(),
+  });
   const [modalOpen, setModalOpen] = useState(false);
   const [costoModal, setCostoModal] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
@@ -315,6 +327,8 @@ export default function Recetas() {
   // Filtros de la lista
   const [buscar, setBuscar] = useState('');
   const [filtroCat, setFiltroCat] = useState('');
+  // filtroCarta: '' = todas, 'si' = solo carta, 'no' = solo preparaciones
+  const [filtroCarta, setFiltroCarta] = useState<'' | 'si' | 'no'>('');
 
   const cargar = () => {
     api.getRecetas({ activo: 'true' }).then(setRecetas).catch(console.error);
@@ -323,6 +337,16 @@ export default function Recetas() {
   useEffect(() => {
     cargar();
     api.getProductos({ activo: 'true' }).then(setProductos).catch(console.error);
+    // Cargar qué productos son porción/elaborado para pintar íconos
+    // en el selector de ingredientes. Falla silencioso si no llega.
+    api.getProductosTiposCircuito()
+      .then(data => {
+        setTiposCircuito({
+          porcion: new Set(data.porcion || []),
+          elaborado: new Set(data.elaborado || []),
+        });
+      })
+      .catch(() => {});
   }, []);
 
   // Productos indexados por id — mucho más rápido que productos.find en cada
@@ -339,11 +363,13 @@ export default function Recetas() {
     const q = buscar.trim().toLowerCase();
     return recetas.filter((r: any) => {
       if (filtroCat && r.categoria !== filtroCat) return false;
+      if (filtroCarta === 'si' && !r.salidaACarta) return false;
+      if (filtroCarta === 'no' && r.salidaACarta) return false;
       if (!q) return true;
       return (r.nombre || '').toLowerCase().includes(q)
         || (r.codigo || '').toLowerCase().includes(q);
     });
-  }, [recetas, buscar, filtroCat]);
+  }, [recetas, buscar, filtroCat, filtroCarta]);
 
   // ── Form helpers ──────────────────────────────────────────────────────────
 
@@ -375,6 +401,7 @@ export default function Recetas() {
         productoResultadoId: opts?.duplicar ? null : (receta.productoResultadoId ?? null),
         cantidadProducida: receta.cantidadProducida ?? '',
         unidadProducida: receta.unidadProducida ?? '',
+        salidaACarta: !!receta.salidaACarta,
         ingredientes: receta.ingredientes?.map((ing: any) => ({
           productoId: ing.productoId,
           cantidad: ing.cantidad,
@@ -409,6 +436,7 @@ export default function Recetas() {
         productoResultadoId: form.productoResultadoId ?? null,
         cantidadProducida: form.cantidadProducida !== '' ? Number(form.cantidadProducida) : null,
         unidadProducida: form.unidadProducida || null,
+        salidaACarta: !!form.salidaACarta,
         ingredientes: form.ingredientes.map(ing => ({
           productoId: ing.productoId,
           cantidad: Number(ing.cantidad),
@@ -643,6 +671,35 @@ export default function Recetas() {
         />
       </div>
 
+      {/* Toggle rápido: todas / sólo carta / sólo preparaciones.
+          Chips grandes y táctiles — más útiles que un dropdown para algo
+          que se alterna seguido en la cocina. */}
+      <div className="flex gap-1.5 mb-4 overflow-x-auto">
+        {[
+          { value: '', label: 'Todas', count: recetas.length },
+          { value: 'si', label: 'A la carta', icon: <Utensils size={11} />, count: recetas.filter(r => r.salidaACarta).length },
+          { value: 'no', label: 'Preparaciones', icon: <ChefHat size={11} />, count: recetas.filter(r => !r.salidaACarta).length },
+        ].map(opt => (
+          <button
+            key={opt.value}
+            onClick={() => setFiltroCarta(opt.value as '' | 'si' | 'no')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border shrink-0 transition-all active:scale-95 ${
+              filtroCarta === opt.value
+                ? opt.value === 'si' ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
+                  : opt.value === 'no' ? 'bg-primary/10 border-primary/30 text-primary'
+                  : 'bg-foreground/10 border-foreground/20 text-foreground'
+                : 'bg-surface border-border text-on-surface-variant hover:text-foreground'
+            }`}
+          >
+            {opt.icon}
+            {opt.label}
+            <span className={`text-[10px] px-1.5 rounded ${filtroCarta === opt.value ? 'bg-background/30' : 'bg-surface-high'}`}>
+              {opt.count}
+            </span>
+          </button>
+        ))}
+      </div>
+
       {/* Lista — cards en mobile, tabla en desktop */}
       {/* Mobile: cards grandes, tocables, costo por porción gigante */}
       <div className="sm:hidden space-y-2.5">
@@ -656,6 +713,11 @@ export default function Recetas() {
                   <p className="font-mono text-[10px] text-primary">{r.codigo}</p>
                   <p className="font-bold text-foreground text-base leading-tight mt-0.5 truncate">{r.nombre}</p>
                   <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    {r.salidaACarta && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                        <Utensils size={10} /> A LA CARTA
+                      </span>
+                    )}
                     <Badge>{r.categoria}</Badge>
                     <span className="text-[10px] text-on-surface-variant">
                       {r.porciones} porción{r.porciones === 1 ? '' : 'es'}
@@ -749,7 +811,16 @@ export default function Recetas() {
                 return (
                   <tr key={r.id} className="hover:bg-surface-high/50 transition-colors">
                     <td className="p-3 font-mono text-xs text-primary">{r.codigo}</td>
-                    <td className="p-3 font-semibold text-foreground">{r.nombre}</td>
+                    <td className="p-3 font-semibold text-foreground">
+                      <div className="flex items-center gap-2">
+                        {r.salidaACarta && (
+                          <span title="Sale a la carta del restaurante" className="inline-flex items-center gap-0.5 text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shrink-0">
+                            <Utensils size={9} /> CARTA
+                          </span>
+                        )}
+                        <span className="truncate">{r.nombre}</span>
+                      </div>
+                    </td>
                     <td className="p-3"><Badge>{r.categoria}</Badge></td>
                     <td className="p-3 hidden md:table-cell text-xs text-on-surface-variant">
                       {r.sector ? (SECTORES.find(s => s.value === r.sector)?.label || r.sector) : '—'}
@@ -814,6 +885,37 @@ export default function Recetas() {
         size="xl"
       >
         <div className="space-y-4">
+          {/* Stepper del circuito — contextualiza dónde está parado el chef.
+              Receta es el paso final: consume producto bruto / elaborado /
+              porción y produce un plato (o una sub-preparación). */}
+          <div className="rounded-xl border border-border/60 bg-surface-high/20 p-3">
+            <p className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.15em] mb-2">
+              Circuito de producción
+            </p>
+            <div className="flex items-center gap-1.5 text-[10px] font-bold">
+              <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-surface text-on-surface-variant">
+                <Package size={11} /> Bruto
+              </div>
+              <ArrowRight size={10} className="text-on-surface-variant/40 shrink-0" />
+              <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-surface text-on-surface-variant">
+                <Flame size={11} /> Elaborado
+              </div>
+              <ArrowRight size={10} className="text-on-surface-variant/40 shrink-0" />
+              <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-surface text-on-surface-variant">
+                <Scissors size={11} /> Porción
+              </div>
+              <ArrowRight size={10} className="text-primary/70 shrink-0" />
+              <div className={`flex items-center gap-1 px-2 py-1 rounded-lg border font-extrabold ${
+                form.salidaACarta
+                  ? 'bg-primary/15 border-primary text-primary'
+                  : 'bg-primary/5 border-primary/30 text-primary'
+              }`}>
+                {form.salidaACarta ? <Utensils size={11} /> : <ChefHat size={11} />}
+                {form.salidaACarta ? 'Carta' : 'Receta'}
+              </div>
+            </div>
+          </div>
+
           {/* Hero del costo — SIEMPRE visible, es la razón de ser de esta pantalla */}
           <div className="rounded-xl bg-gradient-to-br from-primary/15 to-primary/5 border border-primary/30 p-4">
             <div className="flex items-baseline justify-between gap-3">
@@ -834,6 +936,41 @@ export default function Recetas() {
               </div>
             </div>
           </div>
+
+          {/* ── Salida a carta — toggle visual grande, define el destino del plato ── */}
+          <button
+            type="button"
+            onClick={() => setForm({ ...form, salidaACarta: !form.salidaACarta })}
+            className={`w-full rounded-xl border p-4 flex items-center gap-3 transition-all active:scale-[0.99] text-left ${
+              form.salidaACarta
+                ? 'bg-gradient-to-br from-emerald-500/15 to-emerald-500/5 border-emerald-500/40'
+                : 'bg-surface-high/30 border-border/60 hover:border-border'
+            }`}
+          >
+            <div className={`shrink-0 w-11 h-11 rounded-xl flex items-center justify-center transition-colors ${
+              form.salidaACarta ? 'bg-emerald-500/20 text-emerald-400' : 'bg-surface text-on-surface-variant'
+            }`}>
+              <Utensils size={20} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className={`text-sm font-extrabold ${form.salidaACarta ? 'text-emerald-400' : 'text-foreground'}`}>
+                {form.salidaACarta ? '✓ Sale a la carta del restaurante' : 'Marcá si sale a la carta'}
+              </p>
+              <p className="text-[11px] text-on-surface-variant mt-0.5 leading-snug">
+                {form.salidaACarta
+                  ? 'Plato final que el cliente pide en el menú. Va al reporte de platos, cálculo de margen y ventas.'
+                  : 'Hoy es una preparación interna (salsa, masa, fondo). Activá si es un plato que sale al salón.'}
+              </p>
+            </div>
+            {/* Switch visual */}
+            <div className={`shrink-0 w-11 h-6 rounded-full transition-colors relative ${
+              form.salidaACarta ? 'bg-emerald-500' : 'bg-surface border border-border'
+            }`}>
+              <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-background shadow-md transition-transform ${
+                form.salidaACarta ? 'translate-x-[22px]' : 'translate-x-0.5'
+              }`} />
+            </div>
+          </button>
 
           {/* Datos básicos */}
           <div className="grid grid-cols-2 gap-3">
@@ -1178,6 +1315,20 @@ export default function Recetas() {
                   const tieneMerma = merma > 0;
                   const isExpanded = expandedIng === index;
                   const prod = ing.productoId ? productosById.get(ing.productoId) : null;
+                  // Tipo de este ingrediente en el circuito:
+                  //   - porción: viene del paso 2 (ya listo para usar)
+                  //   - elaborado: viene del paso 1 (producto limpio/elaborado)
+                  //   - bruto: producto original sin elaborar
+                  const tipoIng = ing.productoId && tiposCircuito.porcion.has(ing.productoId)
+                    ? 'porcion'
+                    : ing.productoId && tiposCircuito.elaborado.has(ing.productoId)
+                      ? 'elaborado'
+                      : 'bruto';
+                  const tipoBadge = tipoIng === 'porcion'
+                    ? { icon: <Scissors size={10} />, label: 'Porción', cls: 'bg-violet-500/10 text-violet-400 border-violet-500/30' }
+                    : tipoIng === 'elaborado'
+                      ? { icon: <Flame size={10} />, label: 'Elaborado', cls: 'bg-orange-500/10 text-orange-400 border-orange-500/30' }
+                      : { icon: <Package size={10} />, label: 'Bruto', cls: 'bg-surface text-on-surface-variant border-border/50' };
 
                   return (
                     <div
@@ -1193,9 +1344,25 @@ export default function Recetas() {
                             <SearchableSelect
                               value={ing.productoId?.toString() || ''}
                               onChange={v => actualizarIngrediente(index, 'productoId', v ? Number(v) : null)}
-                              options={productos.map(p => ({ value: p.id.toString(), label: `${p.nombre}${p.codigo ? ` · ${p.codigo}` : ''}` }))}
+                              options={productos.map(p => {
+                                // Prefix visual en el label según tipo en el circuito.
+                                // El chef ve de un vistazo si el ingrediente es
+                                // "✂ porción" (listo del porcionado), "🔥 elaborado"
+                                // (del paso 1) o bruto (sin prefijo).
+                                const prefix = tiposCircuito.porcion.has(p.id) ? '✂ '
+                                  : tiposCircuito.elaborado.has(p.id) ? '🔥 '
+                                  : '';
+                                return { value: p.id.toString(), label: `${prefix}${p.nombre}${p.codigo ? ` · ${p.codigo}` : ''}` };
+                              })}
                               placeholder="Buscar ingrediente…"
                             />
+                            {/* Badge del tipo — solo cuando hay producto elegido */}
+                            {ing.productoId && (
+                              <div className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider mt-1.5 border ${tipoBadge.cls}`}>
+                                {tipoBadge.icon}
+                                {tipoBadge.label}
+                              </div>
+                            )}
                           </div>
                           <button
                             onClick={() => quitarIngrediente(index)}

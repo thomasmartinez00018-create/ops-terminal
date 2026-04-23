@@ -403,6 +403,12 @@ model Receta {
   // alerta para actualizar precio.
   precioVenta         Float?  @map("precio_venta")
   margenObjetivo      Float?  @default(70) @map("margen_objetivo")
+  // ── Salida a carta ───────────────────────────────────────────────────
+  // `true` = es un plato que va al menú del cliente (ej: Milanesa con
+  // papas, Ensalada César). `false` = preparación intermedia que NO sale
+  // a la carta (ej: Masa de factura, Fondo de vegetales). Permite separar
+  // en reportes y UI los platos finales de las sub-preparaciones.
+  salidaACarta        Boolean @default(false) @map("salida_a_carta")
   // ── Ficha técnica (opcional, feature 3) ──────────────────────────────
   // Campos para convertir la receta en una ficha técnica completa que
   // el chef pueda imprimir y pegar en la pared de la cocina.

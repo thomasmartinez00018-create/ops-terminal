@@ -358,6 +358,11 @@ export const api = {
       : request<Record<number, { costoUnitario: number; fecha: string }>>(
           `/productos/ultimos-costos?ids=${ids.join(',')}`
         ),
+  // Circuito bruto → elaborado → porción: devuelve los IDs de productos
+  // que son output de una elaboración o de un porcionado. Se usa en el
+  // form de Recetas para marcar visualmente los ingredientes "porción".
+  getProductosTiposCircuito: () =>
+    request<{ porcion: number[]; elaborado: number[] }>(`/productos/tipos-circuito`),
 
   // Depósitos
   getDepositos: (params?: Record<string, string>) => request<any[]>(`/depositos${qs(params)}`),

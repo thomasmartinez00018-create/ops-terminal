@@ -40,6 +40,7 @@ router.get('/', async (req: Request, res: Response) => {
         activo: true,
         precioVenta: true,
         margenObjetivo: true,
+        salidaACarta: true,
         metodoPreparacion: true,
         tiempoPreparacion: true,
         notasChef: true,
@@ -242,6 +243,11 @@ function camposOpcionales(body: any): Record<string, any> {
     const n = Number(body.margenObjetivo);
     out.margenObjetivo = body.margenObjetivo === null || body.margenObjetivo === '' ? null
       : Number.isFinite(n) && n >= 0 && n <= 100 ? n : null;
+  }
+  // salidaACarta — flag booleano, default false. Cualquier valor truthy lo
+  // toma como true; el frontend manda boolean directo.
+  if ('salidaACarta' in body) {
+    out.salidaACarta = body.salidaACarta === true || body.salidaACarta === 'true';
   }
   if ('metodoPreparacion' in body) {
     out.metodoPreparacion = typeof body.metodoPreparacion === 'string'
