@@ -935,42 +935,86 @@ export default function Recetas() {
                 </p>
               </div>
             </div>
+
+            {/* KPIs profesionales — Food Cost / Margen / Mark Up.
+                Sólo aparecen cuando hay precio de venta cargado. Son el estándar
+                gastronómico internacional: con estos 3 números el chef entiende
+                exactamente la salud del plato. Diseño inspirado en el mockup del
+                cliente: 3 celdas en grid con color según si pasa el objetivo. */}
+            {form.precioVenta !== '' && Number(form.precioVenta) > 0 && costoPorPorcion > 0 && (() => {
+              const precio = Number(form.precioVenta);
+              const foodCost = (costoPorPorcion / precio) * 100;
+              const margen = 100 - foodCost;
+              const markUp = costoPorPorcion > 0 ? (precio / costoPorPorcion) * 100 : 0;
+              const objetivo = Number(form.margenObjetivo) || 70;
+              const margenOk = margen >= objetivo;
+              const margenAlerta = margen >= objetivo - 10;
+              const kpiCls = (ok: boolean, alerta: boolean) => ok
+                ? 'bg-success/10 text-success border-success/30'
+                : alerta ? 'bg-amber-500/10 text-amber-500 border-amber-500/30'
+                : 'bg-destructive/10 text-destructive border-destructive/30';
+              return (
+                <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-primary/20">
+                  <div className={`rounded-lg border px-2 py-2 text-center ${kpiCls(margenOk, margenAlerta)}`}>
+                    <p className="text-[9px] font-bold uppercase tracking-wider opacity-80">Food cost</p>
+                    <p className="font-mono text-lg font-extrabold tabular-nums">{foodCost.toFixed(1)}%</p>
+                  </div>
+                  <div className={`rounded-lg border px-2 py-2 text-center ${kpiCls(margenOk, margenAlerta)}`}>
+                    <p className="text-[9px] font-bold uppercase tracking-wider opacity-80">Margen</p>
+                    <p className="font-mono text-lg font-extrabold tabular-nums">{margen.toFixed(1)}%</p>
+                  </div>
+                  <div className={`rounded-lg border px-2 py-2 text-center ${kpiCls(margenOk, margenAlerta)}`}>
+                    <p className="text-[9px] font-bold uppercase tracking-wider opacity-80">Mark up</p>
+                    <p className="font-mono text-lg font-extrabold tabular-nums">{markUp.toFixed(0)}%</p>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
-          {/* ── Salida a carta — toggle visual grande, define el destino del plato ── */}
-          <button
-            type="button"
-            onClick={() => setForm({ ...form, salidaACarta: !form.salidaACarta })}
-            className={`w-full rounded-xl border p-4 flex items-center gap-3 transition-all active:scale-[0.99] text-left ${
-              form.salidaACarta
-                ? 'bg-gradient-to-br from-emerald-500/15 to-emerald-500/5 border-emerald-500/40'
-                : 'bg-surface-high/30 border-border/60 hover:border-border'
-            }`}
-          >
-            <div className={`shrink-0 w-11 h-11 rounded-xl flex items-center justify-center transition-colors ${
-              form.salidaACarta ? 'bg-emerald-500/20 text-emerald-400' : 'bg-surface text-on-surface-variant'
-            }`}>
-              <Utensils size={20} />
+          {/* ── Salida a carta — 2 cards radio grandes, como mockup profesional.
+              Estilo más claro y directo que el switch: el chef ve las 2 opciones
+              lado a lado y elige con un tap. La card activa queda resaltada con
+              color e ícono de check. */}
+          <div>
+            <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-[0.15em] mb-2">
+              Salida a carta
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { val: true, label: 'Activa', desc: 'Plato de carta', icon: <Utensils size={16} />, cls: 'emerald' },
+                { val: false, label: 'Inactiva', desc: 'Preparación interna', icon: <ChefHat size={16} />, cls: 'zinc' },
+              ].map(opt => {
+                const selected = form.salidaACarta === opt.val;
+                const colorCls = opt.cls === 'emerald'
+                  ? (selected ? 'bg-emerald-500/15 border-emerald-500 text-emerald-400' : 'bg-surface-high/30 border-border/60 text-on-surface-variant hover:border-emerald-500/30')
+                  : (selected ? 'bg-primary/10 border-primary text-primary' : 'bg-surface-high/30 border-border/60 text-on-surface-variant hover:border-border');
+                return (
+                  <button
+                    key={String(opt.val)}
+                    type="button"
+                    onClick={() => setForm({ ...form, salidaACarta: opt.val })}
+                    className={`rounded-xl border-2 p-3 flex items-start gap-2.5 transition-all active:scale-[0.98] text-left ${colorCls}`}
+                  >
+                    <div className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center mt-0.5 ${
+                      selected ? (opt.cls === 'emerald' ? 'border-emerald-500 bg-emerald-500' : 'border-primary bg-primary') : 'border-current'
+                    }`}>
+                      {selected && <svg className="w-3 h-3 text-background" viewBox="0 0 12 12" fill="none"><path d="M2 6L5 9L10 3" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        {opt.icon}
+                        <span className="text-sm font-extrabold">{opt.label}</span>
+                      </div>
+                      <p className={`text-[11px] mt-0.5 leading-snug ${selected ? '' : 'text-on-surface-variant'}`}>
+                        {opt.desc}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
-            <div className="flex-1 min-w-0">
-              <p className={`text-sm font-extrabold ${form.salidaACarta ? 'text-emerald-400' : 'text-foreground'}`}>
-                {form.salidaACarta ? '✓ Sale a la carta del restaurante' : 'Marcá si sale a la carta'}
-              </p>
-              <p className="text-[11px] text-on-surface-variant mt-0.5 leading-snug">
-                {form.salidaACarta
-                  ? 'Plato final que el cliente pide en el menú. Va al reporte de platos, cálculo de margen y ventas.'
-                  : 'Hoy es una preparación interna (salsa, masa, fondo). Activá si es un plato que sale al salón.'}
-              </p>
-            </div>
-            {/* Switch visual */}
-            <div className={`shrink-0 w-11 h-6 rounded-full transition-colors relative ${
-              form.salidaACarta ? 'bg-emerald-500' : 'bg-surface border border-border'
-            }`}>
-              <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-background shadow-md transition-transform ${
-                form.salidaACarta ? 'translate-x-[22px]' : 'translate-x-0.5'
-              }`} />
-            </div>
-          </button>
+          </div>
 
           {/* Datos básicos */}
           <div className="grid grid-cols-2 gap-3">
@@ -1319,16 +1363,12 @@ export default function Recetas() {
                   //   - porción: viene del paso 2 (ya listo para usar)
                   //   - elaborado: viene del paso 1 (producto limpio/elaborado)
                   //   - bruto: producto original sin elaborar
-                  const tipoIng = ing.productoId && tiposCircuito.porcion.has(ing.productoId)
-                    ? 'porcion'
-                    : ing.productoId && tiposCircuito.elaborado.has(ing.productoId)
-                      ? 'elaborado'
-                      : 'bruto';
-                  const tipoBadge = tipoIng === 'porcion'
-                    ? { icon: <Scissors size={10} />, label: 'Porción', cls: 'bg-violet-500/10 text-violet-400 border-violet-500/30' }
-                    : tipoIng === 'elaborado'
-                      ? { icon: <Flame size={10} />, label: 'Elaborado', cls: 'bg-orange-500/10 text-orange-400 border-orange-500/30' }
-                      : { icon: <Package size={10} />, label: 'Bruto', cls: 'bg-surface text-on-surface-variant border-border/50' };
+                  const tipoIng: 'porcion' | 'elaborado' | 'bruto' =
+                    ing.productoId && tiposCircuito.porcion.has(ing.productoId)
+                      ? 'porcion'
+                      : ing.productoId && tiposCircuito.elaborado.has(ing.productoId)
+                        ? 'elaborado'
+                        : 'bruto';
 
                   return (
                     <div
@@ -1337,32 +1377,48 @@ export default function Recetas() {
                         isExpanded ? 'border-primary/40' : 'border-border/60'
                       }`}
                     >
-                      {/* Fila principal: producto + cantidad + costo + quitar */}
+                      {/* Fila principal: # + producto + cantidad + costo + quitar */}
                       <div className="p-3 space-y-2">
                         <div className="flex items-start gap-2">
+                          {/* Numeración como el mockup — ayuda a referenciar
+                              ingredientes al hablar con el chef ("sacá el #3"). */}
+                          <div className="shrink-0 w-7 h-7 rounded-lg bg-surface flex items-center justify-center mt-0.5">
+                            <span className="font-mono text-xs font-extrabold text-on-surface-variant">
+                              {index + 1}
+                            </span>
+                          </div>
                           <div className="flex-1 min-w-0">
-                            <SearchableSelect
-                              value={ing.productoId?.toString() || ''}
-                              onChange={v => actualizarIngrediente(index, 'productoId', v ? Number(v) : null)}
-                              options={productos.map(p => {
-                                // Prefix visual en el label según tipo en el circuito.
-                                // El chef ve de un vistazo si el ingrediente es
-                                // "✂ porción" (listo del porcionado), "🔥 elaborado"
-                                // (del paso 1) o bruto (sin prefijo).
-                                const prefix = tiposCircuito.porcion.has(p.id) ? '✂ '
-                                  : tiposCircuito.elaborado.has(p.id) ? '🔥 '
-                                  : '';
-                                return { value: p.id.toString(), label: `${prefix}${p.nombre}${p.codigo ? ` · ${p.codigo}` : ''}` };
-                              })}
-                              placeholder="Buscar ingrediente…"
-                            />
-                            {/* Badge del tipo — solo cuando hay producto elegido */}
-                            {ing.productoId && (
-                              <div className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider mt-1.5 border ${tipoBadge.cls}`}>
-                                {tipoBadge.icon}
-                                {tipoBadge.label}
+                            <div className="flex items-start gap-1.5">
+                              {/* Badge PP destacado para productos porción —
+                                  como en el mockup, con fondo sólido. */}
+                              {tipoIng === 'porcion' && (
+                                <span title="Producto porción (output de porcionado)" className="shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-violet-500 text-white text-[9px] font-extrabold tracking-wider mt-2">
+                                  PP
+                                </span>
+                              )}
+                              {tipoIng === 'elaborado' && (
+                                <span title="Producto elaborado (output de elaboración)" className="shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-orange-500 text-white text-[9px] font-extrabold tracking-wider mt-2">
+                                  PE
+                                </span>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <SearchableSelect
+                                  value={ing.productoId?.toString() || ''}
+                                  onChange={v => actualizarIngrediente(index, 'productoId', v ? Number(v) : null)}
+                                  options={productos.map(p => {
+                                    // Prefix visual en el label según tipo en el circuito.
+                                    // El chef ve de un vistazo si el ingrediente es
+                                    // "✂ porción" (listo del porcionado), "🔥 elaborado"
+                                    // (del paso 1) o bruto (sin prefijo).
+                                    const prefix = tiposCircuito.porcion.has(p.id) ? '✂ '
+                                      : tiposCircuito.elaborado.has(p.id) ? '🔥 '
+                                      : '';
+                                    return { value: p.id.toString(), label: `${prefix}${p.nombre}${p.codigo ? ` · ${p.codigo}` : ''}` };
+                                  })}
+                                  placeholder="Buscar ingrediente…"
+                                />
                               </div>
-                            )}
+                            </div>
                           </div>
                           <button
                             onClick={() => quitarIngrediente(index)}
@@ -1518,6 +1574,48 @@ export default function Recetas() {
           </div>
 
           {error && <p className="text-sm text-destructive font-semibold">{error}</p>}
+
+          {/* Diagrama de circuito footer — visualiza el flujo completo del plato
+              cerrado. Se adapta según si la receta sale a carta o es prep. */}
+          <div className="rounded-xl border border-border/60 bg-surface-high/20 p-4">
+            <div className="flex items-center justify-between gap-2 sm:gap-4">
+              <div className="flex-1 flex flex-col items-center text-center">
+                <div className="w-11 h-11 rounded-xl bg-violet-500/10 border border-violet-500/30 flex items-center justify-center mb-1.5">
+                  <Scissors size={20} className="text-violet-400" />
+                </div>
+                <p className="text-[9px] font-bold text-on-surface-variant uppercase tracking-wider">Ingredientes</p>
+                <p className="text-[11px] font-semibold text-foreground mt-0.5">
+                  {form.ingredientes.length > 0 ? `${form.ingredientes.length} item${form.ingredientes.length === 1 ? '' : 's'}` : '—'}
+                </p>
+              </div>
+              <ArrowRight size={16} className="text-primary/50 shrink-0" />
+              <div className="flex-1 flex flex-col items-center text-center">
+                <div className="w-11 h-11 rounded-xl bg-primary/10 border border-primary/30 flex items-center justify-center mb-1.5">
+                  <ChefHat size={20} className="text-primary" />
+                </div>
+                <p className="text-[9px] font-bold text-on-surface-variant uppercase tracking-wider">Receta</p>
+                <p className="text-[11px] font-semibold text-foreground mt-0.5 truncate max-w-[120px]">
+                  {form.nombre || '—'}
+                </p>
+              </div>
+              <ArrowRight size={16} className={`shrink-0 ${form.salidaACarta ? 'text-emerald-500/60' : 'text-on-surface-variant/30'}`} />
+              <div className="flex-1 flex flex-col items-center text-center">
+                <div className={`w-11 h-11 rounded-xl flex items-center justify-center mb-1.5 border ${
+                  form.salidaACarta
+                    ? 'bg-emerald-500/15 border-emerald-500/40'
+                    : 'bg-surface border-border/60'
+                }`}>
+                  <Utensils size={20} className={form.salidaACarta ? 'text-emerald-400' : 'text-on-surface-variant/50'} />
+                </div>
+                <p className="text-[9px] font-bold text-on-surface-variant uppercase tracking-wider">
+                  {form.salidaACarta ? 'Plato a carta' : 'Preparación'}
+                </p>
+                <p className={`text-[11px] font-semibold mt-0.5 ${form.salidaACarta ? 'text-emerald-400' : 'text-on-surface-variant'}`}>
+                  {form.salidaACarta ? 'Sale al menú' : 'Uso interno'}
+                </p>
+              </div>
+            </div>
+          </div>
 
           <div className="flex gap-2 pt-1">
             <Button onClick={guardar} className="flex-1">
