@@ -4,7 +4,7 @@ import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';
 import Modal from '../components/ui/Modal';
 import MatchListaIAModal from '../components/MatchListaIAModal';
-import { Upload, FileText, Trash2, CheckCircle, AlertCircle, Loader2, Sparkles } from 'lucide-react';
+import { Upload, FileText, Trash2, CheckCircle, AlertCircle, Loader2, Sparkles, Search } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export default function ImportarLista() {
@@ -26,6 +26,7 @@ export default function ImportarLista() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLista, setDetailLista] = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailSearch, setDetailSearch] = useState('');
 
   // Match IA modal — usado desde la grilla por fila y auto-gatillado después
   // de importar una lista. Centraliza el flujo match-ai → review → apply sin
@@ -92,6 +93,7 @@ export default function ImportarLista() {
   const verDetalle = async (id: number) => {
     setDetailLoading(true);
     setDetailOpen(true);
+    setDetailSearch(''); // resetear búsqueda al abrir
     try {
       const d = await api.getListaPrecio(id);
       setDetailLista(d);
@@ -300,44 +302,92 @@ export default function ImportarLista() {
           <div className="text-center py-8"><Loader2 className="w-6 h-6 animate-spin inline" /></div>
         ) : detailLista ? (
           <div className="space-y-3">
-            <div className="flex gap-4 text-sm text-zinc-400">
+            <div className="flex flex-wrap gap-3 text-sm text-zinc-400">
               <span>Proveedor: <strong className="text-white">{detailLista.proveedor?.nombre}</strong></span>
               <span>Fecha: {detailLista.fecha}</span>
               <span>Archivo: {detailLista.archivoOrigen}</span>
             </div>
-            <div className="max-h-96 overflow-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-zinc-400 border-b border-zinc-800">
-                    <th className="px-2 py-2 text-left">Producto</th>
-                    <th className="px-2 py-2 text-left">Presentacion</th>
-                    <th className="px-2 py-2 text-right">Precio</th>
-                    <th className="px-2 py-2 text-right">$/Unidad</th>
-                    <th className="px-2 py-2 text-center">Estado</th>
-                    <th className="px-2 py-2 text-left">Producto Interno</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {detailLista.items?.map((it: any) => (
-                    <tr key={it.id} className="border-b border-zinc-800/50">
-                      <td className="px-2 py-1.5 text-white">{it.productoOriginal}</td>
-                      <td className="px-2 py-1.5 text-zinc-400">{it.presentacionOriginal || '-'}</td>
-                      <td className="px-2 py-1.5 text-right text-zinc-300">${it.precioInformado?.toLocaleString('es-AR')}</td>
-                      <td className="px-2 py-1.5 text-right text-zinc-300">{it.precioPorUnidad ? `$${it.precioPorUnidad.toLocaleString('es-AR', { maximumFractionDigits: 2 })}` : '-'}</td>
-                      <td className="px-2 py-1.5 text-center">
-                        {it.estadoMatch === 'OK' ? (
-                          <span className="text-green-400 text-xs">OK</span>
-                        ) : (
-                          <span className="text-amber-400 text-xs">PENDIENTE</span>
+
+            {/* Buscador */}
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+              <input
+                type="text"
+                placeholder="Buscar producto en esta lista..."
+                value={detailSearch}
+                onChange={e => setDetailSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-orange-500/50"
+              />
+              {detailSearch && (
+                <button
+                  onClick={() => setDetailSearch('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                >×</button>
+              )}
+            </div>
+
+            <div className="max-h-[420px] overflow-auto">
+              {(() => {
+                const items = detailLista.items ?? [];
+                const q = detailSearch.trim().toLowerCase();
+                const filtered = q
+                  ? items.filter((it: any) =>
+                      it.productoOriginal?.toLowerCase().includes(q) ||
+                      it.proveedorProducto?.producto?.nombre?.toLowerCase().includes(q) ||
+                      it.proveedorProducto?.producto?.codigo?.toLowerCase().includes(q)
+                    )
+                  : items;
+                return (
+                  <>
+                    {q && (
+                      <p className="text-[11px] text-zinc-500 mb-1">
+                        {filtered.length} de {items.length} productos
+                      </p>
+                    )}
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-zinc-900">
+                        <tr className="text-zinc-400 border-b border-zinc-800">
+                          <th className="px-2 py-2 text-left">Producto</th>
+                          <th className="px-2 py-2 text-left">Presentacion</th>
+                          <th className="px-2 py-2 text-right">Precio</th>
+                          <th className="px-2 py-2 text-right">$/Unidad</th>
+                          <th className="px-2 py-2 text-center">Estado</th>
+                          <th className="px-2 py-2 text-left">Producto Interno</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filtered.length === 0 && (
+                          <tr>
+                            <td colSpan={6} className="px-2 py-6 text-center text-zinc-500 italic">
+                              Sin resultados para "{detailSearch}"
+                            </td>
+                          </tr>
                         )}
-                      </td>
-                      <td className="px-2 py-1.5 text-zinc-400 text-xs">
-                        {it.proveedorProducto?.producto ? `${it.proveedorProducto.producto.codigo} - ${it.proveedorProducto.producto.nombre}` : '-'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        {filtered.map((it: any) => (
+                          <tr key={it.id} className="border-b border-zinc-800/50">
+                            <td className="px-2 py-1.5 text-white">{it.productoOriginal}</td>
+                            <td className="px-2 py-1.5 text-zinc-400">{it.presentacionOriginal || '-'}</td>
+                            <td className="px-2 py-1.5 text-right text-zinc-300">${it.precioInformado?.toLocaleString('es-AR')}</td>
+                            <td className="px-2 py-1.5 text-right text-zinc-300">{it.precioPorUnidad ? `$${it.precioPorUnidad.toLocaleString('es-AR', { maximumFractionDigits: 2 })}` : '-'}</td>
+                            <td className="px-2 py-1.5 text-center">
+                              {it.estadoMatch === 'OK' ? (
+                                <span className="text-green-400 font-bold">OK</span>
+                              ) : (
+                                <span className="text-amber-400 font-bold">PENDIENTE</span>
+                              )}
+                            </td>
+                            <td className="px-2 py-1.5 text-zinc-400">
+                              {it.proveedorProducto?.producto
+                                ? `${it.proveedorProducto.producto.codigo} - ${it.proveedorProducto.producto.nombre}`
+                                : <span className="italic text-zinc-600">-</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </>
+                );
+              })()}
             </div>
           </div>
         ) : null}

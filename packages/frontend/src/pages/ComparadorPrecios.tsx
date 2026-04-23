@@ -129,8 +129,13 @@ export default function ComparadorPrecios() {
     return conImpuestos ? precio * getMultiplicador(provId) : precio;
   };
 
-  // Categories from data
-  const categorias = useMemo(() => [...new Set(data.map(d => d.categoria).filter(Boolean))].sort(), [data]);
+  // Categorías desde TODOS los productos activos (no solo los que tienen precios
+  // en listas importadas). Así "Pescados" aparece aunque todavía no haya lista
+  // para ese rubro — el usuario puede filtrar y ver el estado vacío informativo.
+  const categorias = useMemo(() =>
+    [...new Set(productos.map((p: any) => p.rubro).filter(Boolean))].sort() as string[],
+    [productos]
+  );
 
   // Group by product
   const grouped = useMemo(() => {
@@ -295,7 +300,15 @@ export default function ComparadorPrecios() {
               </Select>
             </div>
             <div className="w-52">
-              <Input label="Buscar" value={search} onChange={e => setSearch(e.target.value)} placeholder="Codigo o nombre..." />
+              {/* Al buscar se limpia el filtro de categoría — de lo contrario
+                  el usuario tipea "SAL" con "Frutas" seleccionado y no aparece
+                  nada porque los filtros se aplican en AND. */}
+              <Input
+                label="Buscar"
+                value={search}
+                onChange={e => { setSearch(e.target.value); if (e.target.value) setCatFilter(''); }}
+                placeholder="Codigo o nombre..."
+              />
             </div>
           </>
         )}

@@ -59,6 +59,9 @@ export default function Productos() {
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState('');
+  // Último costo de compra por productoId — se carga junto con la lista.
+  // Permite mostrar la columna "Último precio" sin un endpoint extra dedicado.
+  const [costosMap, setCostosMap] = useState<Record<number, { costoUnitario: number; fecha: string }>>({});
 
   // Debounced search: evita disparar una request por cada tecla al tipear.
   // Además, un "token" monotónico descarta respuestas stale (si el usuario
@@ -75,7 +78,14 @@ export default function Productos() {
     api.getProductos(params)
       .then((data) => {
         // Descarta respuestas stale de una búsqueda anterior.
-        if (myToken === fetchTokenRef.current) setProductos(data);
+        if (myToken !== fetchTokenRef.current) return;
+        setProductos(data);
+        // Cargar últimos costos en paralelo — no bloquea el render de la tabla.
+        if (data.length > 0) {
+          api.getUltimosCostos(data.map((p: any) => p.id))
+            .then(costos => { if (myToken === fetchTokenRef.current) setCostosMap(costos as any); })
+            .catch(() => {});
+        }
       })
       .catch(console.error);
   };
@@ -313,6 +323,11 @@ export default function Productos() {
                 <span className="capitalize">{p.tipo}</span>
                 <span>· {p.unidadUso}</span>
                 {p.stockMinimo > 0 && <span>· mín {p.stockMinimo}</span>}
+                {costosMap[p.id] && (
+                  <span className="font-mono font-bold text-foreground">
+                    · ${(costosMap[p.id] as any).costoUnitario.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                  </span>
+                )}
                 {p.codigoBarras && <span className="font-mono">· {p.codigoBarras}</span>}
               </div>
             </div>
@@ -333,6 +348,7 @@ export default function Productos() {
                   <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden md:table-cell">Tipo</th>
                   <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden lg:table-cell">Unidad</th>
                   <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden lg:table-cell">Stock mín.</th>
+                  <th className="text-right p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden md:table-cell">Último precio</th>
                   <th className="text-right p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Acciones</th>
                 </tr>
               </thead>
@@ -350,6 +366,11 @@ export default function Productos() {
                     <td className="p-3 hidden md:table-cell capitalize text-on-surface-variant">{p.tipo}</td>
                     <td className="p-3 hidden lg:table-cell text-on-surface-variant">{p.unidadUso}</td>
                     <td className="p-3 hidden lg:table-cell text-on-surface-variant">{p.stockMinimo}</td>
+                    <td className="p-3 hidden md:table-cell text-right font-mono font-semibold text-foreground">
+                      {costosMap[p.id]
+                        ? `$${(costosMap[p.id] as any).costoUnitario.toLocaleString('es-AR', { maximumFractionDigits: 0 })}`
+                        : <span className="text-on-surface-variant/30 text-xs font-normal">—</span>}
+                    </td>
                     <td className="p-3 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <button onClick={() => abrir(p)} className="p-1.5 rounded-lg hover:bg-surface-high text-on-surface-variant hover:text-foreground transition-colors">
@@ -375,6 +396,22 @@ export default function Productos() {
         title={editId ? 'Editar producto' : 'Nuevo producto'}
       >
         <div className="space-y-3">
+          {/* Último precio de compra — solo lectura. Se actualiza con cada ingreso
+              registrado. Para cambiar el precio, registrá un nuevo ingreso con costo. */}
+          {editId && costosMap[editId] && (
+            <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-surface-high border border-border/50">
+              <div className="flex-1">
+                <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-0.5">Último precio de compra</p>
+                <p className="font-mono font-extrabold text-foreground text-lg leading-tight">
+                  ${(costosMap[editId] as any).costoUnitario.toLocaleString('es-AR', { maximumFractionDigits: 2 })}
+                </p>
+              </div>
+              <div className="text-right shrink-0">
+                <p className="text-[10px] text-on-surface-variant">{(costosMap[editId] as any).fecha}</p>
+                <p className="text-[9px] text-on-surface-variant/50 mt-0.5">Por {form.unidadUso || 'unidad'}</p>
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <Input
               label="Código"
