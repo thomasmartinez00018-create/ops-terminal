@@ -69,24 +69,36 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
       take: 10
     });
 
-    // Actividad del equipo hoy: movimientos agrupados por usuario
-    const movimientosHoyDetalle = await prisma.movimiento.findMany({
+    // Actividad del equipo hoy: movimientos agrupados por usuario + tipo.
+    // OOM-safe: groupBy agrega en PostgreSQL y devuelve 1 fila por (usuario, tipo)
+    // — típicamente 20-40 filas por día, no miles como hacía el findMany.
+    const actividadAgg = await prisma.movimiento.groupBy({
+      by: ['usuarioId', 'tipo'],
       where: { fecha: hoy },
-      select: {
-        tipo: true,
-        usuario: { select: { id: true, nombre: true, rol: true } }
-      }
+      _count: { id: true },
     });
 
+    const usuarioIds = Array.from(new Set(actividadAgg.map(a => a.usuarioId)));
+    const usuariosInfo = usuarioIds.length > 0
+      ? await prisma.usuario.findMany({
+          where: { id: { in: usuarioIds } },
+          select: { id: true, nombre: true, rol: true },
+        })
+      : [];
+    const usuarioById = new Map(usuariosInfo.map(u => [u.id, u]));
+
     const equipoMap = new Map<number, { id: number; nombre: string; rol: string; total: number; tipos: Record<string, number> }>();
-    for (const mov of movimientosHoyDetalle) {
-      const uid = mov.usuario.id;
+    for (const agg of actividadAgg) {
+      const uid = agg.usuarioId;
+      const info = usuarioById.get(uid);
+      if (!info) continue;
       if (!equipoMap.has(uid)) {
-        equipoMap.set(uid, { id: uid, nombre: mov.usuario.nombre, rol: mov.usuario.rol, total: 0, tipos: {} });
+        equipoMap.set(uid, { id: uid, nombre: info.nombre, rol: info.rol, total: 0, tipos: {} });
       }
       const entry = equipoMap.get(uid)!;
-      entry.total++;
-      entry.tipos[mov.tipo] = (entry.tipos[mov.tipo] || 0) + 1;
+      const count = agg._count.id;
+      entry.total += count;
+      entry.tipos[agg.tipo] = (entry.tipos[agg.tipo] || 0) + count;
     }
     const actividadEquipo = Array.from(equipoMap.values()).sort((a, b) => b.total - a.total);
 
@@ -145,9 +157,13 @@ router.get('/movimientos-por-tipo', async (req: Request, res: Response) => {
 });
 
 // GET /api/reportes/mermas
+// OOM-safe: el resumen (totalItems, totalCantidad, porMotivo) se calcula
+// siempre en PostgreSQL vía groupBy para no depender del detalle. El detalle
+// se acota con `take` (default 500) — el cliente puede paginar o extender con
+// ?limit. Antes cargaba TODO el histórico en el heap de Node.
 router.get('/mermas', async (req: Request, res: Response) => {
   try {
-    const { fechaDesde, fechaHasta, depositoId } = req.query;
+    const { fechaDesde, fechaHasta, depositoId, limit } = req.query;
     const where: any = { tipo: 'merma' };
 
     if (fechaDesde || fechaHasta) {
@@ -159,27 +175,39 @@ router.get('/mermas', async (req: Request, res: Response) => {
       where.depositoOrigenId = parseInt(depositoId as string);
     }
 
-    const detalle = await prisma.movimiento.findMany({
-      where,
-      include: {
-        producto: { select: { codigo: true, nombre: true, unidadUso: true } },
-        usuario: { select: { nombre: true } },
-        depositoOrigen: { select: { nombre: true } },
-        depositoDestino: { select: { nombre: true } },
-        proveedor: { select: { nombre: true } }
-      },
-      orderBy: [{ fecha: 'desc' }, { hora: 'desc' }]
-    });
+    const takeN = Math.min(Math.max(parseInt(limit as string) || 500, 1), 2000);
 
-    // Resumen
-    const totalItems = detalle.length;
+    // Resumen agregado en DB — 1 fila por motivo.
+    const [resumenAgg, detalle] = await Promise.all([
+      prisma.movimiento.groupBy({
+        by: ['motivo'],
+        where,
+        _count: { id: true },
+        _sum: { cantidad: true },
+      }),
+      prisma.movimiento.findMany({
+        where,
+        include: {
+          producto: { select: { codigo: true, nombre: true, unidadUso: true } },
+          usuario: { select: { nombre: true } },
+          depositoOrigen: { select: { nombre: true } },
+          depositoDestino: { select: { nombre: true } },
+          proveedor: { select: { nombre: true } }
+        },
+        orderBy: [{ fecha: 'desc' }, { hora: 'desc' }],
+        take: takeN,
+      }),
+    ]);
+
+    let totalItems = 0;
     let totalCantidad = 0;
     const porMotivo: Record<string, number> = {};
-
-    for (const mov of detalle) {
-      totalCantidad += mov.cantidad;
-      const motivo = mov.motivo || 'Sin motivo';
-      porMotivo[motivo] = (porMotivo[motivo] || 0) + 1;
+    for (const r of resumenAgg) {
+      const motivo = r.motivo || 'Sin motivo';
+      const count = r._count.id;
+      totalItems += count;
+      totalCantidad += Number(r._sum.cantidad) || 0;
+      porMotivo[motivo] = (porMotivo[motivo] || 0) + count;
     }
 
     res.json({
@@ -187,8 +215,9 @@ router.get('/mermas', async (req: Request, res: Response) => {
       resumen: {
         totalItems,
         totalCantidad: Math.round(totalCantidad * 100) / 100,
-        porMotivo
-      }
+        porMotivo,
+      },
+      detalleTruncated: detalle.length >= takeN,
     });
   } catch (error) {
     console.error(error);
@@ -276,10 +305,13 @@ router.get('/stock-valorizado', async (_req: Request, res: Response) => {
 });
 
 // GET /api/reportes/movimientos-por-producto/:productoId
+// OOM-safe: hard cap de 1000 movimientos. Un producto muy transaccionado
+// puede tener miles de filas — cargarlas todas con 4 joins incluidos es un
+// camino directo al OOM.
 router.get('/movimientos-por-producto/:productoId', async (req: Request, res: Response) => {
   try {
     const productoId = parseInt(req.params.productoId as string);
-    const { fechaDesde, fechaHasta } = req.query;
+    const { fechaDesde, fechaHasta, limit } = req.query;
     const where: any = { productoId };
 
     if (fechaDesde || fechaHasta) {
@@ -287,6 +319,8 @@ router.get('/movimientos-por-producto/:productoId', async (req: Request, res: Re
       if (fechaDesde) where.fecha.gte = fechaDesde as string;
       if (fechaHasta) where.fecha.lte = fechaHasta as string;
     }
+
+    const takeN = Math.min(Math.max(parseInt(limit as string) || 500, 1), 1000);
 
     const movimientos = await prisma.movimiento.findMany({
       where,
@@ -297,6 +331,7 @@ router.get('/movimientos-por-producto/:productoId', async (req: Request, res: Re
         depositoDestino: { select: { nombre: true } },
         proveedor: { select: { nombre: true } }
       },
+      take: takeN,
       orderBy: [{ fecha: 'desc' }, { hora: 'desc' }]
     });
 
@@ -487,10 +522,14 @@ router.get('/discrepancias', async (_req: Request, res: Response) => {
 });
 
 // GET /api/reportes/trazabilidad/:productoId/:depositoId - Timeline de movimientos
+// OOM-safe: hard cap de 1000 filas. La trazabilidad muestra el historial
+// ordenado desc — sin límite un (producto, depósito) muy activo satura el heap.
 router.get('/trazabilidad/:productoId/:depositoId', async (req: Request, res: Response) => {
   try {
     const productoId = parseInt(req.params.productoId as string);
     const depositoId = parseInt(req.params.depositoId as string);
+    const { limit } = req.query;
+    const takeN = Math.min(Math.max(parseInt(limit as string) || 500, 1), 1000);
 
     const movimientos = await prisma.movimiento.findMany({
       where: {
@@ -506,6 +545,7 @@ router.get('/trazabilidad/:productoId/:depositoId', async (req: Request, res: Re
         depositoDestino: { select: { nombre: true } },
         proveedor: { select: { nombre: true } }
       },
+      take: takeN,
       orderBy: [{ fecha: 'desc' }, { hora: 'desc' }]
     });
 

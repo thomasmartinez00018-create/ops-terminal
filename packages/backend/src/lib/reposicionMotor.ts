@@ -1,4 +1,5 @@
 import prisma from './prisma';
+import { getTenant } from './tenantContext';
 
 // ============================================================================
 // Motor de reposición encadenada
@@ -56,61 +57,77 @@ export interface StockDetalle {
   cantidad: number;
 }
 
-// Tipos de movimiento (mismos que stock.ts)
-const TIPOS_ENTRADA = ['ingreso', 'elaboracion', 'devolucion'];
-const TIPOS_SALIDA = ['merma', 'consumo_interno', 'venta'];
-
 /**
- * Calcula el stock actual por (producto × depósito) leyendo TODOS los
- * movimientos de la org. Devuelve un Map con key `${productoId}-${depositoId}`.
- * Esto es O(N) sobre movimientos — aceptable porque el motor corre on-demand
- * cuando el usuario pide "detectar reposiciones", no en cada request.
+ * Calcula el stock actual por (producto × depósito).
+ *
+ * CRITICO: esta función se invoca desde `/api/reposicion/alertas`, que el
+ * Dashboard dispara automáticamente al entrar (SugerenciaCompraWidget). La
+ * versión previa cargaba TODOS los movimientos históricos de la org en el
+ * heap y sumaba en JS — con volúmenes reales (decenas de miles de filas) el
+ * contenedor Railway de 512MB se mataba a segundos del boot. Ahora agregamos
+ * en PostgreSQL: UNION ALL + GROUP BY, y Node recibe solo la fila final por
+ * (producto, depósito).
  */
 export async function calcularStockMap(): Promise<Map<string, number>> {
-  const movimientos = await prisma.movimiento.findMany({
-    select: {
-      tipo: true,
-      productoId: true,
-      depositoOrigenId: true,
-      depositoDestinoId: true,
-      cantidad: true,
-    },
-  });
+  const { organizacionId } = getTenant();
+
+  const rows = await prisma.$queryRaw<Array<{
+    producto_id: bigint;
+    deposito_id: bigint;
+    stock: string;
+  }>>`
+    SELECT sub.producto_id, sub.deposito_id,
+           ROUND(SUM(sub.delta)::numeric, 4) AS stock
+    FROM (
+      -- Entradas (al destino; fallback al origen si no hay destino)
+      SELECT producto_id,
+             COALESCE(deposito_destino_id, deposito_origen_id) AS deposito_id,
+             cantidad AS delta
+      FROM movimientos
+      WHERE tipo IN ('ingreso', 'elaboracion', 'devolucion')
+        AND COALESCE(deposito_destino_id, deposito_origen_id) IS NOT NULL
+        AND organizacion_id = ${organizacionId}
+      UNION ALL
+      -- Salidas (del origen; fallback al destino)
+      SELECT producto_id,
+             COALESCE(deposito_origen_id, deposito_destino_id) AS deposito_id,
+             -cantidad AS delta
+      FROM movimientos
+      WHERE tipo IN ('merma', 'consumo_interno', 'venta')
+        AND COALESCE(deposito_origen_id, deposito_destino_id) IS NOT NULL
+        AND organizacion_id = ${organizacionId}
+      UNION ALL
+      -- Ajuste: se aplica sobre el destino (puede ser positivo o negativo)
+      SELECT producto_id, deposito_destino_id AS deposito_id, cantidad AS delta
+      FROM movimientos
+      WHERE tipo = 'ajuste'
+        AND deposito_destino_id IS NOT NULL
+        AND organizacion_id = ${organizacionId}
+      UNION ALL
+      -- Transferencia: +destino
+      SELECT producto_id, deposito_destino_id AS deposito_id, cantidad AS delta
+      FROM movimientos
+      WHERE tipo = 'transferencia'
+        AND deposito_destino_id IS NOT NULL
+        AND organizacion_id = ${organizacionId}
+      UNION ALL
+      -- Transferencia: -origen
+      SELECT producto_id, deposito_origen_id AS deposito_id, -cantidad AS delta
+      FROM movimientos
+      WHERE tipo = 'transferencia'
+        AND deposito_origen_id IS NOT NULL
+        AND organizacion_id = ${organizacionId}
+    ) sub
+    GROUP BY sub.producto_id, sub.deposito_id
+  `;
 
   const stockMap = new Map<string, number>();
-
-  for (const mov of movimientos) {
-    const { tipo, productoId, depositoOrigenId, depositoDestinoId, cantidad } = mov;
-
-    if (tipo === 'transferencia') {
-      if (depositoOrigenId) {
-        const k = `${productoId}-${depositoOrigenId}`;
-        stockMap.set(k, (stockMap.get(k) || 0) - cantidad);
-      }
-      if (depositoDestinoId) {
-        const k = `${productoId}-${depositoDestinoId}`;
-        stockMap.set(k, (stockMap.get(k) || 0) + cantidad);
-      }
-    } else if (tipo === 'ajuste') {
-      if (depositoDestinoId) {
-        const k = `${productoId}-${depositoDestinoId}`;
-        stockMap.set(k, (stockMap.get(k) || 0) + cantidad);
-      }
-    } else if (TIPOS_ENTRADA.includes(tipo)) {
-      const depId = depositoDestinoId || depositoOrigenId;
-      if (depId) {
-        const k = `${productoId}-${depId}`;
-        stockMap.set(k, (stockMap.get(k) || 0) + cantidad);
-      }
-    } else if (TIPOS_SALIDA.includes(tipo)) {
-      const depId = depositoOrigenId || depositoDestinoId;
-      if (depId) {
-        const k = `${productoId}-${depId}`;
-        stockMap.set(k, (stockMap.get(k) || 0) - cantidad);
-      }
+  for (const row of rows) {
+    const stock = parseFloat(row.stock);
+    if (Number.isFinite(stock)) {
+      stockMap.set(`${Number(row.producto_id)}-${Number(row.deposito_id)}`, stock);
     }
   }
-
   return stockMap;
 }
 

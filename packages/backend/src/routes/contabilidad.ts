@@ -454,42 +454,57 @@ router.get('/saldo-proveedor/:id', async (req: Request, res: Response) => {
 });
 
 // ── GET /api/contabilidad/cogs ─────────────────────────────────────────────
+// OOM-safe: JOIN + GROUP BY en PostgreSQL. La versión previa cargaba TODOS
+// los ingresos históricos al heap con el include del producto y los agrupaba
+// en JS — con decenas de miles de filas fundía el contenedor.
+// También: si no viene `desde`/`hasta`, default a los últimos 30 días.
 router.get('/cogs', async (req: Request, res: Response) => {
   try {
-    const { desde, hasta } = req.query;
-    const where: any = { tipo: 'ingreso' };
-    if (desde || hasta) {
-      where.fecha = {};
-      if (desde) where.fecha.gte = desde;
-      if (hasta) where.fecha.lte = hasta;
+    const { organizacionId } = getTenant();
+    let { desde, hasta } = req.query as { desde?: string; hasta?: string };
+    if (!desde && !hasta) {
+      hasta = new Date().toISOString().split('T')[0];
+      desde = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     }
 
-    const movimientos = await prisma.movimiento.findMany({
-      where,
-      include: {
-        producto: { select: { id: true, nombre: true, rubro: true } },
-      },
+    const params: any[] = [organizacionId];
+    let paramN = 2;
+    const extra: string[] = [];
+    if (desde) { extra.push(`m.fecha >= $${paramN++}`); params.push(desde); }
+    if (hasta) { extra.push(`m.fecha <= $${paramN++}`); params.push(hasta); }
+    const extraWhere = extra.length ? ' AND ' + extra.join(' AND ') : '';
+
+    const rows = await prisma.$queryRawUnsafe<Array<{
+      rubro: string | null;
+      costo_total: number;
+      cant_items: number;
+    }>>(`
+      SELECT COALESCE(p.rubro, 'Sin rubro') AS rubro,
+             SUM(COALESCE(m.costo_unitario, 0) * m.cantidad)::float AS costo_total,
+             COUNT(*)::int AS cant_items
+      FROM movimientos m
+      JOIN productos p ON p.id = m.producto_id
+      WHERE m.tipo = 'ingreso'
+        AND m.organizacion_id = $1
+        ${extraWhere}
+      GROUP BY COALESCE(p.rubro, 'Sin rubro')
+      ORDER BY SUM(COALESCE(m.costo_unitario, 0) * m.cantidad) DESC
+    `, ...params);
+
+    const costoGlobal = rows.reduce((s, r) => s + Number(r.costo_total || 0), 0);
+    const rubros = rows.map(r => {
+      const costo = Number(r.costo_total || 0);
+      return {
+        rubro: r.rubro || 'Sin rubro',
+        costoTotal: Math.round(costo * 100) / 100,
+        cantItems: Number(r.cant_items || 0),
+        porcentaje: costoGlobal > 0 ? (costo / costoGlobal) * 100 : 0,
+      };
     });
 
-    // Agrupar por rubro
-    const porRubro: Record<string, { rubro: string; costoTotal: number; cantItems: number }> = {};
-    let costoGlobal = 0;
-
-    for (const m of movimientos) {
-      const rubro = m.producto?.rubro || 'Sin rubro';
-      if (!porRubro[rubro]) porRubro[rubro] = { rubro, costoTotal: 0, cantItems: 0 };
-      const costo = (m.costoUnitario || 0) * m.cantidad;
-      porRubro[rubro].costoTotal += costo;
-      porRubro[rubro].cantItems += 1;
-      costoGlobal += costo;
-    }
-
-    const rubros = Object.values(porRubro)
-      .map(r => ({ ...r, porcentaje: costoGlobal > 0 ? (r.costoTotal / costoGlobal * 100) : 0 }))
-      .sort((a, b) => b.costoTotal - a.costoTotal);
-
-    res.json({ rubros, costoTotal: costoGlobal });
+    res.json({ rubros, costoTotal: Math.round(costoGlobal * 100) / 100, desde, hasta });
   } catch (error: any) {
+    console.error('[contabilidad/cogs]', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -497,78 +512,86 @@ router.get('/cogs', async (req: Request, res: Response) => {
 // ── GET /api/contabilidad/cogs/detalle ─────────────────────────────────────
 // Detalle de COGS para UN rubro específico en un rango. Devuelve los
 // productos consumidos con cantidad y costo total, ordenados desc.
+// OOM-safe: agregación en PostgreSQL con JOIN + GROUP BY + filtro de rubro
+// en la DB (antes descartaba productos del rubro equivocado en JS después
+// de cargar TODOS los ingresos históricos al heap).
 router.get('/cogs/detalle', async (req: Request, res: Response) => {
   try {
-    const { rubro, desde, hasta } = req.query;
+    const { organizacionId } = getTenant();
+    const { rubro } = req.query as { rubro?: string };
+    let { desde, hasta } = req.query as { desde?: string; hasta?: string };
     if (!rubro) {
       res.status(400).json({ error: 'rubro es requerido' });
       return;
     }
-    const where: any = { tipo: 'ingreso' };
-    if (desde || hasta) {
-      where.fecha = {};
-      if (desde) where.fecha.gte = desde;
-      if (hasta) where.fecha.lte = hasta;
+    if (!desde && !hasta) {
+      hasta = new Date().toISOString().split('T')[0];
+      desde = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     }
 
-    const movimientos = await prisma.movimiento.findMany({
-      where,
-      include: {
-        producto: { select: { id: true, codigo: true, nombre: true, rubro: true, unidadCompra: true } },
-        proveedor: { select: { nombre: true } },
-      },
-    });
+    // Normalizar "Sin rubro" para que coincida con la representación del SELECT.
+    const rubroFilter = rubro === 'Sin rubro' ? null : rubro;
 
-    // Filtrar por rubro y agrupar por producto
-    const porProducto: Record<number, {
-      productoId: number;
+    const params: any[] = [organizacionId];
+    let paramN = 2;
+    const conditions: string[] = [];
+    if (rubroFilter === null) {
+      conditions.push(`p.rubro IS NULL`);
+    } else {
+      conditions.push(`p.rubro = $${paramN++}`);
+      params.push(rubroFilter);
+    }
+    if (desde) { conditions.push(`m.fecha >= $${paramN++}`); params.push(desde); }
+    if (hasta) { conditions.push(`m.fecha <= $${paramN++}`); params.push(hasta); }
+    const extraWhere = ' AND ' + conditions.join(' AND ');
+
+    const rows = await prisma.$queryRawUnsafe<Array<{
+      producto_id: number;
       codigo: string;
       nombre: string;
-      unidad: string;
+      unidad_compra: string | null;
       cantidad: number;
-      costoTotal: number;
-      cantMovimientos: number;
-      proveedores: Set<string>;
-    }> = {};
+      costo_total: number;
+      cant_movimientos: number;
+      proveedores: string[] | null;
+    }>>(`
+      SELECT p.id AS producto_id,
+             p.codigo,
+             p.nombre,
+             p.unidad_compra,
+             SUM(m.cantidad)::float AS cantidad,
+             SUM(COALESCE(m.costo_unitario, 0) * m.cantidad)::float AS costo_total,
+             COUNT(*)::int AS cant_movimientos,
+             ARRAY_REMOVE(ARRAY_AGG(DISTINCT pr.nombre), NULL) AS proveedores
+      FROM movimientos m
+      JOIN productos p ON p.id = m.producto_id
+      LEFT JOIN proveedores pr ON pr.id = m.proveedor_id
+      WHERE m.tipo = 'ingreso'
+        AND m.organizacion_id = $1
+        ${extraWhere}
+      GROUP BY p.id, p.codigo, p.nombre, p.unidad_compra
+      ORDER BY SUM(COALESCE(m.costo_unitario, 0) * m.cantidad) DESC
+    `, ...params);
 
-    for (const m of movimientos) {
-      if (!m.producto || m.producto.rubro !== rubro) continue;
-      const pid = m.producto.id;
-      if (!porProducto[pid]) {
-        porProducto[pid] = {
-          productoId: pid,
-          codigo: m.producto.codigo,
-          nombre: m.producto.nombre,
-          unidad: m.producto.unidadCompra,
-          cantidad: 0,
-          costoTotal: 0,
-          cantMovimientos: 0,
-          proveedores: new Set(),
-        };
-      }
-      porProducto[pid].cantidad += m.cantidad;
-      porProducto[pid].costoTotal += (m.costoUnitario || 0) * m.cantidad;
-      porProducto[pid].cantMovimientos += 1;
-      if (m.proveedor?.nombre) porProducto[pid].proveedores.add(m.proveedor.nombre);
-    }
-
-    const productos = Object.values(porProducto)
-      .map(p => ({
-        productoId: p.productoId,
-        codigo: p.codigo,
-        nombre: p.nombre,
-        unidad: p.unidad,
-        cantidad: Math.round(p.cantidad * 100) / 100,
-        costoTotal: Math.round(p.costoTotal * 100) / 100,
-        costoPromedio: p.cantidad > 0 ? Math.round((p.costoTotal / p.cantidad) * 100) / 100 : 0,
-        cantMovimientos: p.cantMovimientos,
-        proveedores: Array.from(p.proveedores),
-      }))
-      .sort((a, b) => b.costoTotal - a.costoTotal);
+    const productos = rows.map(r => {
+      const cantidad = Number(r.cantidad || 0);
+      const costoTotal = Number(r.costo_total || 0);
+      return {
+        productoId: Number(r.producto_id),
+        codigo: r.codigo,
+        nombre: r.nombre,
+        unidad: r.unidad_compra || '',
+        cantidad: Math.round(cantidad * 100) / 100,
+        costoTotal: Math.round(costoTotal * 100) / 100,
+        costoPromedio: cantidad > 0 ? Math.round((costoTotal / cantidad) * 100) / 100 : 0,
+        cantMovimientos: Number(r.cant_movimientos || 0),
+        proveedores: Array.isArray(r.proveedores) ? r.proveedores : [],
+      };
+    });
 
     const costoTotalRubro = productos.reduce((s, p) => s + p.costoTotal, 0);
 
-    res.json({ rubro, costoTotal: costoTotalRubro, productos });
+    res.json({ rubro, costoTotal: Math.round(costoTotalRubro * 100) / 100, productos, desde, hasta });
   } catch (error: any) {
     console.error('[contabilidad/cogs/detalle]', error);
     res.status(500).json({ error: error.message });

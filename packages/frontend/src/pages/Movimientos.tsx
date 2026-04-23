@@ -11,7 +11,7 @@ import SearchableSelect from '../components/ui/SearchableSelect';
 import { useToast } from '../context/ToastContext';
 import { useRecentProducts } from '../hooks/useRecentProducts';
 import { tiposPermitidos, TIPOS_MOVIMIENTO } from '../lib/permisosMovimiento';
-import { Plus, ScanLine, Layers, ScanBarcode, MoreHorizontal } from 'lucide-react';
+import { Plus, ScanLine, Layers, ScanBarcode, MoreHorizontal, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import ExportMenu from '../components/ui/ExportMenu';
 import type { ExportConfig } from '../lib/exportUtils';
@@ -37,6 +37,15 @@ const tipoBadge: Record<string, 'success' | 'info' | 'danger' | 'warning' | 'def
   venta: 'info',
 };
 
+const CATEGORIAS_MERMA_LABEL: Record<string, string> = {
+  preparacion: '🥬 Preparación',
+  vencimiento: '📅 Se venció',
+  rotura: '💥 Se rompió',
+  cortesia: '🎁 Cortesía',
+  staff_meal: '🍽️ Comida del staff',
+  sin_explicacion: '❓ Sin explicación',
+};
+
 export default function Movimientos() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -56,6 +65,7 @@ export default function Movimientos() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [selectedMov, setSelectedMov] = useState<any | null>(null);
 
   // ── Batch modal (transferencia múltiple) ──
   const [batchOpen, setBatchOpen] = useState(false);
@@ -465,7 +475,11 @@ export default function Movimientos() {
                 </tr>
               )}
               {!loading && movimientos.map(m => (
-                <tr key={m.id} className="hover:bg-surface-high/50 transition-colors">
+                <tr
+                  key={m.id}
+                  className="hover:bg-surface-high/50 transition-colors cursor-pointer group"
+                  onClick={() => setSelectedMov(m)}
+                >
                   <td className="p-3 text-xs text-on-surface-variant">{m.fecha} {m.hora}</td>
                   <td className="p-3">
                     <Badge variant={tipoBadge[m.tipo]}>
@@ -485,6 +499,9 @@ export default function Movimientos() {
                       ? <span className="font-semibold text-warning">{m.responsable.nombre}</span>
                       : <span className="text-on-surface-variant/50">—</span>
                     }
+                  </td>
+                  <td className="p-3 w-8">
+                    <ChevronRight size={14} className="text-on-surface-variant/30 group-hover:text-on-surface-variant transition-colors" />
                   </td>
                 </tr>
               ))}
@@ -654,6 +671,145 @@ export default function Movimientos() {
             <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button>
           </div>
         </div>
+      </DrawerModal>
+
+      {/* ── Detalle de movimiento ── */}
+      <DrawerModal open={!!selectedMov} onClose={() => setSelectedMov(null)} title="Detalle del movimiento" size="md">
+        {selectedMov && (
+          <div className="space-y-4">
+            {/* Encabezado: producto + tipo */}
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-extrabold text-foreground text-base leading-tight">{selectedMov.producto?.nombre}</p>
+                {selectedMov.producto?.codigo && (
+                  <p className="font-mono text-xs text-primary mt-0.5">{selectedMov.producto.codigo}</p>
+                )}
+              </div>
+              <Badge variant={tipoBadge[selectedMov.tipo]}>
+                {TIPOS_MOV.find(t => t.value === selectedMov.tipo)?.label || selectedMov.tipo}
+              </Badge>
+            </div>
+
+            {/* Grid de campos */}
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+              {/* Fecha y hora */}
+              <div>
+                <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-0.5">Fecha</p>
+                <p className="font-semibold text-foreground">{selectedMov.fecha}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-0.5">Hora</p>
+                <p className="font-semibold text-foreground">{selectedMov.hora || '—'}</p>
+              </div>
+
+              {/* Cantidad */}
+              <div className="col-span-2">
+                <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-0.5">Cantidad</p>
+                <p className="font-extrabold text-foreground text-lg">
+                  {selectedMov.cantidad}
+                  <span className="text-on-surface-variant font-normal text-sm ml-1">{selectedMov.unidad}</span>
+                </p>
+              </div>
+
+              {/* Costo unitario (solo si tiene) */}
+              {selectedMov.costoUnitario != null && (
+                <>
+                  <div>
+                    <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-0.5">Costo unitario</p>
+                    <p className="font-bold text-primary font-mono">
+                      $ {Number(selectedMov.costoUnitario).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-0.5">Total</p>
+                    <p className="font-bold text-primary font-mono">
+                      $ {(Number(selectedMov.costoUnitario) * Number(selectedMov.cantidad)).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                </>
+              )}
+
+              {/* Depósitos */}
+              {selectedMov.depositoOrigen?.nombre && (
+                <div>
+                  <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-0.5">Depósito origen</p>
+                  <p className="font-semibold text-foreground">{selectedMov.depositoOrigen.nombre}</p>
+                </div>
+              )}
+              {selectedMov.depositoDestino?.nombre && (
+                <div>
+                  <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-0.5">Depósito destino</p>
+                  <p className="font-semibold text-foreground">{selectedMov.depositoDestino.nombre}</p>
+                </div>
+              )}
+
+              {/* Proveedor */}
+              {selectedMov.proveedor?.nombre && (
+                <div className="col-span-2">
+                  <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-0.5">Proveedor</p>
+                  <p className="font-semibold text-foreground">{selectedMov.proveedor.nombre}</p>
+                </div>
+              )}
+
+              {/* Categoría de merma */}
+              {selectedMov.categoriaMerma && (
+                <div className="col-span-2">
+                  <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-0.5">Categoría</p>
+                  <p className="font-semibold text-foreground">{CATEGORIAS_MERMA_LABEL[selectedMov.categoriaMerma] || selectedMov.categoriaMerma}</p>
+                </div>
+              )}
+
+              {/* Motivo */}
+              {selectedMov.motivo && (
+                <div className="col-span-2">
+                  <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-0.5">Motivo</p>
+                  <p className="font-semibold text-foreground">{selectedMov.motivo}</p>
+                </div>
+              )}
+
+              {/* Lote */}
+              {selectedMov.lote && (
+                <div>
+                  <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-0.5">Lote</p>
+                  <p className="font-mono text-sm text-foreground">{selectedMov.lote}</p>
+                </div>
+              )}
+
+              {/* Documento de referencia */}
+              {selectedMov.documentoRef && (
+                <div>
+                  <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-0.5">Doc. referencia</p>
+                  <p className="font-mono text-sm text-foreground">{selectedMov.documentoRef}</p>
+                </div>
+              )}
+
+              {/* Registró */}
+              <div>
+                <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-0.5">Registró</p>
+                <p className="font-semibold text-foreground">{selectedMov.usuario?.nombre || '—'}</p>
+              </div>
+
+              {/* Responsable */}
+              {selectedMov.responsable?.nombre && (
+                <div>
+                  <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-0.5">Responsable</p>
+                  <p className="font-semibold text-warning">{selectedMov.responsable.nombre}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Observación (full width si hay texto) */}
+            {selectedMov.observacion && (
+              <div className="rounded-lg bg-surface-high/50 border border-border/50 p-3">
+                <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1">Observación</p>
+                <p className="text-sm text-foreground">{selectedMov.observacion}</p>
+              </div>
+            )}
+
+            {/* ID interno — útil para soporte */}
+            <p className="text-[10px] text-on-surface-variant/40 font-mono text-right">ID #{selectedMov.id}</p>
+          </div>
+        )}
       </DrawerModal>
 
       {/* ── Modal batch (múltiples productos) ── */}

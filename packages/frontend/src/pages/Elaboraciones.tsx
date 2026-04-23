@@ -356,6 +356,7 @@ export default function Elaboraciones() {
                 <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Producto elaborado</th>
                 <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Cantidad</th>
                 <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden md:table-cell">Ingredientes consumidos</th>
+                <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden md:table-cell">Costo estimado</th>
                 <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden lg:table-cell">Depósito destino</th>
                 <th className="text-left p-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest hidden lg:table-cell">Registró</th>
               </tr>
@@ -363,7 +364,7 @@ export default function Elaboraciones() {
             <tbody className="divide-y divide-border">
               {loadingList && (
                 <tr>
-                  <td colSpan={8} className="p-8 text-center">
+                  <td colSpan={9} className="p-8 text-center">
                     <div className="flex items-center justify-center gap-2 text-on-surface-variant">
                       <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
                       <span className="text-sm font-medium">Cargando elaboraciones...</span>
@@ -405,6 +406,14 @@ export default function Elaboraciones() {
                       ))}
                     </div>
                   </td>
+                  <td className="p-3 hidden md:table-cell">
+                    {lote.costoTotal != null
+                      ? <span className="font-bold font-mono text-primary text-xs">
+                          $ {lote.costoTotal.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      : <span className="text-on-surface-variant/50 text-xs">—</span>
+                    }
+                  </td>
                   <td className="p-3 hidden lg:table-cell text-on-surface-variant text-xs">
                     {lote.depositoDestino?.nombre ?? '—'}
                   </td>
@@ -415,7 +424,7 @@ export default function Elaboraciones() {
               ))}
               {!loadingList && lotes.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="p-8 text-center text-on-surface-variant font-medium">
+                  <td colSpan={9} className="p-8 text-center text-on-surface-variant font-medium">
                     No hay elaboraciones registradas
                   </td>
                 </tr>

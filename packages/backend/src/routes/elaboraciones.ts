@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
+import { getTenant } from '../lib/tenantContext';
 
 const router = Router();
 
@@ -35,7 +36,55 @@ router.get('/', async (req: Request, res: Response) => {
       take: 100
     });
 
-    res.json(lotes);
+    // ── Calcular costo estimado de cada lote ──────────────────────────────
+    // Los movimientos consumo_interno generados por la elaboración no tienen
+    // costoUnitario: no se conocía el precio en el momento de elaborar.
+    // Aproximamos usando el último precio de ingreso de cada ingrediente.
+    const ingredientIds = new Set<number>();
+    for (const lote of lotes) {
+      for (const mov of lote.movimientos) {
+        ingredientIds.add(mov.productoId);
+      }
+    }
+
+    const costMap = new Map<number, number>();
+    if (ingredientIds.size > 0) {
+      const { organizacionId } = getTenant();
+      const idList = Array.from(ingredientIds);
+      const placeholders = idList.map((_, i) => `$${i + 2}`).join(', ');
+
+      const costRows = await prisma.$queryRawUnsafe<Array<{
+        producto_id: bigint;
+        costo_unitario: number;
+      }>>(
+        `SELECT DISTINCT ON (producto_id) producto_id, costo_unitario
+         FROM movimientos
+         WHERE tipo = 'ingreso'
+           AND costo_unitario IS NOT NULL
+           AND producto_id IN (${placeholders})
+           AND organizacion_id = $1
+         ORDER BY producto_id, fecha DESC, hora DESC`,
+        organizacionId,
+        ...idList
+      );
+
+      for (const row of costRows) {
+        costMap.set(Number(row.producto_id), Number(row.costo_unitario));
+      }
+    }
+
+    const result = lotes.map(lote => {
+      const costoTotal = lote.movimientos.reduce((acc, m) => {
+        const precio = costMap.get(m.productoId) ?? 0;
+        return acc + Number(m.cantidad) * precio;
+      }, 0);
+      return {
+        ...lote,
+        costoTotal: costoTotal > 0 ? Math.round(costoTotal * 100) / 100 : null,
+      };
+    });
+
+    res.json(result);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Error al obtener elaboraciones' });
