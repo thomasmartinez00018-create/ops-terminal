@@ -885,35 +885,72 @@ export default function Recetas() {
         size="xl"
       >
         <div className="space-y-4">
-          {/* Stepper del circuito — contextualiza dónde está parado el chef.
-              Receta es el paso final: consume producto bruto / elaborado /
-              porción y produce un plato (o una sub-preparación). */}
-          <div className="rounded-xl border border-border/60 bg-surface-high/20 p-3">
-            <p className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.15em] mb-2">
-              Circuito de producción
-            </p>
-            <div className="flex items-center gap-1.5 text-[10px] font-bold">
-              <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-surface text-on-surface-variant">
-                <Package size={11} /> Bruto
+          {/* ── FLOW HERO — Circuito de producción como héroe grande y clickeable
+              Inspirado en el mockup "Producción · circuito" del cliente. Cada
+              nodo muestra icon + label + sub + value. El paso 3 (Receta) es
+              el activo; los anteriores se marcan como "hechos" (done). */}
+          <div className="rounded-xl border border-border/60 bg-surface-high/20 p-4">
+            <div className="flex items-end justify-between gap-3 mb-3">
+              <div>
+                <p className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.22em]">
+                  Circuito de producción
+                </p>
+                <p className="text-base font-semibold text-foreground mt-0.5">
+                  Trazabilidad del plato
+                </p>
               </div>
-              <ArrowRight size={10} className="text-on-surface-variant/40 shrink-0" />
-              <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-surface text-on-surface-variant">
-                <Flame size={11} /> Elaborado
-              </div>
-              <ArrowRight size={10} className="text-on-surface-variant/40 shrink-0" />
-              <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-surface text-on-surface-variant">
-                <Scissors size={11} /> Porción
-              </div>
-              <ArrowRight size={10} className="text-primary/70 shrink-0" />
-              <div className={`flex items-center gap-1 px-2 py-1 rounded-lg border font-extrabold ${
-                form.salidaACarta
-                  ? 'bg-primary/15 border-primary text-primary'
-                  : 'bg-primary/5 border-primary/30 text-primary'
-              }`}>
-                {form.salidaACarta ? <Utensils size={11} /> : <ChefHat size={11} />}
-                {form.salidaACarta ? 'Carta' : 'Receta'}
-              </div>
+              <p className="text-[10px] text-on-surface-variant/70 italic">Tocá un paso para ir</p>
             </div>
+            {(() => {
+              const pluralizeIng = form.ingredientes.length === 1 ? 'ingrediente' : 'ingredientes';
+              const nodes = [
+                { idx: 0, lbl: 'Bruto', sub: 'Ingreso del insumo', val: 'Stock / Compras', icon: <Package size={22} /> },
+                { idx: 1, lbl: 'Elaborado', sub: 'Producto limpio', val: tiposCircuito.elaborado.size > 0 ? `${tiposCircuito.elaborado.size} disponibles` : 'Opcional', icon: <Flame size={22} /> },
+                { idx: 2, lbl: 'Porción', sub: 'Listo para usar', val: tiposCircuito.porcion.size > 0 ? `${tiposCircuito.porcion.size} disponibles` : 'Opcional', icon: <Scissors size={22} /> },
+                { idx: 3, lbl: form.salidaACarta ? 'Plato carta' : 'Receta', sub: form.nombre || 'Nuevo plato', val: `${form.ingredientes.length} ${pluralizeIng} · ${form.porciones} porc.`, icon: form.salidaACarta ? <Utensils size={22} /> : <ChefHat size={22} /> },
+              ];
+              const active = 3;
+              return (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {nodes.map((n, i) => {
+                    const isActive = i === active;
+                    const isDone = i < active;
+                    return (
+                      <button
+                        key={n.idx}
+                        type="button"
+                        className={`group rounded-xl border p-3 text-left transition-all active:scale-[0.98] ${
+                          isActive
+                            ? 'bg-primary/10 border-primary/50 shadow-[0_0_0_1px_var(--color-primary)]/20'
+                            : isDone
+                              ? 'bg-primary/5 border-primary/20 hover:bg-primary/10 hover:border-primary/40'
+                              : 'bg-surface border-border/60 hover:border-border'
+                        }`}
+                      >
+                        <div className={`w-10 h-10 rounded-lg border flex items-center justify-center mb-2 transition-colors ${
+                          isActive
+                            ? 'bg-primary/20 border-primary text-primary'
+                            : isDone
+                              ? 'bg-primary/10 border-primary/40 text-primary/80'
+                              : 'bg-surface-high border-border/60 text-on-surface-variant group-hover:border-primary/30 group-hover:text-primary'
+                        }`}>
+                          {n.icon}
+                        </div>
+                        <p className={`text-[9px] font-bold uppercase tracking-[0.15em] ${isActive ? 'text-primary' : 'text-on-surface-variant'}`}>
+                          {n.lbl}
+                        </p>
+                        <p className={`text-xs font-semibold mt-0.5 truncate ${isActive ? 'text-foreground' : 'text-on-surface-variant'}`}>
+                          {n.sub}
+                        </p>
+                        <p className={`text-[10px] mt-1 tabular-nums ${isActive ? 'text-primary/80' : 'text-on-surface-variant/70'}`}>
+                          {n.val}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Hero del costo — SIEMPRE visible, es la razón de ser de esta pantalla */}
@@ -1116,94 +1153,124 @@ export default function Recetas() {
             </div>
           </details>
 
-          {/* Precio de venta y margen — opcional pero muy visible */}
-          <details className="rounded-xl border border-border bg-surface-high/20 group" open={!!form.precioVenta}>
-            <summary className="flex items-center gap-2 p-3 cursor-pointer list-none select-none">
-              <DollarSign size={13} className="text-primary" />
-              <p className="text-[11px] font-bold text-on-surface-variant uppercase tracking-widest flex-1">
-                Precio de venta <span className="normal-case font-normal">(opcional)</span>
+          {/* ── PRECIO CARD — siempre visible como el mockup, input gigante
+              gold centrado, food cost / margen / mark up en vivo debajo.
+              Reemplaza el antiguo <details> colapsable porque el precio
+              de carta es información crítica para el chef, no opcional. */}
+          <div className="rounded-xl border border-primary/30 p-4 space-y-3"
+            style={{
+              background: 'radial-gradient(ellipse at 100% 0%, rgba(212,175,55,.08), transparent 60%), var(--color-surface-high)',
+            }}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[10px] font-bold text-primary uppercase tracking-[0.22em]">
+                Precio de carta
               </p>
-              {form.precioVenta !== '' && Number(form.precioVenta) > 0 && (() => {
-                const precio = Number(form.precioVenta);
-                const margen = precio > 0 ? ((precio - costoPorPorcion) / precio) * 100 : 0;
-                const objetivo = Number(form.margenObjetivo) || 70;
-                const estado = margen >= objetivo ? 'ok' : margen >= objetivo - 10 ? 'alerta' : 'critico';
-                const color = estado === 'ok' ? 'text-success bg-success/10'
-                  : estado === 'alerta' ? 'text-amber-500 bg-amber-500/10'
-                  : 'text-destructive bg-destructive/10';
-                return (
-                  <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded ${color}`}>
-                    Margen {margen.toFixed(0)}%
-                  </span>
-                );
-              })()}
-              <ChevronDown size={14} className="text-on-surface-variant group-open:rotate-180 transition-transform" />
-            </summary>
-            <div className="p-3 pt-0 space-y-2">
-              <p className="text-[11px] text-on-surface-variant">
-                Cargá lo que cobrás por porción. La app te va a avisar cuando el costo de los ingredientes suba y el margen caiga debajo de tu objetivo.
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1 block">Precio por porción</label>
-                  <div className="flex items-stretch rounded-lg bg-surface overflow-hidden border border-border/40">
-                    <span className="flex items-center justify-center px-2 text-xs font-bold text-on-surface-variant bg-surface-high/60">$</span>
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      step="0.01"
-                      placeholder="0"
-                      value={form.precioVenta}
-                      onChange={e => setForm({ ...form, precioVenta: e.target.value })}
-                      className="flex-1 min-w-0 px-3 py-2 bg-transparent text-foreground text-base font-bold focus:outline-none"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1 block">Margen objetivo %</label>
-                  <div className="flex items-stretch rounded-lg bg-surface overflow-hidden border border-border/40">
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      step="1"
-                      min="0"
-                      max="99"
-                      placeholder="70"
-                      value={form.margenObjetivo}
-                      onChange={e => setForm({ ...form, margenObjetivo: Number(e.target.value) })}
-                      className="flex-1 min-w-0 px-3 py-2 bg-transparent text-foreground text-base font-bold focus:outline-none"
-                    />
-                    <span className="flex items-center justify-center px-2 text-xs font-bold text-on-surface-variant bg-surface-high/60">%</span>
-                  </div>
-                </div>
+              <div className="flex items-center gap-1.5">
+                <label className="text-[9px] font-bold text-on-surface-variant uppercase tracking-wider">Objetivo</label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  max="99"
+                  value={form.margenObjetivo}
+                  onChange={e => setForm({ ...form, margenObjetivo: Number(e.target.value) })}
+                  className="w-14 px-2 py-1 text-xs font-bold tabular-nums text-right bg-surface border border-border/40 rounded focus:outline-none focus:border-primary/50"
+                />
+                <span className="text-[10px] text-on-surface-variant">% margen</span>
               </div>
-              {form.precioVenta !== '' && Number(form.precioVenta) > 0 && costoPorPorcion > 0 && (() => {
-                const precio = Number(form.precioVenta);
-                const margen = ((precio - costoPorPorcion) / precio) * 100;
-                const ganancia = precio - costoPorPorcion;
-                const objetivo = Number(form.margenObjetivo) || 70;
-                const bajoObjetivo = margen < objetivo;
-                return (
-                  <div className={`rounded-lg px-3 py-2 text-xs flex items-center justify-between ${
-                    bajoObjetivo
-                      ? margen < objetivo - 10
-                        ? 'bg-destructive/10 text-destructive border border-destructive/30'
-                        : 'bg-amber-500/10 text-amber-500 border border-amber-500/30'
-                      : 'bg-success/10 text-success border border-success/30'
-                  }`}>
-                    <span className="font-bold">
-                      Margen {margen.toFixed(1)}% · ganás {fmtMoney(ganancia)} por porción
-                    </span>
-                    {bajoObjetivo && (
-                      <span className="text-[10px] font-extrabold uppercase tracking-wider">
-                        {margen < objetivo - 10 ? '⚠ revisá precio' : 'atento'}
-                      </span>
-                    )}
-                  </div>
-                );
-              })()}
             </div>
-          </details>
+            {/* Input gigante gold con pre-$ y suf-/porción. Estilo mockup. */}
+            <div className={`flex items-baseline gap-2 px-4 py-3 rounded-lg bg-background border transition-all ${
+              form.precioVenta && Number(form.precioVenta) > 0 ? 'border-primary/40' : 'border-border/60'
+            }`}>
+              <span className="text-2xl font-bold text-primary/70">$</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                placeholder="0"
+                value={form.precioVenta === '' ? '' : Number(form.precioVenta).toLocaleString('es-AR')}
+                onChange={e => {
+                  const raw = e.target.value.replace(/\D/g, '');
+                  setForm({ ...form, precioVenta: raw === '' ? '' : Number(raw) });
+                }}
+                className="flex-1 min-w-0 bg-transparent border-0 outline-none font-mono text-3xl sm:text-4xl font-extrabold text-primary tabular-nums tracking-tight"
+              />
+              <span className="text-sm font-semibold text-on-surface-variant">/ porción</span>
+            </div>
+
+            {/* Grid 4 KPIs estilo mockup: Costo / Food cost / Margen / Mark up */}
+            {(() => {
+              const precio = Number(form.precioVenta) || 0;
+              const hasPrecio = precio > 0 && costoPorPorcion > 0;
+              const foodCost = hasPrecio ? (costoPorPorcion / precio) * 100 : 0;
+              const margen = hasPrecio ? 100 - foodCost : 0;
+              const markUp = hasPrecio ? ((precio - costoPorPorcion) / costoPorPorcion) * 100 : 0;
+              const objetivo = Number(form.margenObjetivo) || 70;
+              const fcOk = foodCost > 0 && foodCost <= (100 - objetivo);
+              const fcAlerta = foodCost > 0 && foodCost <= (100 - objetivo) + 10;
+              const fcCls = !hasPrecio ? 'text-on-surface-variant'
+                : fcOk ? 'text-success'
+                : fcAlerta ? 'text-amber-500'
+                : 'text-destructive';
+              const margenCls = !hasPrecio ? 'text-on-surface-variant'
+                : margen >= objetivo ? 'text-success'
+                : margen >= objetivo - 10 ? 'text-amber-500'
+                : 'text-destructive';
+              return (
+                <>
+                  <div className="grid grid-cols-4 gap-2">
+                    <div className="px-2 py-2 rounded-md bg-surface border border-border/40">
+                      <p className="text-[8.5px] font-bold text-on-surface-variant uppercase tracking-[0.15em] mb-1">Costo</p>
+                      <p className="font-mono text-sm font-bold tabular-nums text-foreground">
+                        {costoPorPorcion > 0 ? fmtMoney(costoPorPorcion) : '—'}
+                      </p>
+                    </div>
+                    <div className="px-2 py-2 rounded-md bg-surface border border-border/40">
+                      <p className="text-[8.5px] font-bold text-on-surface-variant uppercase tracking-[0.15em] mb-1">Food cost</p>
+                      <p className={`font-mono text-sm font-bold tabular-nums ${fcCls}`}>
+                        {hasPrecio ? `${foodCost.toFixed(1)}%` : '—'}
+                      </p>
+                    </div>
+                    <div className="px-2 py-2 rounded-md bg-surface border border-border/40">
+                      <p className="text-[8.5px] font-bold text-on-surface-variant uppercase tracking-[0.15em] mb-1">Margen</p>
+                      <p className={`font-mono text-sm font-bold tabular-nums ${margenCls}`}>
+                        {hasPrecio ? `${margen.toFixed(1)}%` : '—'}
+                      </p>
+                    </div>
+                    <div className="px-2 py-2 rounded-md bg-surface border border-border/40">
+                      <p className="text-[8.5px] font-bold text-on-surface-variant uppercase tracking-[0.15em] mb-1">Mark up</p>
+                      <p className={`font-mono text-sm font-bold tabular-nums ${hasPrecio ? 'text-primary' : 'text-on-surface-variant'}`}>
+                        {hasPrecio ? `${markUp.toFixed(0)}%` : '—'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Barra visual de food cost con markers. Objetivo en línea
+                      punteada, color según zona (verde/ámbar/rojo). */}
+                  {hasPrecio && (
+                    <div className="relative pt-1">
+                      <div className="h-1.5 rounded-full bg-surface overflow-hidden">
+                        <div
+                          className={`h-full transition-all duration-500 ${
+                            fcOk ? 'bg-success' : fcAlerta ? 'bg-amber-500' : 'bg-destructive'
+                          }`}
+                          style={{ width: `${Math.min(100, foodCost)}%` }}
+                        />
+                      </div>
+                      <div className="relative text-[9px] tabular-nums text-on-surface-variant/70 mt-1 h-3">
+                        <span className="absolute left-0">0%</span>
+                        <span className="absolute" style={{ left: `${100 - objetivo}%`, transform: 'translateX(-50%)' }}>
+                          objetivo {100 - objetivo}%
+                        </span>
+                        <span className="absolute right-0">100%</span>
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </div>
 
           {/* Ficha técnica — método de preparación + foto + tiempo. Colapsado
               por default porque es opcional y no queremos saturar al usuario. */}
@@ -1682,15 +1749,6 @@ export default function Recetas() {
             </div>
           </div>
 
-          <div className="flex gap-2 pt-1">
-            <Button onClick={guardar} className="flex-1">
-              {editId ? 'Guardar cambios' : 'Crear receta'}
-            </Button>
-            <Button variant="secondary" onClick={() => setModalOpen(false)}>
-              Cancelar
-            </Button>
-          </div>
-
           {/* Leyenda de ingrediente sin precio — se lista al final solo si hay casos */}
           {(() => {
             const sinPrecio = form.ingredientes.filter(ing =>
@@ -1703,6 +1761,42 @@ export default function Recetas() {
               </div>
             );
           })()}
+
+          {/* ── STICKY FOOT — barra de acción con indicador de estado.
+              Inspirado en mockup desktop: pulse dot verde con "Listo para
+              guardar" a la izquierda + botones grandes a la derecha. Sticky
+              en bottom para que el chef siempre tenga el Guardar al alcance. */}
+          <div
+            className="sticky bottom-0 -mx-4 sm:-mx-6 mt-4 z-10 flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-t border-border/60"
+            style={{
+              background: 'linear-gradient(to top, var(--color-background) 60%, transparent)',
+              backdropFilter: 'blur(16px)',
+              WebkitBackdropFilter: 'blur(16px)',
+            }}
+          >
+            <div className="flex items-center gap-2 text-[11px] text-on-surface-variant min-w-0">
+              <span
+                className="shrink-0 w-2 h-2 rounded-full bg-success"
+                style={{ boxShadow: '0 0 8px var(--color-success)', animation: 'pulseGlow 2s ease-in-out infinite' }}
+              />
+              <span className="truncate">
+                {error
+                  ? <span className="text-destructive font-semibold">{error}</span>
+                  : editId
+                    ? <>Editando <b className="text-foreground font-mono">{form.codigo || '—'}</b></>
+                    : <>Nueva receta · listo para guardar</>
+                }
+              </span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button variant="secondary" onClick={() => setModalOpen(false)}>
+                Cancelar
+              </Button>
+              <Button onClick={guardar} className="min-w-[140px]">
+                {editId ? 'Guardar cambios' : 'Crear receta'}
+              </Button>
+            </div>
+          </div>
         </div>
       </DrawerModal>
 
