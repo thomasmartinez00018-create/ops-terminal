@@ -1321,13 +1321,13 @@ export default function Recetas() {
             </div>
           </details>
 
-          {/* Ingredientes — cards verticales */}
+          {/* Ingredientes — header tipo tabla + cards (mobile: vertical, desktop: horizontal) */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <ChefHat size={14} className="text-primary" />
                 <p className="text-[11px] font-bold text-on-surface-variant uppercase tracking-widest">
-                  Ingredientes <span className="text-primary">({form.ingredientes.length})</span>
+                  Ingredientes (Producto porción e insumos) <span className="text-primary">({form.ingredientes.length})</span>
                 </p>
               </div>
               <button
@@ -1337,6 +1337,21 @@ export default function Recetas() {
                 <Plus size={14} /> Agregar
               </button>
             </div>
+
+            {/* Header de columnas — solo desktop (sm+). Imita el look pro del
+                mockup: # / Producto / Cantidad / Unidad / Costo unit / Costo total.
+                En mobile oculto porque las cards son verticales. */}
+            {form.ingredientes.length > 0 && (
+              <div className="hidden sm:grid sm:grid-cols-[32px_1fr_110px_110px_110px_110px_36px] gap-2 px-3 py-2 mb-1 rounded-lg bg-surface-high/30 border border-border/40">
+                <div className="text-[9px] font-bold text-on-surface-variant uppercase tracking-widest text-center">#</div>
+                <div className="text-[9px] font-bold text-on-surface-variant uppercase tracking-widest">Producto porción / Insumo</div>
+                <div className="text-[9px] font-bold text-on-surface-variant uppercase tracking-widest text-right">Cantidad</div>
+                <div className="text-[9px] font-bold text-on-surface-variant uppercase tracking-widest text-center">Unidad</div>
+                <div className="text-[9px] font-bold text-on-surface-variant uppercase tracking-widest text-right">Costo unit</div>
+                <div className="text-[9px] font-bold text-on-surface-variant uppercase tracking-widest text-right">Costo total</div>
+                <div />
+              </div>
+            )}
 
             {form.ingredientes.length === 0 ? (
               <div className="rounded-xl border border-dashed border-border p-8 text-center">
@@ -1562,6 +1577,56 @@ export default function Recetas() {
                 })}
               </div>
             )}
+
+            {/* Fila de TOTALES al pie — como el mockup de Recetas.
+                Muestra suma de cantidad por unidad (cuando hay misma unidad)
+                y costo total, con línea divisoria superior doble para marcarlo
+                como totales contables. */}
+            {form.ingredientes.length > 0 && (() => {
+              // Contadores contados (PP/PE/Bruto) para el breakdown del total
+              const countPP = form.ingredientes.filter(i => i.productoId && tiposCircuito.porcion.has(i.productoId)).length;
+              const countPE = form.ingredientes.filter(i => i.productoId && tiposCircuito.elaborado.has(i.productoId)).length;
+              const countBruto = form.ingredientes.filter(i => i.productoId && !tiposCircuito.porcion.has(i.productoId) && !tiposCircuito.elaborado.has(i.productoId)).length;
+              return (
+                <div className="mt-2 rounded-lg bg-primary/8 border-2 border-primary/30 border-double px-3 py-2.5">
+                  {/* Desktop: grid igual al header, muestra TOTALES en las columnas de costo */}
+                  <div className="hidden sm:grid sm:grid-cols-[32px_1fr_110px_110px_110px_110px_36px] gap-2 items-center">
+                    <div className="text-[10px] font-extrabold text-primary uppercase tracking-widest text-center">Σ</div>
+                    <div className="text-[10px] font-extrabold text-primary uppercase tracking-widest">
+                      TOTALES
+                      <span className="ml-2 text-[9px] text-on-surface-variant normal-case font-bold">
+                        {form.ingredientes.length} ítems
+                        {countPP > 0 && <span className="ml-1 text-violet-400">· {countPP} PP</span>}
+                        {countPE > 0 && <span className="ml-1 text-orange-400">· {countPE} PE</span>}
+                        {countBruto > 0 && <span className="ml-1">· {countBruto} bruto</span>}
+                      </span>
+                    </div>
+                    <div />
+                    <div />
+                    <div />
+                    <div className="text-right">
+                      <span className="font-mono text-base font-extrabold text-primary tabular-nums">
+                        {fmtMoney(costoTotal)}
+                      </span>
+                    </div>
+                    <div />
+                  </div>
+                  {/* Mobile: stack simple */}
+                  <div className="sm:hidden flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-extrabold text-primary uppercase tracking-widest">TOTALES</p>
+                      <p className="text-[10px] text-on-surface-variant">
+                        {form.ingredientes.length} ítems
+                        {costoPorPorcion > 0 && <> · {fmtMoney(costoPorPorcion)}/porción</>}
+                      </p>
+                    </div>
+                    <span className="font-mono text-lg font-extrabold text-primary tabular-nums">
+                      {fmtMoney(costoTotal)}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
 
             {form.ingredientes.length > 0 && (
               <button
