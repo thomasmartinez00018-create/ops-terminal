@@ -9,7 +9,10 @@ import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import PageTour from '../components/PageTour';
-import { Plus, FlaskConical, X, Wand2, ArrowRight, ArrowLeft, Package, Scissors } from 'lucide-react';
+import {
+  Plus, FlaskConical, X, Wand2, ArrowRight, ArrowLeft, Package, Scissors,
+  ChefHat, Flame, Utensils, TrendingDown, Activity, Check, Clock, Info, Save,
+} from 'lucide-react';
 import { factorDesperdicio } from '../lib/merma';
 
 interface IngredienteRow {
@@ -58,6 +61,12 @@ export default function Elaboraciones() {
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState({ ...emptyForm });
   const [loading, setLoading] = useState(false);
+  // Splits UI-only para el mockup "var-c2-elaboracion": el chef declara
+  // cuánto se fue en merma / reutilizable / desecho. No se persisten por
+  // separado (el modelo actual solo guarda ingredientes y resultado), pero
+  // el cálculo sirve para mostrar rendimiento en vivo y para que el chef
+  // vea qué cantidad limpia queda efectivamente.
+  const [splits, setSplits] = useState({ merma: '' as string | number, reuti: '' as string | number, desecho: '' as string | number });
   const [loadingList, setLoadingList] = useState(true);
   const [tab, setTab] = useState<'elaboracion' | 'porcionado'>('elaboracion');
 
@@ -94,6 +103,7 @@ export default function Elaboraciones() {
       hora: new Date().toTimeString().slice(0, 5),
       ingredientes: [{ ...emptyIngrediente }],
     });
+    setSplits({ merma: '', reuti: '', desecho: '' });
     setModalOpen(true);
   };
 
@@ -498,234 +508,427 @@ export default function Elaboraciones() {
         </div>
       )}
 
-      {/* Modal nueva elaboración */}
+      {/* ═══════════════════════════════════════════════════════════════════
+          Modal nueva elaboración — rediseñado FIELMENTE al mockup
+          "var-c2-elaboracion.jsx" del bundle de Claude Design.
+          Estructura: Flow Hero → plato-card + precio-card (Cantidad+KPIs) →
+          Split3 Merma/Reutilizable/Desecho → Result row → Sticky foot.
+          ═══════════════════════════════════════════════════════════════════ */}
       <Modal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         title="Registrar elaboración"
       >
+        {(() => {
+          // ── Cálculos en vivo ─────────────────────────────────────────────
+          const primerIng = form.ingredientes[0];
+          const brutoProd = primerIng?.productoId ? productos.find(p => p.id === primerIng.productoId) : null;
+          const entrada = Number(primerIng?.cantidad) || 0;
+          const mermaKg = Number(splits.merma) || 0;
+          const reutiKg = Number(splits.reuti) || 0;
+          const desechoKg = Number(splits.desecho) || 0;
+          const perdido = mermaKg + reutiKg + desechoKg;
+          const limpioCalc = Math.max(0, entrada - perdido);
+          // Si el chef ya ingresó cantidadProducida, usamos eso; si no, el calculado.
+          const limpio = Number(form.cantidadProducida) > 0 ? Number(form.cantidadProducida) : limpioCalc;
+          const rend = entrada > 0 ? (limpio / entrada) * 100 : 0;
+          const unidad = primerIng?.unidad || form.unidadProducida || 'kg';
+          const fmtNum = (n: number, dec = 2) => Number.isFinite(n) ? n.toLocaleString('es-AR', { maximumFractionDigits: dec }) : '—';
+
+          return (
         <div className="space-y-4">
-          {/* Fecha/hora */}
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Fecha"
-              id="fecha"
-              type="date"
-              value={form.fecha}
-              onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))}
-            />
-            <Input
-              label="Hora"
-              id="hora"
-              type="time"
-              value={form.hora}
-              onChange={e => setForm(f => ({ ...f, hora: e.target.value }))}
-            />
-          </div>
 
-          {/* Sector */}
-          <Select
-            label="Sector"
-            id="sector"
-            value={form.sector}
-            onChange={e => setForm(f => ({ ...f, sector: e.target.value }))}
-            options={SECTORES}
-          />
-
-          {/* Recipe selector */}
-          <div>
-            <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1.5">Receta (opcional)</p>
-            <div className="flex gap-2 items-center">
-              <div className="flex-1">
-                <SearchableSelect
-                  value={form.recetaId?.toString() || ''}
-                  onChange={handleRecetaChange}
-                  options={[
-                    { value: '', label: 'Sin receta' },
-                    ...recetas.map(r => ({
-                      value: r.id.toString(),
-                      label: r.nombre + (r.productoResultado ? ` → ${r.productoResultado.nombre}` : ''),
-                    }))
-                  ]}
-                  placeholder="Seleccionar receta..."
-                />
+          {/* ── FLOW HERO — 4 nodos. Elaborado activo, Bruto done (tocando
+              ingredientes), Porción/Receta pendientes. */}
+          <div className="rounded-xl border border-border/60 bg-surface-high/20 p-4">
+            <div className="flex items-end justify-between gap-3 mb-3">
+              <div>
+                <p className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.22em]">
+                  Circuito de producción
+                </p>
+                <p className="text-base font-semibold text-foreground mt-0.5">
+                  Trazabilidad del elaborado
+                </p>
               </div>
-              {form.recetaId && (
-                <button
-                  onClick={() => setForm(f => ({ ...f, recetaId: null }))}
-                  className="p-1.5 rounded-lg hover:bg-destructive/10 text-on-surface-variant hover:text-destructive transition-colors"
+              <p className="text-[10px] text-on-surface-variant/70 italic">Tocá un paso para ir</p>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {[
+                { lbl: 'Bruto',     sub: brutoProd?.nombre || 'Producto bruto', val: entrada > 0 ? `${fmtNum(entrada)} ${unidad}` : '—', icon: <Package size={22}/>, state: 'done' as const },
+                { lbl: 'Elaborado', sub: 'Limpio',                              val: limpio > 0 ? `${fmtNum(limpio)} ${unidad} · ${rend.toFixed(0)}%` : 'En edición', icon: <Flame size={22}/>, state: 'active' as const },
+                { lbl: 'Porción',   sub: 'Pendiente',                           val: '—', icon: <Scissors size={22}/>, state: 'idle' as const },
+                { lbl: 'Receta',    sub: 'Pendiente',                           val: '—', icon: <Utensils size={22}/>, state: 'idle' as const },
+              ].map((n, i) => (
+                <div key={i}
+                  className={`rounded-xl border p-3 text-left transition-all ${
+                    n.state === 'active' ? 'bg-primary/10 border-primary/50'
+                    : n.state === 'done' ? 'bg-primary/5 border-primary/20'
+                    : 'bg-surface border-border/60'
+                  }`}
                 >
-                  <X size={14} />
-                </button>
-              )}
-            </div>
-            {form.recetaId && (
-              <p className="text-xs text-primary mt-1 flex items-center gap-1">
-                <Wand2 size={10} />
-                Ingredientes cargados desde receta
-              </p>
-            )}
-          </div>
-
-          {/* Output section */}
-          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
-            <div className="flex items-center gap-2 mb-0.5">
-              <ArrowRight size={14} className="text-emerald-400" />
-              <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Lo que sale / se produce (output)</p>
-            </div>
-            <p className="text-[10px] text-on-surface-variant mb-3">Ej: NALGA entra → sale MILANESA o NALGA LIMPIA</p>
-            <div className="space-y-2">
-              <div>
-                <p className="text-[10px] font-semibold text-on-surface-variant mb-1">Producto resultado</p>
-                <SearchableSelect
-                  value={form.productoResultadoId?.toString() || ''}
-                  onChange={handleProductoResultadoChange}
-                  options={productos.map(p => ({ value: p.id.toString(), label: p.nombre }))}
-                  placeholder="Seleccionar producto..."
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Input
-                  label="Cantidad producida"
-                  id="cantidadProducida"
-                  type="number"
-                  value={form.cantidadProducida}
-                  onChange={e => handleCantidadChange(e.target.value)}
-                  placeholder="0"
-                />
-                <Input
-                  label="Unidad"
-                  id="unidadProducida"
-                  value={form.unidadProducida}
-                  onChange={e => setForm(f => ({ ...f, unidadProducida: e.target.value }))}
-                  placeholder="kg, lt, unidad..."
-                />
-              </div>
-              <div>
-                <p className="text-[10px] font-semibold text-on-surface-variant mb-1">Depósito destino</p>
-                <Select
-                  id="depositoDestino"
-                  value={form.depositoDestinoId?.toString() || ''}
-                  onChange={e => setForm(f => ({ ...f, depositoDestinoId: e.target.value ? Number(e.target.value) : null }))}
-                  options={depositos.map(d => ({ value: d.id.toString(), label: d.nombre }))}
-                  placeholder="Sin asignar"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Input section */}
-          <div className="rounded-xl border border-orange-500/20 bg-orange-500/5 p-3">
-            <div className="flex items-center justify-between mb-0.5">
-              <div className="flex items-center gap-2">
-                <ArrowLeft size={14} className="text-orange-400" />
-                <p className="text-[10px] font-bold text-orange-400 uppercase tracking-widest">Lo que entra / se consume (input)</p>
-              </div>
-            </div>
-            <p className="text-[10px] text-on-surface-variant mb-3">Ej: NALGA 5 kg que se transforma — esta cantidad baja del stock</p>
-            <div className="space-y-2">
-              {form.ingredientes.map((ing, idx) => (
-                <div key={idx} className="bg-surface-high/50 rounded-lg p-2">
-                  <div className="grid grid-cols-12 gap-2 items-start">
-                    <div className="col-span-4">
-                      <SearchableSelect
-                        value={ing.productoId?.toString() || ''}
-                        onChange={v => actualizarIngrediente(idx, 'productoId', v ? Number(v) : null)}
-                        options={productos.map(p => ({ value: p.id.toString(), label: p.nombre }))}
-                        placeholder="Producto..."
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <input
-                        type="number"
-                        placeholder="Cant."
-                        value={ing.cantidad}
-                        onChange={e => actualizarIngrediente(idx, 'cantidad', e.target.value)}
-                        className="w-full px-2 py-1.5 rounded-lg bg-surface-high border-0 text-foreground text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary/50"
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <input
-                        type="text"
-                        placeholder="Unidad"
-                        value={ing.unidad}
-                        onChange={e => actualizarIngrediente(idx, 'unidad', e.target.value)}
-                        className="w-full px-2 py-1.5 rounded-lg bg-surface-high border-0 text-on-surface-variant text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary/50"
-                        readOnly
-                      />
-                    </div>
-                    <div className="col-span-3">
-                      <Select
-                        id={`dep-origen-${idx}`}
-                        value={ing.depositoOrigenId?.toString() || ''}
-                        onChange={e => actualizarIngrediente(idx, 'depositoOrigenId', e.target.value ? Number(e.target.value) : null)}
-                        options={depositos.map(d => ({ value: d.id.toString(), label: d.nombre }))}
-                        placeholder="Depósito..."
-                      />
-                    </div>
-                    <div className="col-span-1 flex justify-end pt-1">
-                      <button
-                        onClick={() => quitarIngrediente(idx)}
-                        className="p-1 rounded-lg hover:bg-destructive/10 text-on-surface-variant hover:text-destructive transition-colors"
-                      >
-                        <X size={13} />
-                      </button>
-                    </div>
-                  </div>
+                  <div className={`w-10 h-10 rounded-lg border flex items-center justify-center mb-2 ${
+                    n.state === 'active' ? 'bg-primary/20 border-primary text-primary'
+                    : n.state === 'done' ? 'bg-primary/10 border-primary/40 text-primary/80'
+                    : 'bg-surface-high border-border/60 text-on-surface-variant'
+                  }`}>{n.icon}</div>
+                  <p className={`text-[9px] font-bold uppercase tracking-[0.15em] ${n.state === 'active' ? 'text-primary' : 'text-on-surface-variant'}`}>
+                    {n.lbl}
+                  </p>
+                  <p className={`text-xs font-semibold mt-0.5 truncate ${n.state === 'active' ? 'text-foreground' : 'text-on-surface-variant'}`}>
+                    {n.sub}
+                  </p>
+                  <p className={`text-[10px] mt-1 tabular-nums ${n.state === 'active' ? 'text-primary/80' : 'text-on-surface-variant/70'}`}>
+                    {n.val}
+                  </p>
                 </div>
               ))}
-              <button
-                onClick={agregarIngrediente}
-                className="flex items-center gap-1 text-xs font-bold text-orange-400 hover:text-orange-300 transition-colors"
-              >
-                <Plus size={13} /> Agregar ingrediente
-              </button>
             </div>
           </div>
 
-          {/* Preview / merma panel */}
-          {(form.productoResultadoId || form.ingredientes.some(i => i.productoId)) && (
-            <div className="rounded-xl border border-border bg-surface-high/30 p-3 space-y-1.5">
-              <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-2 flex items-center gap-1.5">
-                <Package size={11} /> Vista previa de movimientos
+          {/* ── Receta selector opcional (colapsado arriba, plegable) ──── */}
+          <details className="rounded-xl border border-border bg-surface-high/20" open={!!form.recetaId}>
+            <summary className="flex items-center gap-2 p-3 cursor-pointer list-none select-none">
+              <Wand2 size={13} className="text-primary" />
+              <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest flex-1">
+                Receta <span className="normal-case font-normal">(opcional — autocompleta ingredientes)</span>
               </p>
-              {form.productoResultadoId && Number(form.cantidadProducida) > 0 && (
-                <div className="flex items-center gap-2 text-xs">
-                  <ArrowRight size={12} className="text-emerald-400 shrink-0" />
-                  <span className="text-emerald-400 font-bold">+{form.cantidadProducida} {form.unidadProducida}</span>
-                  <span className="text-on-surface-variant">elaboración de</span>
-                  <span className="font-semibold text-foreground">{productoResultado?.nombre}</span>
-                  {form.depositoDestinoId && (
-                    <span className="text-on-surface-variant">→ {depositos.find(d => d.id === form.depositoDestinoId)?.nombre}</span>
+              {form.recetaId && <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded">Aplicada</span>}
+            </summary>
+            <div className="p-3 pt-0">
+              <SearchableSelect
+                value={form.recetaId?.toString() || ''}
+                onChange={handleRecetaChange}
+                options={[
+                  { value: '', label: 'Sin receta' },
+                  ...recetas.map(r => ({
+                    value: r.id.toString(),
+                    label: r.nombre + (r.productoResultado ? ` → ${r.productoResultado.nombre}` : ''),
+                  }))
+                ]}
+                placeholder="Seleccionar receta..."
+              />
+            </div>
+          </details>
+
+          {/* ── RECIPE TOP — plato-card + precio-card en grid 1.2fr/1fr. */}
+          <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-3">
+
+            {/* ──── PLATO CARD (producto bruto) ──── */}
+            <div className="rounded-xl border border-border bg-surface p-4 grid grid-cols-[110px_1fr] sm:grid-cols-[140px_1fr] gap-4">
+              {/* Foto del producto bruto (icono tipo "Fish" grande) */}
+              <div className="relative aspect-square rounded-lg border border-border/60 overflow-hidden flex flex-col items-center justify-center gap-1.5 text-primary/70"
+                style={{ background: 'radial-gradient(circle at 30% 30%, rgba(212,175,55,.14), transparent 60%), linear-gradient(135deg, #1A1714, #0F0D0A)' }}
+              >
+                <Package size={38} />
+                <span className="text-[9px] font-bold uppercase tracking-[0.15em]">Producto bruto</span>
+              </div>
+
+              {/* Info del bruto */}
+              <div className="flex flex-col gap-2 justify-center min-w-0">
+                {/* Chips: rubro + stock disponible + depósito */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {brutoProd?.rubro && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/30 text-primary text-[10px] font-bold uppercase tracking-wider">
+                      <Package size={10}/> {brutoProd.rubro}
+                    </span>
+                  )}
+                  {primerIng?.depositoOrigenId && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-transparent border border-border text-on-surface-variant text-[10px] font-bold uppercase tracking-wider">
+                      {depositos.find(d => d.id === primerIng.depositoOrigenId)?.nombre}
+                    </span>
+                  )}
+                  {form.sector && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-high border border-border text-on-surface-variant text-[10px] font-bold uppercase tracking-wider">
+                      {SECTORES.find(s => s.value === form.sector)?.label}
+                    </span>
                   )}
                 </div>
+
+                {/* Selector del producto bruto como nombre grande. */}
+                <div className="-ml-0.5">
+                  <SearchableSelect
+                    value={primerIng?.productoId?.toString() || ''}
+                    onChange={v => actualizarIngrediente(0, 'productoId', v ? Number(v) : null)}
+                    options={productos.map(p => ({ value: p.id.toString(), label: p.nombre }))}
+                    placeholder="Seleccionar producto bruto..."
+                  />
+                </div>
+
+                {/* Subtitulo con operario + fecha + hora como mockup */}
+                <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-xs text-on-surface-variant">
+                  <span>Operario <b className="text-foreground font-semibold">{user?.nombre}</b></span>
+                  <span className="w-1 h-1 rounded-full bg-on-surface-variant/40"></span>
+                  <span><Clock size={10} className="inline text-primary mr-1"/> <b className="text-foreground font-semibold">{form.fecha} · {form.hora}</b></span>
+                </div>
+
+                {/* Depósito origen + sector compactos */}
+                <div className="grid grid-cols-2 gap-2 mt-1.5 pt-2 border-t border-border/30">
+                  <div>
+                    <label className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.15em]">Depósito origen</label>
+                    <select
+                      value={primerIng?.depositoOrigenId?.toString() || ''}
+                      onChange={e => actualizarIngrediente(0, 'depositoOrigenId', e.target.value ? Number(e.target.value) : null)}
+                      className="w-full px-2 py-1 mt-0.5 rounded bg-surface-high border border-border/60 text-xs font-semibold focus:outline-none focus:border-primary/50"
+                    >
+                      <option value="">—</option>
+                      {depositos.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.15em]">Sector</label>
+                    <select
+                      value={form.sector}
+                      onChange={e => setForm(f => ({ ...f, sector: e.target.value }))}
+                      className="w-full px-2 py-1 mt-0.5 rounded bg-surface-high border border-border/60 text-xs font-semibold focus:outline-none focus:border-primary/50"
+                    >
+                      {SECTORES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* ──── PRECIO CARD (Cantidad a elaborar + KPIs) ──── */}
+            <div className="rounded-xl border border-primary/30 p-4 space-y-3"
+              style={{ background: 'radial-gradient(ellipse at 100% 0%, rgba(212,175,55,.08), transparent 60%), var(--color-surface-high)' }}
+            >
+              <p className="text-[10px] font-bold text-primary uppercase tracking-[0.22em]">
+                Cantidad a elaborar
+              </p>
+
+              {/* Input gigante con unidad sufijo (estilo mockup "precio-input") */}
+              <div className={`flex items-baseline gap-2 px-4 py-3 rounded-lg bg-background border transition-all ${
+                entrada > 0 ? 'border-primary/40' : 'border-border/60'
+              }`}>
+                <input
+                  type="number"
+                  step="0.01"
+                  inputMode="decimal"
+                  placeholder="0"
+                  value={primerIng?.cantidad || ''}
+                  onChange={e => actualizarIngrediente(0, 'cantidad', e.target.value)}
+                  className="flex-1 min-w-0 bg-transparent border-0 outline-none font-mono text-3xl sm:text-4xl font-extrabold text-primary tabular-nums tracking-tight"
+                />
+                <span className="text-sm font-semibold text-on-surface-variant">{unidad}</span>
+              </div>
+
+              {/* Grid 2 KPIs: Rendimiento + Costo kg limpio (placeholder) */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="px-2 py-2 rounded-md bg-surface border border-border/40">
+                  <p className="text-[8.5px] font-bold text-on-surface-variant uppercase tracking-[0.15em] mb-1">Rendimiento</p>
+                  <p className={`font-mono text-lg font-extrabold tabular-nums ${
+                    rend >= 75 ? 'text-success' : rend >= 60 ? 'text-amber-500' : rend > 0 ? 'text-destructive' : 'text-on-surface-variant'
+                  }`}>
+                    {entrada > 0 && limpio > 0 ? `${rend.toFixed(1)}%` : '—'}
+                  </p>
+                </div>
+                <div className="px-2 py-2 rounded-md bg-surface border border-border/40">
+                  <p className="text-[8.5px] font-bold text-on-surface-variant uppercase tracking-[0.15em] mb-1">Producto limpio</p>
+                  <p className={`font-mono text-lg font-extrabold tabular-nums ${limpio > 0 ? 'text-primary' : 'text-on-surface-variant'}`}>
+                    {limpio > 0 ? `${fmtNum(limpio)} ${unidad}` : '—'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Barra visual de rendimiento con markers 0/60/75/100 */}
+              {entrada > 0 && (
+                <div className="relative pt-1">
+                  <div className="h-1.5 rounded-full bg-surface overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-500 ${
+                        rend >= 75 ? 'bg-success' : rend >= 60 ? 'bg-amber-500' : 'bg-destructive'
+                      }`}
+                      style={{ width: `${Math.min(100, rend)}%` }}
+                    />
+                  </div>
+                  <div className="relative text-[9px] tabular-nums text-on-surface-variant/70 mt-1 h-3">
+                    <span className="absolute left-0">0%</span>
+                    <span className="absolute" style={{ left: '60%', transform: 'translateX(-50%)' }}>60%</span>
+                    <span className="absolute" style={{ left: '75%', transform: 'translateX(-50%)' }}>75%</span>
+                    <span className="absolute right-0">100%</span>
+                  </div>
+                </div>
               )}
-              {form.ingredientes.filter(i => i.productoId && Number(i.cantidad) > 0).map((ing, idx) => {
-                const prod = productos.find(p => p.id === ing.productoId);
-                const dep = depositos.find(d => d.id === ing.depositoOrigenId);
+            </div>
+          </div>
+
+          {/* ── SPLIT3 — Desglose Merma/Reutilizable/Desecho como mockup ── */}
+          <div className="rounded-xl border border-border bg-surface p-4">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div>
+                <p className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.22em]">Desglose del proceso</p>
+                <p className="text-sm font-semibold text-foreground mt-0.5">¿Qué se pierde y qué se aprovecha?</p>
+              </div>
+              {entrada > 0 && perdido > 0 && (
+                <span className="text-sm font-semibold tabular-nums text-on-surface-variant">
+                  {fmtNum(perdido)} {unidad} · <span className="text-destructive">{((perdido/entrada)*100).toFixed(0)}%</span>
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              {[
+                { key: 'merma' as const,   label: 'Merma',        hint: 'Descarte inevitable (piel, cartílagos)',        icon: <TrendingDown size={16}/>, color: 'warn' },
+                { key: 'reuti' as const,   label: 'Reutilizable', hint: 'Se va a otro proceso (fumet, rellenos)',        icon: <Activity size={16}/>,    color: 'good' },
+                { key: 'desecho' as const, label: 'Desecho',      hint: 'Descarte definitivo',                            icon: <X size={16}/>,           color: 'bad'  },
+              ].map(s => {
+                const val = Number(splits[s.key]) || 0;
+                const pct = entrada > 0 ? (val / entrada) * 100 : 0;
+                const colorIcon = s.color === 'warn' ? 'bg-amber-500/10 text-amber-500'
+                  : s.color === 'good' ? 'bg-success/10 text-success'
+                  : 'bg-destructive/10 text-destructive';
+                const colorBar = s.color === 'warn' ? 'bg-amber-500'
+                  : s.color === 'good' ? 'bg-success'
+                  : 'bg-destructive';
                 return (
-                  <div key={idx} className="flex items-center gap-2 text-xs">
-                    <ArrowLeft size={12} className="text-orange-400 shrink-0" />
-                    <span className="text-orange-400 font-bold">-{ing.cantidad} {ing.unidad}</span>
-                    <span className="text-on-surface-variant">consumo de</span>
-                    <span className="font-semibold text-foreground">{prod?.nombre}</span>
-                    {dep && <span className="text-on-surface-variant">(de {dep.nombre})</span>}
+                  <div key={s.key} className="rounded-lg border border-border/60 bg-surface-high/40 p-3 space-y-2 hover:border-border transition-colors focus-within:border-primary/50">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 ${colorIcon}`}>
+                        {s.icon}
+                      </div>
+                      <span className="flex-1 text-sm font-semibold">{s.label}</span>
+                      <span className="text-[10px] font-bold tabular-nums text-on-surface-variant bg-surface px-2 py-0.5 rounded-full">
+                        {pct.toFixed(0)}%
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-1.5 px-3 py-2 rounded bg-surface border border-border/60">
+                      <input
+                        type="number"
+                        step="0.01"
+                        inputMode="decimal"
+                        placeholder="0"
+                        value={splits[s.key]}
+                        onChange={e => setSplits(prev => ({ ...prev, [s.key]: e.target.value }))}
+                        className="flex-1 min-w-0 bg-transparent border-0 outline-none text-xl font-bold tabular-nums focus:outline-none"
+                      />
+                      <span className="text-xs text-on-surface-variant">{unidad}</span>
+                    </div>
+                    <p className="text-[11px] text-on-surface-variant/70 leading-snug">{s.hint}</p>
+                    <div className="h-0.5 rounded-full bg-surface overflow-hidden">
+                      <div className={`h-full transition-all duration-300 ${colorBar}`}
+                        style={{ width: `${Math.min(100, pct)}%` }}
+                      />
+                    </div>
                   </div>
                 );
               })}
-              {mermaImplicita !== null && mermaImplicita > 0 && (
-                <div className="mt-2 pt-2 border-t border-border">
-                  <div className="flex items-center gap-2 text-xs text-on-surface-variant">
-                    <span className="font-bold text-amber-400">Merma implícita: {mermaImplicita.toFixed(3)} {form.ingredientes[0]?.unidad}</span>
-                    <Badge>{mermaPorc}%</Badge>
-                    <span className="text-[10px]">(input - output, no genera movimiento extra)</span>
-                  </div>
-                </div>
-              )}
             </div>
+          </div>
+
+          {/* ── RESULTADO: Producto limpio generado ── */}
+          <div className="rounded-xl border border-border bg-surface p-4">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div>
+                <p className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.22em]">Resultado</p>
+                <p className="text-sm font-semibold text-foreground mt-0.5">Producto limpio generado</p>
+              </div>
+              <span className="font-mono text-lg font-extrabold tabular-nums text-primary">
+                {limpio > 0 ? `${fmtNum(limpio)} ${unidad}` : '—'}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-3 py-3 bg-surface-high/40 rounded-lg border border-border/60">
+              <div>
+                <p className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.22em]">Producto</p>
+                <div className="mt-0.5">
+                  <SearchableSelect
+                    value={form.productoResultadoId?.toString() || ''}
+                    onChange={handleProductoResultadoChange}
+                    options={productos.map(p => ({ value: p.id.toString(), label: p.nombre }))}
+                    placeholder="Seleccionar..."
+                  />
+                </div>
+              </div>
+              <div>
+                <p className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.22em]">Cantidad limpia</p>
+                <input
+                  type="number"
+                  step="0.01"
+                  inputMode="decimal"
+                  placeholder={limpioCalc > 0 ? fmtNum(limpioCalc) : '0'}
+                  value={form.cantidadProducida}
+                  onChange={e => handleCantidadChange(e.target.value)}
+                  className="w-full mt-0.5 px-2 py-2 rounded bg-surface border border-border/60 text-base font-bold tabular-nums focus:outline-none focus:border-primary/50"
+                />
+                {limpioCalc > 0 && Number(form.cantidadProducida) !== limpioCalc && (
+                  <p className="text-[9px] text-primary/70 italic mt-0.5">
+                    Calculado: {fmtNum(limpioCalc)} {unidad}
+                  </p>
+                )}
+              </div>
+              <div>
+                <p className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.22em]">Destino</p>
+                <select
+                  value={form.depositoDestinoId?.toString() || ''}
+                  onChange={e => setForm(f => ({ ...f, depositoDestinoId: e.target.value ? Number(e.target.value) : null }))}
+                  className="w-full mt-0.5 px-2 py-2 rounded bg-surface border border-border/60 text-sm font-semibold focus:outline-none focus:border-primary/50"
+                >
+                  <option value="">Sin asignar</option>
+                  {depositos.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+                </select>
+              </div>
+              <div className="flex items-end">
+                <div className="flex items-center gap-1 text-primary text-xs font-bold hover:gap-2 transition-all cursor-pointer"
+                  onClick={() => { setModalOpen(false); setTab('porcionado'); }}
+                  title="Continuar a Porcionado tras guardar"
+                >
+                  Ir a porcionado <ArrowRight size={13}/>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Ingredientes adicionales — colapsable, solo si hay múltiples */}
+          {form.ingredientes.length > 1 && (
+            <details className="rounded-xl border border-border bg-surface-high/20" open>
+              <summary className="flex items-center gap-2 p-3 cursor-pointer list-none select-none">
+                <ArrowLeft size={13} className="text-orange-400" />
+                <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest flex-1">
+                  Co-insumos <span className="normal-case font-normal">({form.ingredientes.length - 1} adicionales)</span>
+                </p>
+              </summary>
+              <div className="p-3 pt-0 space-y-2">
+                {form.ingredientes.slice(1).map((ing, idx) => {
+                  const realIdx = idx + 1;
+                  return (
+                    <div key={realIdx} className="grid grid-cols-12 gap-2 items-start bg-surface rounded-lg p-2 border border-border/40">
+                      <div className="col-span-5">
+                        <SearchableSelect
+                          value={ing.productoId?.toString() || ''}
+                          onChange={v => actualizarIngrediente(realIdx, 'productoId', v ? Number(v) : null)}
+                          options={productos.map(p => ({ value: p.id.toString(), label: p.nombre }))}
+                          placeholder="Producto..."
+                        />
+                      </div>
+                      <input type="number" placeholder="Cant." value={ing.cantidad}
+                        onChange={e => actualizarIngrediente(realIdx, 'cantidad', e.target.value)}
+                        className="col-span-2 px-2 py-1.5 rounded bg-surface-high border border-border/60 text-sm font-semibold focus:outline-none focus:border-primary/50"/>
+                      <input type="text" readOnly value={ing.unidad}
+                        className="col-span-2 px-2 py-1.5 rounded bg-surface-high border border-border/60 text-sm text-on-surface-variant"/>
+                      <select value={ing.depositoOrigenId?.toString() || ''}
+                        onChange={e => actualizarIngrediente(realIdx, 'depositoOrigenId', e.target.value ? Number(e.target.value) : null)}
+                        className="col-span-2 px-2 py-1.5 rounded bg-surface-high border border-border/60 text-sm font-semibold focus:outline-none focus:border-primary/50"
+                      >
+                        <option value="">—</option>
+                        {depositos.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+                      </select>
+                      <button onClick={() => quitarIngrediente(realIdx)}
+                        className="col-span-1 p-1 rounded hover:bg-destructive/10 text-on-surface-variant hover:text-destructive justify-self-end">
+                        <X size={13}/>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
           )}
 
-          {/* Observacion */}
+          <button
+            onClick={agregarIngrediente}
+            className="w-full flex items-center justify-center gap-1 py-2 rounded-lg border border-dashed border-border hover:border-primary hover:bg-primary/5 text-xs font-bold text-on-surface-variant hover:text-primary transition-colors"
+          >
+            <Plus size={13}/> Agregar co-insumo
+          </button>
+
+          {/* Observación compacta */}
           <Input
             label="Observación (opcional)"
             id="observacion"
@@ -734,15 +937,31 @@ export default function Elaboraciones() {
             placeholder="Notas adicionales..."
           />
 
-          <div className="flex gap-2 pt-1">
-            <Button onClick={guardar} disabled={loading} className="flex-1">
-              {loading ? 'Guardando...' : 'Registrar elaboración'}
-            </Button>
-            <Button variant="secondary" onClick={() => setModalOpen(false)}>
-              Cancelar
-            </Button>
+          {/* ── STICKY FOOT — autoguardado pulso + botones grandes ── */}
+          <div
+            className="sticky bottom-0 -mx-4 sm:-mx-6 mt-4 z-10 flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-t border-border/60"
+            style={{ background: 'linear-gradient(to top, var(--color-background) 60%, transparent)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}
+          >
+            <div className="flex items-center gap-2 text-[11px] text-on-surface-variant min-w-0">
+              <span className="shrink-0 w-2 h-2 rounded-full bg-success"
+                style={{ boxShadow: '0 0 8px var(--color-success)', animation: 'pulseGlow 2s ease-in-out infinite' }}
+              />
+              <span className="truncate">
+                {entrada > 0 && limpio > 0
+                  ? <>Rendimiento <b className="text-foreground font-mono">{rend.toFixed(1)}%</b> · {fmtNum(limpio)} {unidad} limpios</>
+                  : <>Cargá producto y cantidad para calcular rendimiento</>}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button>
+              <Button onClick={guardar} disabled={loading} className="min-w-[160px]">
+                <Save size={14}/> {loading ? 'Guardando...' : 'Guardar elaboración'}
+              </Button>
+            </div>
           </div>
         </div>
+          );
+        })()}
       </Modal>
       {/* Modal porcionado */}
       <Modal open={porcionadoOpen} onClose={() => setPorcionadoOpen(false)} title="Registrar porcionado">
