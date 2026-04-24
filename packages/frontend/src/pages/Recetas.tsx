@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import PageTour from '../components/PageTour';
 import { api } from '../lib/api';
 import Button from '../components/ui/Button';
@@ -296,6 +297,7 @@ async function comprimirImagen(file: File, maxDim = 800, quality = 0.75): Promis
 }
 
 export default function Recetas() {
+  const navigate = useNavigate();
   const { addToast } = useToast();
   const { confirm, dialogProps } = useConfirm();
 
@@ -890,7 +892,7 @@ export default function Recetas() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         title={editId ? 'Editar receta' : 'Nueva receta'}
-        size="xl"
+        size="2xl"
       >
         <div className="space-y-4">
           {/* ── FLOW HERO — Circuito de producción como héroe grande y clickeable
@@ -924,11 +926,12 @@ export default function Recetas() {
                   val: 'Stock / Compras',
                   icon: <Package size={22} />,
                   onClick: () => {
-                    // Los brutos aparecen como ingredientes sin badge (ni PP
-                    // ni PE). Scroll a ingredientes para que el chef los vea.
-                    refIngredientes.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    // Los brutos viven en Productos (catálogo de insumos sin
+                    // procesar). Cierro el modal y navego.
+                    setModalOpen(false);
+                    navigate('/productos');
                   },
-                  hint: 'Ver ingredientes'
+                  hint: 'Ir a Productos'
                 },
                 {
                   idx: 1,
@@ -937,13 +940,10 @@ export default function Recetas() {
                   val: tiposCircuito.elaborado.size > 0 ? `${tiposCircuito.elaborado.size} disponibles` : 'Opcional',
                   icon: <Flame size={22} />,
                   onClick: () => {
-                    // Scroll a ingredientes — ahí el chef elige entre productos
-                    // elaborados (badge PE naranja). Si necesita crear uno nuevo,
-                    // el link al módulo de Elaboraciones queda accesible desde
-                    // la pestaña real de la app. Más útil que cerrar el modal.
-                    refIngredientes.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    setModalOpen(false);
+                    navigate('/elaboraciones');
                   },
-                  hint: 'Ver elaborados'
+                  hint: 'Ir a Elaboraciones'
                 },
                 {
                   idx: 2,
@@ -952,11 +952,12 @@ export default function Recetas() {
                   val: tiposCircuito.porcion.size > 0 ? `${tiposCircuito.porcion.size} disponibles` : 'Opcional',
                   icon: <Scissors size={22} />,
                   onClick: () => {
-                    // Scroll a ingredientes — ahí están los productos porción
-                    // con badge PP violeta.
-                    refIngredientes.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    setModalOpen(false);
+                    // Pasamos `state` para que Elaboraciones abra en la tab
+                    // de Porcionado. Lee `location.state.tab` al montar.
+                    navigate('/elaboraciones', { state: { tab: 'porcionado' } });
                   },
-                  hint: 'Ver porciones'
+                  hint: 'Ir a Porcionado'
                 },
                 {
                   idx: 3,
@@ -965,10 +966,10 @@ export default function Recetas() {
                   val: `${form.ingredientes.length} ${pluralizeIng} · ${form.porciones} porc.`,
                   icon: form.salidaACarta ? <Utensils size={22} /> : <ChefHat size={22} />,
                   onClick: () => {
-                    // Nodo activo — scroll al precio de carta dentro del form.
+                    // Nodo activo — scroll al precio de carta del form actual.
                     refPrecio.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                   },
-                  hint: 'Ir al precio'
+                  hint: 'Estás aquí · scroll al precio'
                 },
               ];
               const active = 3;
@@ -1020,10 +1021,11 @@ export default function Recetas() {
             })()}
           </div>
 
-          {/* ── RECIPE TOP — grid 1.35fr/1fr en desktop, apilado en mobile.
-              Plato card a la izquierda + Precio card a la derecha como el
-              mockup var-c2-receta. */}
-          <div className="grid grid-cols-1 lg:grid-cols-[1.35fr_1fr] gap-3">
+          {/* ── RECIPE TOP — grid 1.35fr/1fr en desktop (md+ ≈768px),
+              apilado en mobile. Plato card izq + Precio card der como mockup
+              var-c2-receta. Breakpoint md (no lg) porque el DrawerModal
+              "2xl" mide 1152px y a partir de tablet ya cabe en 2 cols. */}
+          <div className="grid grid-cols-1 md:grid-cols-[1.35fr_1fr] gap-3 items-start">
 
           {/* ── PLATO CARD — imita el mockup var-c2-receta: foto + chips + nombre
               gigante editable + subtitulo + datos compactos. Consolida Hero

@@ -8,7 +8,7 @@ interface DrawerModalProps {
   onClose: () => void;
   title: string;
   children: ReactNode;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
 }
 
 const SIZE_MAP: Record<string, string> = {
@@ -16,6 +16,9 @@ const SIZE_MAP: Record<string, string> = {
   md: 'max-w-lg',
   lg: 'max-w-2xl',
   xl: 'max-w-4xl',
+  // 2xl ≈ 1280px — necesario para que el grid 2-cols del form de Recetas/
+  // Elaboraciones (plato-card + precio-card lado a lado) tenga aire real.
+  '2xl': 'max-w-6xl',
 };
 
 export default function DrawerModal({ open, onClose, title, children, size = 'md' }: DrawerModalProps) {

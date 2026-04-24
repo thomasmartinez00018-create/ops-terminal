@@ -7,7 +7,7 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   children: ReactNode;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
 }
 
 const SIZE_MAP: Record<string, string> = {
@@ -15,6 +15,9 @@ const SIZE_MAP: Record<string, string> = {
   md: 'max-w-lg',
   lg: 'max-w-2xl',
   xl: 'max-w-4xl',
+  // 2xl ≈ 1280px — necesario para los forms con grid 2-cols (plato-card +
+  // precio-card). El xl (896px) no alcanza para el breakpoint md de Tailwind.
+  '2xl': 'max-w-6xl',
 };
 
 export default function Modal({ open, onClose, title, children, size = 'md' }: ModalProps) {

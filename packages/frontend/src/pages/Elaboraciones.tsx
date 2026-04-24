@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -50,6 +51,8 @@ const emptyForm = {
 };
 
 export default function Elaboraciones() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const { addToast } = useToast();
 
@@ -67,7 +70,11 @@ export default function Elaboraciones() {
   // vea qué cantidad limpia queda efectivamente.
   const [splits, setSplits] = useState({ merma: '' as string | number, reuti: '' as string | number, desecho: '' as string | number });
   const [loadingList, setLoadingList] = useState(true);
-  const [tab, setTab] = useState<'elaboracion' | 'porcionado'>('elaboracion');
+  // Tab inicial: respeta location.state.tab cuando se navega desde Recetas
+  // (los nodos del Flow Hero "Porción" hacen `navigate('/elaboraciones',
+  // { state: { tab: 'porcionado' } })`).
+  const initialTab = (location.state as any)?.tab === 'porcionado' ? 'porcionado' : 'elaboracion';
+  const [tab, setTab] = useState<'elaboracion' | 'porcionado'>(initialTab);
 
   // ── Porcionado state ──
   const [porcionados, setPorcionados] = useState<any[]>([]);
@@ -519,6 +526,7 @@ export default function Elaboraciones() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         title="Registrar elaboración"
+        size="2xl"
       >
         {(() => {
           // ── Cálculos en vivo ─────────────────────────────────────────────
@@ -555,33 +563,44 @@ export default function Elaboraciones() {
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
-                { lbl: 'Bruto',     sub: brutoProd?.nombre || 'Producto bruto', val: entrada > 0 ? `${fmtNum(entrada)} ${unidad}` : '—', icon: <Package size={22}/>, state: 'done' as const },
-                { lbl: 'Elaborado', sub: 'Limpio',                              val: limpio > 0 ? `${fmtNum(limpio)} ${unidad} · ${rend.toFixed(0)}%` : 'En edición', icon: <Flame size={22}/>, state: 'active' as const },
-                { lbl: 'Porción',   sub: 'Pendiente',                           val: '—', icon: <Scissors size={22}/>, state: 'idle' as const },
-                { lbl: 'Receta',    sub: 'Pendiente',                           val: '—', icon: <Utensils size={22}/>, state: 'idle' as const },
+                { lbl: 'Bruto',     sub: brutoProd?.nombre || 'Producto bruto', val: entrada > 0 ? `${fmtNum(entrada)} ${unidad}` : '—', icon: <Package size={22}/>, state: 'done' as const,
+                  onClick: () => { setModalOpen(false); navigate('/productos'); }, hint: 'Ir a Productos' },
+                { lbl: 'Elaborado', sub: 'Limpio',                              val: limpio > 0 ? `${fmtNum(limpio)} ${unidad} · ${rend.toFixed(0)}%` : 'En edición', icon: <Flame size={22}/>, state: 'active' as const,
+                  onClick: () => { /* ya estás aquí */ }, hint: 'Estás aquí' },
+                { lbl: 'Porción',   sub: 'Continuar a porcionado',              val: '—', icon: <Scissors size={22}/>, state: 'idle' as const,
+                  onClick: () => { setModalOpen(false); setTab('porcionado'); }, hint: 'Ir a Porcionado' },
+                { lbl: 'Receta',    sub: 'Crear plato',                          val: '—', icon: <Utensils size={22}/>, state: 'idle' as const,
+                  onClick: () => { setModalOpen(false); navigate('/recetas'); }, hint: 'Ir a Recetas' },
               ].map((n, i) => (
-                <div key={i}
-                  className={`rounded-xl border p-3 text-left transition-all ${
-                    n.state === 'active' ? 'bg-primary/10 border-primary/50'
-                    : n.state === 'done' ? 'bg-primary/5 border-primary/20'
-                    : 'bg-surface border-border/60'
+                <button
+                  key={i}
+                  type="button"
+                  onClick={n.onClick}
+                  title={n.hint}
+                  className={`group rounded-xl border p-3 text-left transition-all active:scale-[0.98] cursor-pointer ${
+                    n.state === 'active' ? 'bg-primary/10 border-primary/50 hover:bg-primary/15'
+                    : n.state === 'done' ? 'bg-primary/5 border-primary/20 hover:bg-primary/10 hover:border-primary/40'
+                    : 'bg-surface border-border/60 hover:border-primary/30 hover:bg-surface-high/50'
                   }`}
                 >
-                  <div className={`w-10 h-10 rounded-lg border flex items-center justify-center mb-2 ${
+                  <div className={`w-10 h-10 rounded-lg border flex items-center justify-center mb-2 transition-colors ${
                     n.state === 'active' ? 'bg-primary/20 border-primary text-primary'
-                    : n.state === 'done' ? 'bg-primary/10 border-primary/40 text-primary/80'
-                    : 'bg-surface-high border-border/60 text-on-surface-variant'
+                    : n.state === 'done' ? 'bg-primary/10 border-primary/40 text-primary/80 group-hover:text-primary'
+                    : 'bg-surface-high border-border/60 text-on-surface-variant group-hover:border-primary/40 group-hover:text-primary'
                   }`}>{n.icon}</div>
                   <p className={`text-[9px] font-bold uppercase tracking-[0.15em] ${n.state === 'active' ? 'text-primary' : 'text-on-surface-variant'}`}>
                     {n.lbl}
                   </p>
-                  <p className={`text-xs font-semibold mt-0.5 truncate ${n.state === 'active' ? 'text-foreground' : 'text-on-surface-variant'}`}>
+                  <p className={`text-xs font-semibold mt-0.5 truncate ${n.state === 'active' ? 'text-foreground' : 'text-on-surface-variant group-hover:text-foreground'}`}>
                     {n.sub}
                   </p>
                   <p className={`text-[10px] mt-1 tabular-nums ${n.state === 'active' ? 'text-primary/80' : 'text-on-surface-variant/70'}`}>
                     {n.val}
                   </p>
-                </div>
+                  <p className="text-[9px] mt-1 text-primary/0 group-hover:text-primary/70 transition-colors italic">
+                    → {n.hint}
+                  </p>
+                </button>
               ))}
             </div>
           </div>
@@ -612,7 +631,7 @@ export default function Elaboraciones() {
           </details>
 
           {/* ── RECIPE TOP — plato-card + precio-card en grid 1.2fr/1fr. */}
-          <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-[1.2fr_1fr] gap-3 items-start">
 
             {/* ──── PLATO CARD (producto bruto) ──── */}
             <div className="rounded-xl border border-border bg-surface p-4 grid grid-cols-[110px_1fr] sm:grid-cols-[140px_1fr] gap-4">
@@ -971,7 +990,7 @@ export default function Elaboraciones() {
           a porcionar + KPIs Rendimiento/Costo) → Tamaño porción (slider +
           presets) → Resultado (grilla visual + result-row) → Sticky foot.
           ═══════════════════════════════════════════════════════════════════ */}
-      <Modal open={porcionadoOpen} onClose={() => setPorcionadoOpen(false)} title="Registrar porcionado">
+      <Modal open={porcionadoOpen} onClose={() => setPorcionadoOpen(false)} title="Registrar porcionado" size="2xl">
         {(() => {
           // ── Cálculos en vivo ─────────────────────────────────────────────
           const principal = porcForm.items[0];
@@ -1004,33 +1023,42 @@ export default function Elaboraciones() {
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
-                { lbl: 'Bruto',     sub: 'Producto bruto',                       val: '—',                                                                                  icon: <Package size={22}/>,  state: 'done' as const },
-                { lbl: 'Elaborado', sub: origenProd?.nombre || 'Producto limpio', val: total > 0 ? `${fmtN(total)} ${unidad}` : '—',                                          icon: <Flame size={22}/>,    state: 'done' as const },
-                { lbl: 'Porción',   sub: peso > 0 ? `Porción ${(peso*1000).toFixed(0)}g` : 'Configurando',                            val: porciones > 0 ? `${porciones} u · ${rend.toFixed(0)}%` : 'En edición', icon: <Scissors size={22}/>, state: 'active' as const },
-                { lbl: 'Receta',    sub: 'Pendiente',                            val: '—',                                                                                  icon: <Utensils size={22}/>, state: 'idle' as const },
+                { lbl: 'Bruto',     sub: 'Producto bruto',                                                  val: '—',                                                                  icon: <Package size={22}/>,  state: 'done' as const,
+                  onClick: () => { setPorcionadoOpen(false); navigate('/productos'); }, hint: 'Ir a Productos' },
+                { lbl: 'Elaborado', sub: origenProd?.nombre || 'Producto limpio',                           val: total > 0 ? `${fmtN(total)} ${unidad}` : '—',                          icon: <Flame size={22}/>,    state: 'done' as const,
+                  onClick: () => { setPorcionadoOpen(false); setTab('elaboracion'); }, hint: 'Ir a Elaboración' },
+                { lbl: 'Porción',   sub: peso > 0 ? `Porción ${(peso*1000).toFixed(0)}g` : 'Configurando',  val: porciones > 0 ? `${porciones} u · ${rend.toFixed(0)}%` : 'En edición', icon: <Scissors size={22}/>, state: 'active' as const,
+                  onClick: () => { /* ya estás aquí */ }, hint: 'Estás aquí' },
+                { lbl: 'Receta',    sub: 'Crear plato',                                                     val: '—',                                                                  icon: <Utensils size={22}/>, state: 'idle' as const,
+                  onClick: () => { setPorcionadoOpen(false); navigate('/recetas'); }, hint: 'Ir a Recetas' },
               ].map((n, i) => (
-                <div key={i}
-                  className={`rounded-xl border p-3 text-left transition-all ${
-                    n.state === 'active' ? 'bg-primary/10 border-primary/50'
-                    : n.state === 'done' ? 'bg-primary/5 border-primary/20'
-                    : 'bg-surface border-border/60'
+                <button
+                  key={i}
+                  type="button"
+                  onClick={n.onClick}
+                  title={n.hint}
+                  className={`group rounded-xl border p-3 text-left transition-all active:scale-[0.98] cursor-pointer ${
+                    n.state === 'active' ? 'bg-primary/10 border-primary/50 hover:bg-primary/15'
+                    : n.state === 'done' ? 'bg-primary/5 border-primary/20 hover:bg-primary/10 hover:border-primary/40'
+                    : 'bg-surface border-border/60 hover:border-primary/30 hover:bg-surface-high/50'
                   }`}
                 >
-                  <div className={`w-10 h-10 rounded-lg border flex items-center justify-center mb-2 ${
+                  <div className={`w-10 h-10 rounded-lg border flex items-center justify-center mb-2 transition-colors ${
                     n.state === 'active' ? 'bg-primary/20 border-primary text-primary'
-                    : n.state === 'done' ? 'bg-primary/10 border-primary/40 text-primary/80'
-                    : 'bg-surface-high border-border/60 text-on-surface-variant'
+                    : n.state === 'done' ? 'bg-primary/10 border-primary/40 text-primary/80 group-hover:text-primary'
+                    : 'bg-surface-high border-border/60 text-on-surface-variant group-hover:border-primary/40 group-hover:text-primary'
                   }`}>{n.icon}</div>
                   <p className={`text-[9px] font-bold uppercase tracking-[0.15em] ${n.state === 'active' ? 'text-primary' : 'text-on-surface-variant'}`}>{n.lbl}</p>
-                  <p className={`text-xs font-semibold mt-0.5 truncate ${n.state === 'active' ? 'text-foreground' : 'text-on-surface-variant'}`}>{n.sub}</p>
+                  <p className={`text-xs font-semibold mt-0.5 truncate ${n.state === 'active' ? 'text-foreground' : 'text-on-surface-variant group-hover:text-foreground'}`}>{n.sub}</p>
                   <p className={`text-[10px] mt-1 tabular-nums ${n.state === 'active' ? 'text-primary/80' : 'text-on-surface-variant/70'}`}>{n.val}</p>
-                </div>
+                  <p className="text-[9px] mt-1 text-primary/0 group-hover:text-primary/70 transition-colors italic">→ {n.hint}</p>
+                </button>
               ))}
             </div>
           </div>
 
           {/* ── RECIPE TOP — plato-card (limpio) + precio-card (a porcionar) ── */}
-          <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-[1.2fr_1fr] gap-3 items-start">
 
             {/* Plato card del producto LIMPIO de origen */}
             <div className="rounded-xl border border-border bg-surface p-4 grid grid-cols-[110px_1fr] sm:grid-cols-[140px_1fr] gap-4">
