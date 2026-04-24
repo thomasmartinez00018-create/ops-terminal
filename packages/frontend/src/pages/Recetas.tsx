@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import PageTour from '../components/PageTour';
 import { api } from '../lib/api';
 import Button from '../components/ui/Button';
@@ -298,6 +298,14 @@ async function comprimirImagen(file: File, maxDim = 800, quality = 0.75): Promis
 export default function Recetas() {
   const { addToast } = useToast();
   const { confirm, dialogProps } = useConfirm();
+
+  // Refs para que los nodos del Flow Hero scrolleen a la sección correcta
+  // dentro del form al tocarlos. Cada nodo salta a una parte relevante del
+  // proceso mental del chef: Bruto = datos básicos, Porción = ingredientes,
+  // Receta = precio + KPIs.
+  const refPlato = useRef<HTMLDivElement>(null);
+  const refIngredientes = useRef<HTMLDivElement>(null);
+  const refPrecio = useRef<HTMLDivElement>(null);
   const [recetas, setRecetas] = useState<any[]>([]);
   const [productos, setProductos] = useState<any[]>([]);
   // Circuito: IDs de productos que son "porción" (output de porcionado) o
@@ -903,11 +911,65 @@ export default function Recetas() {
             </div>
             {(() => {
               const pluralizeIng = form.ingredientes.length === 1 ? 'ingrediente' : 'ingredientes';
+              // Cada nodo tiene acción REAL al clickear:
+              //   - Bruto/Elaborado/Porción = abren el módulo correspondiente
+              //     (Elaboraciones tiene tabs elaboración y porcionado).
+              //     Guardan antes de navegar si hay cambios sin guardar.
+              //   - Receta (el nodo activo) = scroll al precio dentro del form.
               const nodes = [
-                { idx: 0, lbl: 'Bruto', sub: 'Ingreso del insumo', val: 'Stock / Compras', icon: <Package size={22} /> },
-                { idx: 1, lbl: 'Elaborado', sub: 'Producto limpio', val: tiposCircuito.elaborado.size > 0 ? `${tiposCircuito.elaborado.size} disponibles` : 'Opcional', icon: <Flame size={22} /> },
-                { idx: 2, lbl: 'Porción', sub: 'Listo para usar', val: tiposCircuito.porcion.size > 0 ? `${tiposCircuito.porcion.size} disponibles` : 'Opcional', icon: <Scissors size={22} /> },
-                { idx: 3, lbl: form.salidaACarta ? 'Plato carta' : 'Receta', sub: form.nombre || 'Nuevo plato', val: `${form.ingredientes.length} ${pluralizeIng} · ${form.porciones} porc.`, icon: form.salidaACarta ? <Utensils size={22} /> : <ChefHat size={22} /> },
+                {
+                  idx: 0,
+                  lbl: 'Bruto',
+                  sub: 'Ingreso del insumo',
+                  val: 'Stock / Compras',
+                  icon: <Package size={22} />,
+                  onClick: () => {
+                    // Los brutos aparecen como ingredientes sin badge (ni PP
+                    // ni PE). Scroll a ingredientes para que el chef los vea.
+                    refIngredientes.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  },
+                  hint: 'Ver ingredientes'
+                },
+                {
+                  idx: 1,
+                  lbl: 'Elaborado',
+                  sub: 'Producto limpio',
+                  val: tiposCircuito.elaborado.size > 0 ? `${tiposCircuito.elaborado.size} disponibles` : 'Opcional',
+                  icon: <Flame size={22} />,
+                  onClick: () => {
+                    // Scroll a ingredientes — ahí el chef elige entre productos
+                    // elaborados (badge PE naranja). Si necesita crear uno nuevo,
+                    // el link al módulo de Elaboraciones queda accesible desde
+                    // la pestaña real de la app. Más útil que cerrar el modal.
+                    refIngredientes.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  },
+                  hint: 'Ver elaborados'
+                },
+                {
+                  idx: 2,
+                  lbl: 'Porción',
+                  sub: 'Listo para usar',
+                  val: tiposCircuito.porcion.size > 0 ? `${tiposCircuito.porcion.size} disponibles` : 'Opcional',
+                  icon: <Scissors size={22} />,
+                  onClick: () => {
+                    // Scroll a ingredientes — ahí están los productos porción
+                    // con badge PP violeta.
+                    refIngredientes.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  },
+                  hint: 'Ver porciones'
+                },
+                {
+                  idx: 3,
+                  lbl: form.salidaACarta ? 'Plato carta' : 'Receta',
+                  sub: form.nombre || 'Nuevo plato',
+                  val: `${form.ingredientes.length} ${pluralizeIng} · ${form.porciones} porc.`,
+                  icon: form.salidaACarta ? <Utensils size={22} /> : <ChefHat size={22} />,
+                  onClick: () => {
+                    // Nodo activo — scroll al precio de carta dentro del form.
+                    refPrecio.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  },
+                  hint: 'Ir al precio'
+                },
               ];
               const active = 3;
               return (
@@ -919,31 +981,36 @@ export default function Recetas() {
                       <button
                         key={n.idx}
                         type="button"
-                        className={`group rounded-xl border p-3 text-left transition-all active:scale-[0.98] ${
+                        onClick={n.onClick}
+                        title={n.hint}
+                        className={`group rounded-xl border p-3 text-left transition-all active:scale-[0.98] cursor-pointer ${
                           isActive
-                            ? 'bg-primary/10 border-primary/50 shadow-[0_0_0_1px_var(--color-primary)]/20'
+                            ? 'bg-primary/10 border-primary/50 shadow-[0_0_0_1px_var(--color-primary)]/20 hover:bg-primary/15'
                             : isDone
                               ? 'bg-primary/5 border-primary/20 hover:bg-primary/10 hover:border-primary/40'
-                              : 'bg-surface border-border/60 hover:border-border'
+                              : 'bg-surface border-border/60 hover:border-primary/30 hover:bg-surface-high/50'
                         }`}
                       >
                         <div className={`w-10 h-10 rounded-lg border flex items-center justify-center mb-2 transition-colors ${
                           isActive
                             ? 'bg-primary/20 border-primary text-primary'
                             : isDone
-                              ? 'bg-primary/10 border-primary/40 text-primary/80'
-                              : 'bg-surface-high border-border/60 text-on-surface-variant group-hover:border-primary/30 group-hover:text-primary'
+                              ? 'bg-primary/10 border-primary/40 text-primary/80 group-hover:text-primary'
+                              : 'bg-surface-high border-border/60 text-on-surface-variant group-hover:border-primary/40 group-hover:text-primary'
                         }`}>
                           {n.icon}
                         </div>
                         <p className={`text-[9px] font-bold uppercase tracking-[0.15em] ${isActive ? 'text-primary' : 'text-on-surface-variant'}`}>
                           {n.lbl}
                         </p>
-                        <p className={`text-xs font-semibold mt-0.5 truncate ${isActive ? 'text-foreground' : 'text-on-surface-variant'}`}>
+                        <p className={`text-xs font-semibold mt-0.5 truncate ${isActive ? 'text-foreground' : 'text-on-surface-variant group-hover:text-foreground'}`}>
                           {n.sub}
                         </p>
                         <p className={`text-[10px] mt-1 tabular-nums ${isActive ? 'text-primary/80' : 'text-on-surface-variant/70'}`}>
                           {n.val}
+                        </p>
+                        <p className="text-[9px] mt-1 text-primary/0 group-hover:text-primary/70 transition-colors italic">
+                          → {n.hint}
                         </p>
                       </button>
                     );
@@ -953,148 +1020,182 @@ export default function Recetas() {
             })()}
           </div>
 
-          {/* Hero del costo — SIEMPRE visible, es la razón de ser de esta pantalla */}
-          <div className="rounded-xl bg-gradient-to-br from-primary/15 to-primary/5 border border-primary/30 p-4">
-            <div className="flex items-baseline justify-between gap-3">
-              <div>
-                <p className="text-[10px] font-bold text-primary uppercase tracking-widest">Costo por porción</p>
-                <p className="font-mono text-3xl sm:text-4xl font-extrabold text-primary tabular-nums leading-tight">
-                  {costoPorPorcion > 0 ? fmtMoney(costoPorPorcion) : '$0'}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Total receta</p>
-                <p className="font-mono text-lg font-bold text-foreground tabular-nums">
-                  {fmtMoney(costoTotal)}
-                </p>
-                <p className="text-[10px] text-on-surface-variant mt-0.5">
-                  {form.porciones} porción{form.porciones === 1 ? '' : 'es'} · {form.ingredientes.length} ingrediente{form.ingredientes.length === 1 ? '' : 's'}
-                </p>
-              </div>
-            </div>
-
-            {/* KPIs profesionales — Food Cost / Margen / Mark Up.
-                Sólo aparecen cuando hay precio de venta cargado. Son el estándar
-                gastronómico internacional: con estos 3 números el chef entiende
-                exactamente la salud del plato. Diseño inspirado en el mockup del
-                cliente: 3 celdas en grid con color según si pasa el objetivo. */}
-            {form.precioVenta !== '' && Number(form.precioVenta) > 0 && costoPorPorcion > 0 && (() => {
-              const precio = Number(form.precioVenta);
-              const foodCost = (costoPorPorcion / precio) * 100;
-              const margen = 100 - foodCost;
-              const markUp = costoPorPorcion > 0 ? (precio / costoPorPorcion) * 100 : 0;
-              const objetivo = Number(form.margenObjetivo) || 70;
-              const margenOk = margen >= objetivo;
-              const margenAlerta = margen >= objetivo - 10;
-              const kpiCls = (ok: boolean, alerta: boolean) => ok
-                ? 'bg-success/10 text-success border-success/30'
-                : alerta ? 'bg-amber-500/10 text-amber-500 border-amber-500/30'
-                : 'bg-destructive/10 text-destructive border-destructive/30';
-              return (
-                <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-primary/20">
-                  <div className={`rounded-lg border px-2 py-2 text-center ${kpiCls(margenOk, margenAlerta)}`}>
-                    <p className="text-[9px] font-bold uppercase tracking-wider opacity-80">Food cost</p>
-                    <p className="font-mono text-lg font-extrabold tabular-nums">{foodCost.toFixed(1)}%</p>
-                  </div>
-                  <div className={`rounded-lg border px-2 py-2 text-center ${kpiCls(margenOk, margenAlerta)}`}>
-                    <p className="text-[9px] font-bold uppercase tracking-wider opacity-80">Margen</p>
-                    <p className="font-mono text-lg font-extrabold tabular-nums">{margen.toFixed(1)}%</p>
-                  </div>
-                  <div className={`rounded-lg border px-2 py-2 text-center ${kpiCls(margenOk, margenAlerta)}`}>
-                    <p className="text-[9px] font-bold uppercase tracking-wider opacity-80">Mark up</p>
-                    <p className="font-mono text-lg font-extrabold tabular-nums">{markUp.toFixed(0)}%</p>
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-
-          {/* ── Salida a carta — 2 cards radio grandes, como mockup profesional.
-              Estilo más claro y directo que el switch: el chef ve las 2 opciones
-              lado a lado y elige con un tap. La card activa queda resaltada con
-              color e ícono de check. */}
-          <div>
-            <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-[0.15em] mb-2">
-              Salida a carta
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { val: true, label: 'Activa', desc: 'Plato de carta', icon: <Utensils size={16} />, cls: 'emerald' },
-                { val: false, label: 'Inactiva', desc: 'Preparación interna', icon: <ChefHat size={16} />, cls: 'zinc' },
-              ].map(opt => {
-                const selected = form.salidaACarta === opt.val;
-                const colorCls = opt.cls === 'emerald'
-                  ? (selected ? 'bg-emerald-500/15 border-emerald-500 text-emerald-400' : 'bg-surface-high/30 border-border/60 text-on-surface-variant hover:border-emerald-500/30')
-                  : (selected ? 'bg-primary/10 border-primary text-primary' : 'bg-surface-high/30 border-border/60 text-on-surface-variant hover:border-border');
-                return (
+          {/* ── PLATO CARD — imita el mockup var-c2-receta: foto + chips + nombre
+              gigante editable + subtitulo + datos compactos. Consolida Hero
+              del costo, "Salida a carta" radio cards, y los inputs sueltos de
+              código/porciones/nombre/categoría/sector en un solo bloque
+              visual coherente. Los KPIs Food cost/Margen/Mark up ahora viven
+              dentro del Precio Card (más abajo), evitando duplicación. */}
+          <div ref={refPlato} className="rounded-xl border border-border bg-surface p-4 grid grid-cols-[110px_1fr] sm:grid-cols-[160px_1fr] gap-4 hover:border-border/80 transition-colors">
+            {/* Foto cuadrada con placeholder o imagen. Label hace el input
+                invisible clickeable. Botones edit + quitar aparecen al hover. */}
+            <label className="relative aspect-square rounded-lg border border-border/60 overflow-hidden cursor-pointer group"
+              style={{ background: 'radial-gradient(circle at 30% 30%, rgba(212,175,55,.14), transparent 60%), linear-gradient(135deg, #1A1714, #0F0D0A)' }}
+            >
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={async e => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    const compressed = await comprimirImagen(file, 800, 0.75);
+                    if (compressed.length > 500_000) {
+                      addToast('La imagen es muy grande. Probá con otra más chica.', 'error');
+                      return;
+                    }
+                    setForm(f => ({ ...f, imagenBase64: compressed }));
+                  } catch {
+                    addToast('No pudimos procesar la imagen', 'error');
+                  }
+                }}
+              />
+              {form.imagenBase64 ? (
+                <>
+                  <img src={form.imagenBase64} alt="Plato" className="w-full h-full object-cover" />
                   <button
-                    key={String(opt.val)}
                     type="button"
-                    onClick={() => setForm({ ...form, salidaACarta: opt.val })}
-                    className={`rounded-xl border-2 p-3 flex items-start gap-2.5 transition-all active:scale-[0.98] text-left ${colorCls}`}
+                    onClick={e => { e.preventDefault(); setForm(f => ({ ...f, imagenBase64: '' })); }}
+                    className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-background/80 border border-border text-on-surface-variant hover:text-destructive hover:border-destructive opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                    title="Quitar foto"
                   >
-                    <div className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center mt-0.5 ${
-                      selected ? (opt.cls === 'emerald' ? 'border-emerald-500 bg-emerald-500' : 'border-primary bg-primary') : 'border-current'
-                    }`}>
-                      {selected && <svg className="w-3 h-3 text-background" viewBox="0 0 12 12" fill="none"><path d="M2 6L5 9L10 3" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        {opt.icon}
-                        <span className="text-sm font-extrabold">{opt.label}</span>
-                      </div>
-                      <p className={`text-[11px] mt-0.5 leading-snug ${selected ? '' : 'text-on-surface-variant'}`}>
-                        {opt.desc}
-                      </p>
-                    </div>
+                    <X size={13} />
                   </button>
-                );
-              })}
-            </div>
-          </div>
+                </>
+              ) : (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-on-surface-variant/60 group-hover:text-primary transition-colors">
+                  <ChefHat size={26} />
+                  <span className="text-[9px] font-bold uppercase tracking-[0.15em] text-center px-2">Foto del plato</span>
+                </div>
+              )}
+            </label>
 
-          {/* Datos básicos */}
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Código"
-              id="codigo"
-              value={form.codigo}
-              onChange={e => setForm({ ...form, codigo: e.target.value })}
-              placeholder="REC-001"
-            />
-            <Input
-              label="Porciones"
-              id="porciones"
-              type="number"
-              inputMode="numeric"
-              min={1}
-              value={form.porciones}
-              onChange={e => setForm({ ...form, porciones: Number(e.target.value) || 1 })}
-            />
-          </div>
-          <Input
-            label="Nombre"
-            id="nombre"
-            value={form.nombre}
-            onChange={e => setForm({ ...form, nombre: e.target.value })}
-            placeholder="Ej: Pizza napolitana, Milanesa con puré…"
-          />
-          <div className="grid grid-cols-2 gap-3">
-            <Select
-              label="Categoría"
-              id="categoria"
-              value={form.categoria}
-              onChange={e => setForm({ ...form, categoria: e.target.value })}
-              options={CATEGORIAS}
-              placeholder="Elegir…"
-            />
-            <Select
-              label="Sector"
-              id="sector"
-              value={form.sector}
-              onChange={e => setForm({ ...form, sector: e.target.value })}
-              options={SECTORES}
-            />
+            {/* Info del plato */}
+            <div className="flex flex-col gap-2 justify-center min-w-0">
+              {/* Chips de metadata: rubro/categoría (gold), toggle salida-a-carta, código */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {form.categoria && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/30 text-primary text-[10px] font-bold uppercase tracking-wider">
+                    {CATEGORIAS.find(c => c.value === form.categoria)?.label || form.categoria}
+                  </span>
+                )}
+                {/* Toggle chip "Activa en carta" reemplaza los 2 radio cards grandes.
+                    Un tap cambia el estado — está en el plato-card porque
+                    conceptualmente es metadata del plato. */}
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, salidaACarta: !form.salidaACarta })}
+                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                    form.salidaACarta
+                      ? 'bg-success/10 border-success/40 text-success'
+                      : 'bg-surface-high border-border text-on-surface-variant hover:border-success/30'
+                  }`}
+                  title={form.salidaACarta ? 'Sale al menú del cliente' : 'Preparación interna (no sale a carta)'}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${form.salidaACarta ? 'bg-success' : 'bg-on-surface-variant/40'}`}
+                    style={form.salidaACarta ? { boxShadow: '0 0 6px var(--color-success)' } : undefined}
+                  />
+                  {form.salidaACarta ? 'Activa en carta' : 'Inactiva'}
+                </button>
+                {form.codigo && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-transparent border border-border text-on-surface-variant text-[10px] font-mono font-bold">
+                    {form.codigo}
+                  </span>
+                )}
+              </div>
+
+              {/* Nombre editable gigante — como `plato-name` del mockup (30px) */}
+              <input
+                type="text"
+                placeholder="Nombre del plato..."
+                value={form.nombre}
+                onChange={e => setForm({ ...form, nombre: e.target.value })}
+                className="w-full bg-transparent border-0 outline-none text-2xl sm:text-3xl font-semibold text-foreground placeholder:text-on-surface-variant/40 tracking-tight leading-tight -ml-0.5"
+              />
+
+              {/* Subtitulo: sector · porciones · tiempo (estilo mockup) */}
+              <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-xs text-on-surface-variant">
+                {form.sector && (
+                  <>
+                    <span className="flex items-center gap-1">
+                      <Flame size={10} className="text-primary" />
+                      <span>{SECTORES.find(s => s.value === form.sector)?.label || form.sector}</span>
+                    </span>
+                    <span className="w-1 h-1 rounded-full bg-on-surface-variant/40"></span>
+                  </>
+                )}
+                <span>
+                  Rinde <b className="text-foreground font-semibold">{form.porciones} {form.porciones === 1 ? 'porción' : 'porciones'}</b>
+                </span>
+                {form.tiempoPreparacion && Number(form.tiempoPreparacion) > 0 && (
+                  <>
+                    <span className="w-1 h-1 rounded-full bg-on-surface-variant/40"></span>
+                    <span>
+                      <b className="text-foreground font-semibold">~{form.tiempoPreparacion} min</b>
+                    </span>
+                  </>
+                )}
+                {/* Costo por porción inline — reemplaza el Hero gigante, ahora
+                    es parte del subtitulo como el mockup (plato-sub). */}
+                {costoPorPorcion > 0 && (
+                  <>
+                    <span className="w-1 h-1 rounded-full bg-on-surface-variant/40"></span>
+                    <span>
+                      Costo <b className="text-primary font-mono font-bold tabular-nums">{fmtMoney(costoPorPorcion)}/porc.</b>
+                    </span>
+                  </>
+                )}
+              </div>
+
+              {/* Campos editables compactos en grid — reemplazan los Input
+                  sueltos del layout viejo. Mantienen funcionalidad pero
+                  visualmente están integrados al plato-card. */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-1.5 pt-2 border-t border-border/30">
+                <div>
+                  <label className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.15em]">Código</label>
+                  <input
+                    type="text"
+                    placeholder="REC-001"
+                    value={form.codigo}
+                    onChange={e => setForm({ ...form, codigo: e.target.value })}
+                    className="w-full px-2 py-1 mt-0.5 rounded bg-surface-high border border-border/60 text-xs font-mono font-semibold focus:outline-none focus:border-primary/50"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.15em]">Porciones</label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    value={form.porciones}
+                    onChange={e => setForm({ ...form, porciones: Number(e.target.value) || 1 })}
+                    className="w-full px-2 py-1 mt-0.5 rounded bg-surface-high border border-border/60 text-xs font-mono font-semibold tabular-nums focus:outline-none focus:border-primary/50"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.15em]">Categoría</label>
+                  <select
+                    value={form.categoria}
+                    onChange={e => setForm({ ...form, categoria: e.target.value })}
+                    className="w-full px-2 py-1 mt-0.5 rounded bg-surface-high border border-border/60 text-xs font-semibold focus:outline-none focus:border-primary/50"
+                  >
+                    <option value="">—</option>
+                    {CATEGORIAS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.15em]">Sector</label>
+                  <select
+                    value={form.sector}
+                    onChange={e => setForm({ ...form, sector: e.target.value })}
+                    className="w-full px-2 py-1 mt-0.5 rounded bg-surface-high border border-border/60 text-xs font-semibold focus:outline-none focus:border-primary/50"
+                  >
+                    {SECTORES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Producto elaborado — solo si la receta también produce stock */}
@@ -1157,7 +1258,7 @@ export default function Recetas() {
               gold centrado, food cost / margen / mark up en vivo debajo.
               Reemplaza el antiguo <details> colapsable porque el precio
               de carta es información crítica para el chef, no opcional. */}
-          <div className="rounded-xl border border-primary/30 p-4 space-y-3"
+          <div ref={refPrecio} className="rounded-xl border border-primary/30 p-4 space-y-3"
             style={{
               background: 'radial-gradient(ellipse at 100% 0%, rgba(212,175,55,.08), transparent 60%), var(--color-surface-high)',
             }}
@@ -1389,7 +1490,7 @@ export default function Recetas() {
           </details>
 
           {/* Ingredientes — header tipo tabla + cards (mobile: vertical, desktop: horizontal) */}
-          <div>
+          <div ref={refIngredientes}>
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <ChefHat size={14} className="text-primary" />
