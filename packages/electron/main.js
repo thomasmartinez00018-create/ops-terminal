@@ -16,8 +16,8 @@ const https = require('https')
 const isDev = !app.isPackaged
 
 // URL del frontend cloud. Se puede sobreescribir con OPS_CLOUD_URL (para
-// staging / dev). Por default apunta al deploy de producción de Vercel.
-const CLOUD_URL = process.env.OPS_CLOUD_URL || 'https://ops-terminal-alpha.vercel.app'
+// staging / dev). Por default apunta al dominio oficial de producción.
+const CLOUD_URL = process.env.OPS_CLOUD_URL || 'https://www.ops-terminal.com.ar'
 
 // ── Log file (para debug en producción) ────────────────────────────────
 const logPath = path.join(app.getPath('userData'), 'ops-terminal.log')

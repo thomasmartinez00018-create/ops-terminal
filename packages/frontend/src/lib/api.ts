@@ -1,5 +1,6 @@
 // ── API base URL ────────────────────────────────────────────────────────────
-// - En prod cloud: VITE_API_URL=https://ops-terminal-backend.up.railway.app
+// - En prod cloud (www.ops-terminal.com.ar): VITE_API_URL apunta al backend
+//   en Railway (ej. https://serene-victory-production-63f9.up.railway.app)
 // - En dev local: VITE_API_URL=http://localhost:3001 (o sin setear → /api)
 // - En Electron cloud shell: VITE_API_URL baked al build time
 // Si VITE_API_URL no existe, usamos /api relativo (modo legacy single-server).

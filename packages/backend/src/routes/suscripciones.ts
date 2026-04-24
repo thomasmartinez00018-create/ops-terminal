@@ -133,8 +133,8 @@ router.post('/subscribe', async (req: Request, res: Response) => {
     }
 
     // Back URL — a dónde vuelve el user desde MP después de autorizar.
-    // Usa FRONTEND_URL env o fallback.
-    const frontend = process.env.FRONTEND_URL || 'https://ops-terminal.vercel.app';
+    // Usa FRONTEND_URL env o fallback al dominio oficial de producción.
+    const frontend = process.env.FRONTEND_URL || 'https://www.ops-terminal.com.ar';
     const backUrl = `${frontend}/suscripcion?mp_return=1`;
 
     // Fecha de inicio: hoy + 1 min (MP requiere futuro)

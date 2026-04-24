@@ -55,7 +55,8 @@ app.use(helmet({
 
 // ── CORS ────────────────────────────────────────────────────────────────────
 // ALLOWED_ORIGINS es una lista separada por comas de dominios permitidos.
-// Ej: https://ops-terminal.vercel.app,https://ops.masorganicos.com.ar
+// Producción oficial: https://www.ops-terminal.com.ar,https://ops-terminal.com.ar
+// (mantener también las URLs .vercel.app como fallback de previews).
 // En dev, sin esta var, se permite cualquier origen (para localhost + LAN).
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
   .split(',')

@@ -10,8 +10,8 @@
 ```
 ┌─────────────────┐   HTTPS    ┌──────────────────┐   HTTPS   ┌────────────────┐
 │ Electron .exe   │ ─────────▶ │ Vercel (Vite SPA)│ ────────▶ │ Railway (API)  │
-│ (thin shell)    │            │ ops-terminal     │           │ Express+Prisma │
-└─────────────────┘            │ .vercel.app      │           └───────┬────────┘
+│ (thin shell)    │            │ www.ops-terminal │           │ Express+Prisma │
+└─────────────────┘            │ .com.ar          │           └───────┬────────┘
                                 └──────────────────┘                   │
                                                                         ▼
                                                               ┌──────────────────┐
@@ -58,7 +58,7 @@ pooler incluido, backups automáticos. Sin tarjeta.
    | `DATABASE_URL` | el connection string de Neon del paso 1 |
    | `JWT_SECRET` | string random largo — generar con `openssl rand -hex 48` |
    | `NODE_ENV` | `production` |
-   | `ALLOWED_ORIGINS` | `https://ops-terminal.vercel.app` *(después del paso 3)* |
+   | `ALLOWED_ORIGINS` | `https://www.ops-terminal.com.ar,https://ops-terminal.com.ar` *(dominio oficial — agregar las URLs `.vercel.app` también si querés mantener previews)* |
    | `GEMINI_API_KEY` | tu key de Google AI Studio (para el scanner de facturas) |
    | `PORT` | Railway lo inyecta solo — no tocar |
 
@@ -94,14 +94,14 @@ pooler incluido, backups automáticos. Sin tarjeta.
    | `VITE_API_URL` | `https://ops-terminal-production.up.railway.app` (del paso 2.8) |
 
 6. **Deploy**. Primera build tarda ~2 min.
-7. Una vez verde, Vercel te asigna `https://ops-terminal.vercel.app` (o similar).
+7. Una vez verde, Vercel te asigna `https://ops-terminal-XXX.vercel.app` (o similar).
 8. **Volver a Railway** → Variables → editar `ALLOWED_ORIGINS` y poner la URL real
-   de Vercel. Redeploy automático.
-9. Abrir la URL de Vercel → tenés que ver la pantalla de login.
+   de Vercel + el dominio custom (`https://www.ops-terminal.com.ar`). Redeploy automático.
+9. Abrir la URL del dominio → tenés que ver la pantalla de login.
 
-**Dominio personalizado (opcional, gratis):** Vercel permite `ops.tudominio.com`
-sin costo si ya tenés el dominio. Si no tenés, `ops-terminal.vercel.app` es perfecto
-para empezar.
+**Dominio oficial:** `www.ops-terminal.com.ar` (vinculado en Vercel → Settings →
+Domains). El cert HTTPS lo emite Vercel automáticamente con Let's Encrypt.
+Si en algún momento agregás otro dominio, sumarlo a `ALLOWED_ORIGINS` en Railway.
 
 ---
 
@@ -135,7 +135,7 @@ backend los re-hashea con bcrypt automáticamente. Transparente.
 
 ## 5. Rebuild del instalador Electron (3 min)
 
-El nuevo `.exe` es un thin shell: apunta a `https://ops-terminal.vercel.app` por
+El nuevo `.exe` es un thin shell: apunta a `https://www.ops-terminal.com.ar` por
 default. Pesa ~80 MB (vs 350 MB de la v1.x).
 
 1. En local:
@@ -150,7 +150,7 @@ default. Pesa ~80 MB (vs 350 MB de la v1.x).
 3. ~5 min después → **Releases** del repo → descargar `OPS-Terminal-Setup-2.0.0.exe`.
 4. Instalarlo en la PC del cliente. Al abrir:
    - Splash de carga (mientras chequea conectividad)
-   - Si hay internet → carga `https://ops-terminal.vercel.app`
+   - Si hay internet → carga `https://www.ops-terminal.com.ar`
    - Si no hay internet → pantalla de error prolija con el path del log
 
 **Override de URL (staging):** se puede construir el instalador apuntando a otra URL
@@ -166,8 +166,8 @@ definiendo `OPS_CLOUD_URL` como GitHub Actions variable (Repo → Settings → V
 | Neon Postgres | Free (0.5 GB, 100h compute/mes) | $0 |
 | Vercel | Hobby (100 GB bandwidth, unlimited requests) | $0 |
 | Railway | Hobby ($5 crédito incluido) | **$5/mo** |
-| Dominio `.vercel.app` | — | $0 |
-| **Total** | | **$5 USD/mes** |
+| Dominio `ops-terminal.com.ar` | renovación anual | ~$15 USD/año |
+| **Total** | | **$5 USD/mes + dominio** |
 
 Si en algún momento el cliente crece y Neon se queda corto, pasar a Neon Scale
 ($19/mo, 10 GB) sin migración — solo upgrade en el dashboard.
@@ -215,7 +215,7 @@ toca salvo que corras una migration destructiva.
 - [ ] Neon DB creada con SSL
 - [ ] Railway deployado con todas las envs + healthcheck verde
 - [ ] Vercel deployado apuntando a Railway
-- [ ] `ALLOWED_ORIGINS` en Railway incluye la URL de Vercel
+- [ ] `ALLOWED_ORIGINS` en Railway incluye `https://www.ops-terminal.com.ar` + `https://ops-terminal.com.ar`
 - [ ] Migración de datos corrida, verificada en la UI
 - [ ] Usuario admin puede loguearse con el PIN viejo
 - [ ] Instalador v2.0.0 generado en GitHub Releases

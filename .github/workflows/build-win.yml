@@ -78,7 +78,7 @@ jobs:
           CSC_KEY_PASSWORD: ${{ env.CSC_KEY_PASSWORD }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           # La URL cloud se baked en el installer si querés override por tag.
-          # Por default main.js usa https://ops-terminal.vercel.app
+          # Por default main.js usa https://www.ops-terminal.com.ar
           OPS_CLOUD_URL: ${{ vars.OPS_CLOUD_URL }}
 
       - name: List build output
