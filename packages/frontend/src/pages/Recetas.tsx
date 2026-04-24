@@ -1020,6 +1020,11 @@ export default function Recetas() {
             })()}
           </div>
 
+          {/* ── RECIPE TOP — grid 1.35fr/1fr en desktop, apilado en mobile.
+              Plato card a la izquierda + Precio card a la derecha como el
+              mockup var-c2-receta. */}
+          <div className="grid grid-cols-1 lg:grid-cols-[1.35fr_1fr] gap-3">
+
           {/* ── PLATO CARD — imita el mockup var-c2-receta: foto + chips + nombre
               gigante editable + subtitulo + datos compactos. Consolida Hero
               del costo, "Salida a carta" radio cards, y los inputs sueltos de
@@ -1198,62 +1203,6 @@ export default function Recetas() {
             </div>
           </div>
 
-          {/* Producto elaborado — solo si la receta también produce stock */}
-          <details className="rounded-xl border border-border bg-surface-high/20 group">
-            <summary className="flex items-center gap-2 p-3 cursor-pointer list-none select-none">
-              <Package size={13} className="text-primary" />
-              <p className="text-[11px] font-bold text-on-surface-variant uppercase tracking-widest flex-1">
-                Producto elaborado <span className="normal-case font-normal">(opcional)</span>
-              </p>
-              {form.productoResultadoId && (
-                <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded">
-                  Configurado
-                </span>
-              )}
-              <ChevronDown size={14} className="text-on-surface-variant group-open:rotate-180 transition-transform" />
-            </summary>
-            <div className="p-3 pt-0 space-y-2">
-              <p className="text-[11px] text-on-surface-variant">
-                Solo si esta receta produce un producto con stock propio (ej: masa madre, caldo, salsa base).
-                Al elaborar, se consume los ingredientes y se ingresa al stock lo producido.
-              </p>
-              <SearchableSelect
-                value={form.productoResultadoId?.toString() || ''}
-                onChange={v => {
-                  const prod = productosById.get(Number(v));
-                  setForm(f => ({
-                    ...f,
-                    productoResultadoId: v ? Number(v) : null,
-                    unidadProducida: prod?.unidadUso ?? f.unidadProducida,
-                  }));
-                }}
-                options={[
-                  { value: '', label: 'Sin producto resultado' },
-                  ...productos.map(p => ({ value: p.id.toString(), label: `${p.codigo} · ${p.nombre}` })),
-                ]}
-                placeholder="Buscar producto elaborado…"
-              />
-              <div className="grid grid-cols-2 gap-2">
-                <Input
-                  label="Cantidad producida"
-                  id="cantidadProducida"
-                  type="number"
-                  inputMode="decimal"
-                  value={form.cantidadProducida}
-                  onChange={e => setForm(f => ({ ...f, cantidadProducida: e.target.value }))}
-                  placeholder="ej: 7"
-                />
-                <Input
-                  label="Unidad"
-                  id="unidadProducida"
-                  value={form.unidadProducida}
-                  onChange={e => setForm(f => ({ ...f, unidadProducida: e.target.value }))}
-                  placeholder="kg, lt, unidad…"
-                />
-              </div>
-            </div>
-          </details>
-
           {/* ── PRECIO CARD — siempre visible como el mockup, input gigante
               gold centrado, food cost / margen / mark up en vivo debajo.
               Reemplaza el antiguo <details> colapsable porque el precio
@@ -1372,6 +1321,67 @@ export default function Recetas() {
               );
             })()}
           </div>
+
+          {/* ── cierre del grid recipe-top ── */}
+          </div>
+
+          {/* Producto elaborado — solo si la receta también produce stock.
+              Movido fuera del grid recipe-top para que plato + precio queden
+              alineados side-by-side (mockup var-c2-receta). */}
+          <details className="rounded-xl border border-border bg-surface-high/20 group">
+            <summary className="flex items-center gap-2 p-3 cursor-pointer list-none select-none">
+              <Package size={13} className="text-primary" />
+              <p className="text-[11px] font-bold text-on-surface-variant uppercase tracking-widest flex-1">
+                Producto elaborado <span className="normal-case font-normal">(opcional)</span>
+              </p>
+              {form.productoResultadoId && (
+                <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded">
+                  Configurado
+                </span>
+              )}
+              <ChevronDown size={14} className="text-on-surface-variant group-open:rotate-180 transition-transform" />
+            </summary>
+            <div className="p-3 pt-0 space-y-2">
+              <p className="text-[11px] text-on-surface-variant">
+                Solo si esta receta produce un producto con stock propio (ej: masa madre, caldo, salsa base).
+                Al elaborar, se consume los ingredientes y se ingresa al stock lo producido.
+              </p>
+              <SearchableSelect
+                value={form.productoResultadoId?.toString() || ''}
+                onChange={v => {
+                  const prod = productosById.get(Number(v));
+                  setForm(f => ({
+                    ...f,
+                    productoResultadoId: v ? Number(v) : null,
+                    unidadProducida: prod?.unidadUso ?? f.unidadProducida,
+                  }));
+                }}
+                options={[
+                  { value: '', label: 'Sin producto resultado' },
+                  ...productos.map(p => ({ value: p.id.toString(), label: `${p.codigo} · ${p.nombre}` })),
+                ]}
+                placeholder="Buscar producto elaborado…"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  label="Cantidad producida"
+                  id="cantidadProducida"
+                  type="number"
+                  inputMode="decimal"
+                  value={form.cantidadProducida}
+                  onChange={e => setForm(f => ({ ...f, cantidadProducida: e.target.value }))}
+                  placeholder="ej: 7"
+                />
+                <Input
+                  label="Unidad"
+                  id="unidadProducida"
+                  value={form.unidadProducida}
+                  onChange={e => setForm(f => ({ ...f, unidadProducida: e.target.value }))}
+                  placeholder="kg, lt, unidad…"
+                />
+              </div>
+            </div>
+          </details>
 
           {/* Ficha técnica — método de preparación + foto + tiempo. Colapsado
               por default porque es opcional y no queremos saturar al usuario. */}

@@ -963,166 +963,470 @@ export default function Elaboraciones() {
           );
         })()}
       </Modal>
-      {/* Modal porcionado */}
+      {/* ═══════════════════════════════════════════════════════════════════
+          Modal porcionado — rediseñado FIELMENTE al mockup
+          "var-c2-porcionado.jsx" del bundle de Claude Design.
+          Estructura: Flow Hero → plato-card (limpio) + precio-card (Cantidad
+          a porcionar + KPIs Rendimiento/Costo) → Tamaño porción (slider +
+          presets) → Resultado (grilla visual + result-row) → Sticky foot.
+          ═══════════════════════════════════════════════════════════════════ */}
       <Modal open={porcionadoOpen} onClose={() => setPorcionadoOpen(false)} title="Registrar porcionado">
-        <div className="space-y-4">
-          <p className="text-xs text-on-surface-variant">
-            Dividí un producto elaborado (ej: masa, nalga) en sub-productos (ej: bollos, milanesas) con peso por unidad.
-          </p>
+        {(() => {
+          // ── Cálculos en vivo ─────────────────────────────────────────────
+          const principal = porcForm.items[0];
+          const origenProd = porcForm.productoOrigenId ? productos.find(p => p.id === porcForm.productoOrigenId) : null;
+          const total = Number(porcForm.cantidadOrigen) || 0;
+          const peso = Number(principal?.pesoUnidad) || 0;
+          // Porciones calculadas: floor(total/peso). Resto = sobrante.
+          const porcionesCalc = peso > 0 ? Math.floor(total / peso) : 0;
+          // Si el chef ingresó "cantidad" manualmente, usamos eso; si no, el calculado.
+          const porcionesUsuario = Number(principal?.cantidad) || 0;
+          const porciones = porcionesUsuario > 0 ? porcionesUsuario : porcionesCalc;
+          const resto = peso > 0 ? Math.max(0, total - porciones * peso) : 0;
+          const rend = total > 0 && peso > 0 ? ((porciones * peso) / total) * 100 : 0;
+          const unidad = porcForm.unidadOrigen || 'kg';
+          const fmtN = (n: number, dec = 2) => Number.isFinite(n) ? n.toLocaleString('es-AR', { maximumFractionDigits: dec }) : '—';
+          const PRESETS_KG = [0.1, 0.15, 0.2, 0.25, 0.3];
 
-          {/* Producto origen (input) */}
-          <div className="rounded-xl border border-orange-500/20 bg-orange-500/5 p-3 space-y-2">
-            <div className="flex items-center gap-2 mb-1">
-              <ArrowLeft size={14} className="text-orange-400" />
-              <p className="text-[10px] font-bold text-orange-400 uppercase tracking-widest">Producto a porcionar (entrada)</p>
+          return (
+        <div className="space-y-4">
+
+          {/* ── FLOW HERO — 4 nodos. Bruto/Elaborado done, Porción ACTIVE,
+              Receta pendiente. */}
+          <div className="rounded-xl border border-border/60 bg-surface-high/20 p-4">
+            <div className="flex items-end justify-between gap-3 mb-3">
+              <div>
+                <p className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.22em]">Circuito de producción</p>
+                <p className="text-base font-semibold text-foreground mt-0.5">Trazabilidad del porcionado</p>
+              </div>
+              <p className="text-[10px] text-on-surface-variant/70 italic">Tocá un paso para ir</p>
             </div>
-            <SearchableSelect
-              label="Producto"
-              value={porcForm.productoOrigenId?.toString() || ''}
-              onChange={v => {
-                const prod = productos.find(p => p.id === Number(v));
-                setPorcForm(f => ({ ...f, productoOrigenId: v ? Number(v) : null, unidadOrigen: prod?.unidadUso || f.unidadOrigen }));
-              }}
-              options={productos.map(p => ({ value: p.id.toString(), label: `${p.codigo} - ${p.nombre}` }))}
-              placeholder="Seleccionar producto elaborado..."
-            />
-            <div className="grid grid-cols-3 gap-2">
-              <Input
-                label="Cantidad"
-                type="number"
-                value={porcForm.cantidadOrigen}
-                onChange={e => setPorcForm(f => ({ ...f, cantidadOrigen: e.target.value }))}
-                placeholder="0"
-              />
-              <Input
-                label="Unidad"
-                value={porcForm.unidadOrigen}
-                onChange={e => setPorcForm(f => ({ ...f, unidadOrigen: e.target.value }))}
-                placeholder="kg"
-              />
-              <Select
-                label="Depósito origen"
-                value={porcForm.depositoOrigenId?.toString() || ''}
-                onChange={e => setPorcForm(f => ({ ...f, depositoOrigenId: e.target.value ? Number(e.target.value) : null }))}
-                options={depositos.map(d => ({ value: d.id.toString(), label: d.nombre }))}
-                placeholder="Sin asignar"
-              />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {[
+                { lbl: 'Bruto',     sub: 'Producto bruto',                       val: '—',                                                                                  icon: <Package size={22}/>,  state: 'done' as const },
+                { lbl: 'Elaborado', sub: origenProd?.nombre || 'Producto limpio', val: total > 0 ? `${fmtN(total)} ${unidad}` : '—',                                          icon: <Flame size={22}/>,    state: 'done' as const },
+                { lbl: 'Porción',   sub: peso > 0 ? `Porción ${(peso*1000).toFixed(0)}g` : 'Configurando',                            val: porciones > 0 ? `${porciones} u · ${rend.toFixed(0)}%` : 'En edición', icon: <Scissors size={22}/>, state: 'active' as const },
+                { lbl: 'Receta',    sub: 'Pendiente',                            val: '—',                                                                                  icon: <Utensils size={22}/>, state: 'idle' as const },
+              ].map((n, i) => (
+                <div key={i}
+                  className={`rounded-xl border p-3 text-left transition-all ${
+                    n.state === 'active' ? 'bg-primary/10 border-primary/50'
+                    : n.state === 'done' ? 'bg-primary/5 border-primary/20'
+                    : 'bg-surface border-border/60'
+                  }`}
+                >
+                  <div className={`w-10 h-10 rounded-lg border flex items-center justify-center mb-2 ${
+                    n.state === 'active' ? 'bg-primary/20 border-primary text-primary'
+                    : n.state === 'done' ? 'bg-primary/10 border-primary/40 text-primary/80'
+                    : 'bg-surface-high border-border/60 text-on-surface-variant'
+                  }`}>{n.icon}</div>
+                  <p className={`text-[9px] font-bold uppercase tracking-[0.15em] ${n.state === 'active' ? 'text-primary' : 'text-on-surface-variant'}`}>{n.lbl}</p>
+                  <p className={`text-xs font-semibold mt-0.5 truncate ${n.state === 'active' ? 'text-foreground' : 'text-on-surface-variant'}`}>{n.sub}</p>
+                  <p className={`text-[10px] mt-1 tabular-nums ${n.state === 'active' ? 'text-primary/80' : 'text-on-surface-variant/70'}`}>{n.val}</p>
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* Sub-productos (output) */}
-          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 space-y-2">
-            <div className="flex items-center justify-between mb-1">
-              <div className="flex items-center gap-2">
-                <ArrowRight size={14} className="text-emerald-400" />
-                <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Sub-productos que salen</p>
+          {/* ── RECIPE TOP — plato-card (limpio) + precio-card (a porcionar) ── */}
+          <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-3">
+
+            {/* Plato card del producto LIMPIO de origen */}
+            <div className="rounded-xl border border-border bg-surface p-4 grid grid-cols-[110px_1fr] sm:grid-cols-[140px_1fr] gap-4">
+              <div className="relative aspect-square rounded-lg border border-border/60 overflow-hidden flex flex-col items-center justify-center gap-1.5 text-primary/70"
+                style={{ background: 'radial-gradient(circle at 30% 30%, rgba(212,175,55,.14), transparent 60%), linear-gradient(135deg, #1A1714, #0F0D0A)' }}
+              >
+                <Flame size={38} />
+                <span className="text-[9px] font-bold uppercase tracking-[0.15em]">Producto limpio</span>
               </div>
-              <button onClick={porcAddItem} className="text-xs font-bold text-emerald-400 hover:text-emerald-300">+ Agregar</button>
-            </div>
-            {porcForm.items.map((item, idx) => (
-              <div key={idx} className="bg-surface-high/50 rounded-lg p-2">
-                <div className="grid grid-cols-12 gap-2 items-start">
-                  <div className="col-span-4">
-                    <SearchableSelect
-                      label={idx === 0 ? 'Producto' : undefined}
-                      value={item.productoId?.toString() || ''}
-                      onChange={v => porcUpdateItem(idx, 'productoId', v ? Number(v) : null)}
-                      options={productos.map(p => ({ value: p.id.toString(), label: p.nombre }))}
-                      placeholder="Producto..."
-                    />
+
+              <div className="flex flex-col gap-2 justify-center min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {origenProd?.rubro && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/30 text-primary text-[10px] font-bold uppercase tracking-wider">
+                      <Package size={10}/> {origenProd.rubro}
+                    </span>
+                  )}
+                  {porcForm.depositoOrigenId && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-transparent border border-border text-on-surface-variant text-[10px] font-bold uppercase tracking-wider">
+                      {depositos.find(d => d.id === porcForm.depositoOrigenId)?.nombre}
+                    </span>
+                  )}
+                </div>
+
+                {/* Selector del producto limpio como nombre grande */}
+                <div className="-ml-0.5">
+                  <SearchableSelect
+                    value={porcForm.productoOrigenId?.toString() || ''}
+                    onChange={v => {
+                      const prod = productos.find(p => p.id === Number(v));
+                      setPorcForm(f => ({ ...f, productoOrigenId: v ? Number(v) : null, unidadOrigen: prod?.unidadUso || f.unidadOrigen }));
+                    }}
+                    options={productos.map(p => ({ value: p.id.toString(), label: `${p.codigo} - ${p.nombre}` }))}
+                    placeholder="Seleccionar producto limpio..."
+                  />
+                </div>
+
+                <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-xs text-on-surface-variant">
+                  <span>Operario <b className="text-foreground font-semibold">{user?.nombre}</b></span>
+                  <span className="w-1 h-1 rounded-full bg-on-surface-variant/40"></span>
+                  <span><Clock size={10} className="inline text-primary mr-1"/> <b className="text-foreground font-semibold">{new Date().toLocaleDateString('es-AR')}</b></span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 mt-1.5 pt-2 border-t border-border/30">
+                  <div>
+                    <label className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.15em]">Depósito origen</label>
+                    <select
+                      value={porcForm.depositoOrigenId?.toString() || ''}
+                      onChange={e => setPorcForm(f => ({ ...f, depositoOrigenId: e.target.value ? Number(e.target.value) : null }))}
+                      className="w-full px-2 py-1 mt-0.5 rounded bg-surface-high border border-border/60 text-xs font-semibold focus:outline-none focus:border-primary/50"
+                    >
+                      <option value="">—</option>
+                      {depositos.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+                    </select>
                   </div>
-                  <div className="col-span-2">
-                    <Input
-                      label={idx === 0 ? 'Unidades' : undefined}
-                      type="number"
-                      value={item.cantidad}
-                      onChange={e => porcUpdateItem(idx, 'cantidad', e.target.value)}
-                      placeholder="30"
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <Input
-                      label={idx === 0 ? 'Peso/u' : undefined}
-                      type="number"
-                      step="0.01"
-                      value={item.pesoUnidad}
-                      onChange={e => porcUpdateItem(idx, 'pesoUnidad', e.target.value)}
-                      placeholder="0.3"
-                    />
-                  </div>
-                  <div className="col-span-1">
-                    <Input
-                      label={idx === 0 ? 'Ud' : undefined}
-                      value={item.unidad}
-                      onChange={e => porcUpdateItem(idx, 'unidad', e.target.value)}
+                  <div>
+                    <label className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.15em]">Unidad</label>
+                    <input
+                      type="text"
+                      value={porcForm.unidadOrigen}
+                      onChange={e => setPorcForm(f => ({ ...f, unidadOrigen: e.target.value }))}
                       placeholder="kg"
+                      className="w-full px-2 py-1 mt-0.5 rounded bg-surface-high border border-border/60 text-xs font-semibold focus:outline-none focus:border-primary/50"
                     />
-                  </div>
-                  <div className="col-span-2">
-                    <Select
-                      label={idx === 0 ? 'Depósito' : undefined}
-                      value={item.depositoDestinoId?.toString() || ''}
-                      onChange={e => porcUpdateItem(idx, 'depositoDestinoId', e.target.value ? Number(e.target.value) : null)}
-                      options={depositos.map(d => ({ value: d.id.toString(), label: d.nombre }))}
-                      placeholder="Dep..."
-                    />
-                  </div>
-                  <div className="col-span-1 flex justify-end pt-1">
-                    {porcForm.items.length > 1 && (
-                      <button onClick={() => porcRemoveItem(idx)} className="p-1 rounded-lg hover:bg-destructive/10 text-on-surface-variant hover:text-destructive">
-                        <X size={13} />
-                      </button>
-                    )}
                   </div>
                 </div>
               </div>
-            ))}
-          </div>
+            </div>
 
-          {/* Merma */}
-          <Input
-            label="Merma (opcional)"
-            type="number"
-            step="0.01"
-            value={porcForm.merma}
-            onChange={e => setPorcForm(f => ({ ...f, merma: e.target.value }))}
-            placeholder="0"
-          />
+            {/* Precio card: Cantidad a porcionar + KPIs */}
+            <div className="rounded-xl border border-primary/30 p-4 space-y-3"
+              style={{ background: 'radial-gradient(ellipse at 100% 0%, rgba(212,175,55,.08), transparent 60%), var(--color-surface-high)' }}
+            >
+              <p className="text-[10px] font-bold text-primary uppercase tracking-[0.22em]">
+                Cantidad a porcionar
+              </p>
 
-          {/* Preview rendimiento */}
-          {porcEntrada > 0 && porcTotalSalida > 0 && (
-            <div className="rounded-xl border border-border bg-surface-high/30 p-3 space-y-1">
-              <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1">Rendimiento</p>
-              <div className="flex items-center gap-4 text-xs">
-                <span className="text-orange-400 font-bold">Entrada: {porcEntrada} {porcForm.unidadOrigen}</span>
-                <span className="text-primary">→</span>
-                <span className="text-emerald-400 font-bold">Salida: {porcTotalSalida.toFixed(2)} {porcForm.unidadOrigen}</span>
-                {Number(porcForm.merma) > 0 && (
-                  <span className="text-amber-400 font-bold">Merma: {porcForm.merma}</span>
-                )}
+              <div className={`flex items-baseline gap-2 px-4 py-3 rounded-lg bg-background border transition-all ${
+                total > 0 ? 'border-primary/40' : 'border-border/60'
+              }`}>
+                <input
+                  type="number"
+                  step="0.01"
+                  inputMode="decimal"
+                  placeholder="0"
+                  value={porcForm.cantidadOrigen}
+                  onChange={e => setPorcForm(f => ({ ...f, cantidadOrigen: e.target.value }))}
+                  className="flex-1 min-w-0 bg-transparent border-0 outline-none font-mono text-3xl sm:text-4xl font-extrabold text-primary tabular-nums tracking-tight"
+                />
+                <span className="text-sm font-semibold text-on-surface-variant">{unidad}</span>
               </div>
-              {porcMermaCalc > 0.01 && (
-                <p className="text-[10px] text-amber-400">
-                  Diferencia sin asignar: {porcMermaCalc.toFixed(3)} {porcForm.unidadOrigen} ({((porcMermaCalc / porcEntrada) * 100).toFixed(1)}%)
-                </p>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="px-2 py-2 rounded-md bg-surface border border-border/40">
+                  <p className="text-[8.5px] font-bold text-on-surface-variant uppercase tracking-[0.15em] mb-1">Rendimiento</p>
+                  <p className={`font-mono text-lg font-extrabold tabular-nums ${
+                    rend >= 95 ? 'text-success' : rend >= 80 ? 'text-amber-500' : rend > 0 ? 'text-destructive' : 'text-on-surface-variant'
+                  }`}>
+                    {total > 0 && porciones > 0 ? `${rend.toFixed(1)}%` : '—'}
+                  </p>
+                </div>
+                <div className="px-2 py-2 rounded-md bg-surface border border-border/40">
+                  <p className="text-[8.5px] font-bold text-on-surface-variant uppercase tracking-[0.15em] mb-1">Resto sin usar</p>
+                  <p className={`font-mono text-lg font-extrabold tabular-nums ${
+                    resto > 0 ? 'text-amber-500' : total > 0 && porciones > 0 ? 'text-success' : 'text-on-surface-variant'
+                  }`}>
+                    {total > 0 && peso > 0 ? `${(resto*1000).toFixed(0)} g` : '—'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Barra visual con marker 95% */}
+              {total > 0 && peso > 0 && (
+                <div className="relative pt-1">
+                  <div className="h-1.5 rounded-full bg-surface overflow-hidden">
+                    <div className={`h-full transition-all duration-500 ${rend >= 95 ? 'bg-success' : rend >= 80 ? 'bg-amber-500' : 'bg-destructive'}`}
+                      style={{ width: `${Math.min(100, rend)}%` }}
+                    />
+                  </div>
+                  <div className="relative text-[9px] tabular-nums text-on-surface-variant/70 mt-1 h-3">
+                    <span className="absolute left-0">0%</span>
+                    <span className="absolute" style={{ left: '95%', transform: 'translateX(-50%)' }}>95%</span>
+                    <span className="absolute right-0">100%</span>
+                  </div>
+                </div>
               )}
             </div>
+          </div>
+
+          {/* ── TAMAÑO DE LA PORCIÓN — slider + presets, como mockup ── */}
+          <div className="rounded-xl border border-border bg-surface p-4">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div>
+                <p className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.22em]">Tamaño de la porción</p>
+                <p className="text-sm font-semibold text-foreground mt-0.5">¿De cuánto es cada pieza?</p>
+              </div>
+              <span className="font-mono text-lg font-extrabold tabular-nums text-primary">
+                {peso > 0 ? `${(peso*1000).toFixed(0)} g` : '—'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-5 items-center">
+              {/* Slider visual con marks 50g/200g/500g */}
+              <div>
+                <div className="flex items-baseline justify-between mb-2.5">
+                  <span className="text-xs text-on-surface-variant font-semibold">Peso por porción</span>
+                  <span className="font-mono text-2xl font-bold text-primary tabular-nums">
+                    {(peso*1000).toFixed(0)}<span className="text-xs text-on-surface-variant ml-1">gramos</span>
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0.05}
+                  max={0.5}
+                  step={0.01}
+                  value={peso || 0.05}
+                  onChange={e => porcUpdateItem(0, 'pesoUnidad', e.target.value)}
+                  className="w-full h-2 rounded-full bg-surface-high appearance-none cursor-pointer accent-primary"
+                  style={{ accentColor: 'var(--color-primary)' }}
+                />
+                <div className="flex justify-between text-[10px] tabular-nums text-on-surface-variant/70 mt-2 tracking-wider">
+                  <span>50 g</span>
+                  <span>200 g</span>
+                  <span>500 g</span>
+                </div>
+              </div>
+
+              {/* Presets de pesos comunes */}
+              <div>
+                <p className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.22em] mb-2">Presets</p>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {PRESETS_KG.map(v => {
+                    const selected = Math.abs(peso - v) < 0.001;
+                    return (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => porcUpdateItem(0, 'pesoUnidad', v)}
+                        className={`px-1 py-2.5 rounded font-mono font-bold tabular-nums text-xs transition-all active:scale-95 ${
+                          selected
+                            ? 'bg-primary text-background border border-primary'
+                            : 'bg-surface-high border border-border/60 text-on-surface-variant hover:border-primary/40 hover:text-foreground'
+                        }`}
+                      >
+                        {(v*1000).toFixed(0)} g
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Selector del producto porción + depósito destino */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-4 pt-3 border-t border-border/40">
+              <div>
+                <label className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.22em]">Producto porción generado</label>
+                <div className="mt-1">
+                  <SearchableSelect
+                    value={principal?.productoId?.toString() || ''}
+                    onChange={v => porcUpdateItem(0, 'productoId', v ? Number(v) : null)}
+                    options={productos.map(p => ({ value: p.id.toString(), label: p.nombre }))}
+                    placeholder="Ej: Salmón porción 200g..."
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.22em]">Depósito destino</label>
+                <select
+                  value={principal?.depositoDestinoId?.toString() || ''}
+                  onChange={e => porcUpdateItem(0, 'depositoDestinoId', e.target.value ? Number(e.target.value) : null)}
+                  className="w-full px-2 py-2 mt-1 rounded bg-surface-high border border-border/60 text-sm font-semibold focus:outline-none focus:border-primary/50"
+                >
+                  <option value="">Sin asignar</option>
+                  {depositos.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* ── RESULTADO — porciones generadas con grilla visual + result-row ── */}
+          <div className="rounded-xl border border-border bg-surface p-4">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div>
+                <p className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.22em]">Resultado</p>
+                <p className="text-sm font-semibold text-foreground mt-0.5">
+                  {porciones > 0 ? `${porciones} porciones generadas` : 'Configurá peso y cantidad para generar porciones'}
+                </p>
+              </div>
+              <span className="font-mono text-lg font-extrabold tabular-nums text-primary">
+                {porciones > 0 ? `${porciones} u` : '—'}
+              </span>
+            </div>
+
+            {/* Grilla visual de porciones (max 80 visibles) — como mockup */}
+            {porciones > 0 && peso > 0 && (
+              <div className="bg-surface-high/40 rounded-lg p-3 mb-3 max-h-[280px] overflow-y-auto">
+                <div className="grid gap-1.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(60px, 1fr))' }}>
+                  {Array.from({ length: Math.min(porciones, 80) }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="bg-surface border border-border/60 rounded p-1.5 flex flex-col items-center justify-center gap-0.5"
+                      style={{ animation: `fadeInUp 0.3s ease-out ${i * 12}ms backwards` }}
+                    >
+                      <span className="font-mono text-[8.5px] text-on-surface-variant/70 tracking-wider">
+                        {String(i+1).padStart(2,'0')}
+                      </span>
+                      <span className="font-mono text-[11px] font-bold text-primary tabular-nums">
+                        {(peso*1000).toFixed(0)}g
+                      </span>
+                    </div>
+                  ))}
+                  {porciones > 80 && (
+                    <div className="col-span-full text-center text-xs text-on-surface-variant italic py-2 border border-dashed border-border/60 rounded-md">
+                      + {porciones - 80} porciones más
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Result row: 4 cells horizontal como mockup */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-3 py-3 bg-surface-high/40 rounded-lg border border-border/60">
+              <div>
+                <p className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.22em]">Genera producto</p>
+                <p className="text-sm font-semibold text-foreground mt-1 truncate">
+                  {principal?.productoId ? productos.find(p => p.id === principal.productoId)?.nombre : '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.22em]">Resto</p>
+                <p className={`text-sm font-semibold mt-1 ${resto > 0 ? 'text-amber-500' : total > 0 && porciones > 0 ? 'text-success' : 'text-on-surface-variant'}`}>
+                  {total > 0 && peso > 0
+                    ? (resto > 0 ? `${(resto*1000).toFixed(0)} g sobrante` : 'Sin resto')
+                    : '—'
+                  }
+                </p>
+              </div>
+              <div>
+                <p className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.22em]">Destino</p>
+                <p className="text-sm font-semibold mt-1 truncate">
+                  {principal?.depositoDestinoId ? depositos.find(d => d.id === principal.depositoDestinoId)?.nombre : '—'}
+                </p>
+              </div>
+              <div className="flex items-end">
+                <div
+                  className="flex items-center gap-1 text-primary text-xs font-bold hover:gap-2 transition-all cursor-pointer"
+                  title="Continuar a Receta tras guardar"
+                  onClick={() => setPorcionadoOpen(false)}
+                >
+                  Usar en receta <ArrowRight size={13}/>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Sub-productos secundarios (colapsable, solo si hay >1) */}
+          {porcForm.items.length > 1 && (
+            <details className="rounded-xl border border-border bg-surface-high/20" open>
+              <summary className="flex items-center gap-2 p-3 cursor-pointer list-none select-none">
+                <Scissors size={13} className="text-emerald-400" />
+                <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest flex-1">
+                  Sub-productos secundarios <span className="normal-case font-normal">({porcForm.items.length - 1})</span>
+                </p>
+              </summary>
+              <div className="p-3 pt-0 space-y-2">
+                {porcForm.items.slice(1).map((item, idx) => {
+                  const realIdx = idx + 1;
+                  return (
+                    <div key={realIdx} className="grid grid-cols-12 gap-2 items-start bg-surface rounded-lg p-2 border border-border/40">
+                      <div className="col-span-4">
+                        <SearchableSelect
+                          value={item.productoId?.toString() || ''}
+                          onChange={v => porcUpdateItem(realIdx, 'productoId', v ? Number(v) : null)}
+                          options={productos.map(p => ({ value: p.id.toString(), label: p.nombre }))}
+                          placeholder="Producto..."
+                        />
+                      </div>
+                      <input type="number" placeholder="Unid." value={item.cantidad}
+                        onChange={e => porcUpdateItem(realIdx, 'cantidad', e.target.value)}
+                        className="col-span-2 px-2 py-1.5 rounded bg-surface-high border border-border/60 text-sm font-semibold tabular-nums focus:outline-none focus:border-primary/50"/>
+                      <input type="number" step="0.01" placeholder="Peso/u" value={item.pesoUnidad}
+                        onChange={e => porcUpdateItem(realIdx, 'pesoUnidad', e.target.value)}
+                        className="col-span-2 px-2 py-1.5 rounded bg-surface-high border border-border/60 text-sm font-semibold tabular-nums focus:outline-none focus:border-primary/50"/>
+                      <select value={item.depositoDestinoId?.toString() || ''}
+                        onChange={e => porcUpdateItem(realIdx, 'depositoDestinoId', e.target.value ? Number(e.target.value) : null)}
+                        className="col-span-3 px-2 py-1.5 rounded bg-surface-high border border-border/60 text-sm font-semibold focus:outline-none focus:border-primary/50"
+                      >
+                        <option value="">—</option>
+                        {depositos.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+                      </select>
+                      <button onClick={() => porcRemoveItem(realIdx)}
+                        className="col-span-1 p-1 rounded hover:bg-destructive/10 text-on-surface-variant hover:text-destructive justify-self-end">
+                        <X size={13}/>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
           )}
 
-          <Input
-            label="Observación (opcional)"
-            value={porcForm.observacion}
-            onChange={e => setPorcForm(f => ({ ...f, observacion: e.target.value }))}
-            placeholder="Notas adicionales..."
-          />
+          <button
+            onClick={porcAddItem}
+            className="w-full flex items-center justify-center gap-1 py-2 rounded-lg border border-dashed border-border hover:border-primary hover:bg-primary/5 text-xs font-bold text-on-surface-variant hover:text-primary transition-colors"
+          >
+            <Plus size={13}/> Agregar sub-producto secundario
+          </button>
 
-          <div className="flex gap-2 pt-1">
-            <Button onClick={guardarPorcionado} disabled={porcionadoLoading} className="flex-1">
-              {porcionadoLoading ? 'Guardando...' : 'Registrar porcionado'}
-            </Button>
-            <Button variant="secondary" onClick={() => setPorcionadoOpen(false)}>Cancelar</Button>
+          {/* Merma compacta + observación */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.22em]">Merma adicional <span className="normal-case font-normal text-[10px]">(opcional)</span></label>
+              <div className={`flex items-baseline gap-1.5 px-3 py-2 mt-1 rounded bg-surface border transition-colors ${Number(porcForm.merma) > 0 ? 'border-amber-500/40' : 'border-border/60'}`}>
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="0"
+                  value={porcForm.merma}
+                  onChange={e => setPorcForm(f => ({ ...f, merma: e.target.value }))}
+                  className="flex-1 min-w-0 bg-transparent border-0 outline-none text-base font-bold tabular-nums focus:outline-none"
+                />
+                <span className="text-xs text-on-surface-variant">{unidad}</span>
+              </div>
+            </div>
+            <Input
+              label="Observación (opcional)"
+              value={porcForm.observacion}
+              onChange={e => setPorcForm(f => ({ ...f, observacion: e.target.value }))}
+              placeholder="Notas adicionales..."
+            />
+          </div>
+
+          {/* Sticky foot */}
+          <div
+            className="sticky bottom-0 -mx-4 sm:-mx-6 mt-4 z-10 flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-t border-border/60"
+            style={{ background: 'linear-gradient(to top, var(--color-background) 60%, transparent)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}
+          >
+            <div className="flex items-center gap-2 text-[11px] text-on-surface-variant min-w-0">
+              <span className="shrink-0 w-2 h-2 rounded-full bg-success"
+                style={{ boxShadow: '0 0 8px var(--color-success)', animation: 'pulseGlow 2s ease-in-out infinite' }}
+              />
+              <span className="truncate">
+                {porciones > 0 && peso > 0
+                  ? <>Saldrán <b className="text-foreground font-mono">{porciones}</b> porciones de <b className="text-foreground font-mono">{(peso*1000).toFixed(0)}g</b> · rendimiento <b className="text-foreground font-mono">{rend.toFixed(1)}%</b></>
+                  : <>Configurá peso por porción y cantidad para calcular</>}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button variant="secondary" onClick={() => setPorcionadoOpen(false)}>Cancelar</Button>
+              <Button onClick={guardarPorcionado} disabled={porcionadoLoading} className="min-w-[160px]">
+                <Save size={14}/> {porcionadoLoading ? 'Guardando...' : 'Guardar porcionado'}
+              </Button>
+            </div>
           </div>
         </div>
+          );
+        })()}
       </Modal>
     </div>
   );
