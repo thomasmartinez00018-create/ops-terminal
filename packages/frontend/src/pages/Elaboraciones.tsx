@@ -4,14 +4,13 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
-import Select from '../components/ui/Select';
 import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import PageTour from '../components/PageTour';
 import {
   Plus, FlaskConical, X, Wand2, ArrowRight, ArrowLeft, Package, Scissors,
-  ChefHat, Flame, Utensils, TrendingDown, Activity, Check, Clock, Info, Save,
+  Flame, Utensils, TrendingDown, Activity, Clock, Save,
 } from 'lucide-react';
 import { factorDesperdicio } from '../lib/merma';
 
@@ -187,12 +186,13 @@ export default function Elaboraciones() {
   // Merma calculation
   const totalInput = form.ingredientes.reduce((acc, ing) => acc + Number(ing.cantidad || 0), 0);
   const totalOutput = Number(form.cantidadProducida || 0);
+  // mermaImplicita queda disponible para futura UI de "merma sin asignar".
+  // Mantengo el cálculo aunque la UI nueva no lo muestre explícito (el split3
+  // de Merma/Reuti/Desecho lo absorbió).
   const mermaImplicita = totalInput > 0 && totalOutput > 0 && form.ingredientes.length === 1
     ? Math.max(0, totalInput - totalOutput)
     : null;
-  const mermaPorc = mermaImplicita !== null && totalInput > 0
-    ? ((mermaImplicita / totalInput) * 100).toFixed(1)
-    : null;
+  void mermaImplicita;
 
   const guardar = async () => {
     if (!form.productoResultadoId) {
@@ -309,12 +309,13 @@ export default function Elaboraciones() {
     }
   };
 
-  // Cálculo de rendimiento del porcionado
+  // Cálculo de rendimiento del porcionado (legacy — la UI nueva del modal
+  // calcula su propio rendimiento dentro del IIFE del modal usando los
+  // valores de `porcForm` directamente, pero mantengo estas vars por si
+  // otra parte del archivo las consume en el futuro).
   const porcTotalSalida = porcForm.items.reduce((acc, i) => acc + (Number(i.cantidad) * Number(i.pesoUnidad || 0)), 0);
   const porcEntrada = Number(porcForm.cantidadOrigen || 0);
-  const porcMermaCalc = porcEntrada > 0 && porcTotalSalida > 0 ? Math.max(0, porcEntrada - porcTotalSalida - Number(porcForm.merma || 0)) : 0;
-
-  const productoResultado = productos.find(p => p.id === form.productoResultadoId);
+  void porcTotalSalida; void porcEntrada;
 
   return (
     <div>
