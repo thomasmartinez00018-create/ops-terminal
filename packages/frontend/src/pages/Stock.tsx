@@ -38,6 +38,9 @@ export default function Stock() {
     const params: Record<string, string> = {};
     if (filtroDeposito) params.depositoId = filtroDeposito;
     if (filtroBajoMinimo) params.bajosDeMinimo = 'true';
+    // filtroRubro también va al backend — reduce payload y evita que el
+    // cliente vea "vacío" si la lista completa ya estaba cargada sin ese rubro.
+    if (filtroRubro) params.rubro = filtroRubro;
     api.getStock(params)
       .then(data => { if (myToken === fetchTokenRef.current) setStock(data); })
       .catch((e: any) => {
@@ -55,7 +58,7 @@ export default function Stock() {
       .finally(() => { if (myToken === fetchTokenRef.current) setLoading(false); });
   };
 
-  useEffect(() => { cargar(); }, [filtroDeposito, filtroBajoMinimo]);
+  useEffect(() => { cargar(); }, [filtroDeposito, filtroBajoMinimo, filtroRubro]);
   useEffect(() => {
     if (filtroRubro) {
       api.getSubrubros(filtroRubro).then(setSubrubrosDisponibles).catch(() => setSubrubrosDisponibles([]));
@@ -204,7 +207,9 @@ export default function Stock() {
             ? `Sin resultados para "${busqueda}"`
             : filtroBajoMinimo
               ? 'Todos los productos están por encima del stock mínimo ✓'
-              : 'Sin datos de stock. Registrá movimientos para ver el stock.'}
+              : filtroRubro
+                ? `No hay productos con stock en el rubro "${filtroRubro}"${filtroDeposito ? ' para el depósito seleccionado' : ''}.`
+                : 'Sin datos de stock. Registrá movimientos para ver el stock.'}
         </div>
       )}
 

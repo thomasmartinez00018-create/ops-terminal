@@ -153,6 +153,7 @@ model Producto {
   factorConversion  Float    @default(1) @map("factor_conversion")
   codigoBarras      String?  @map("codigo_barras")
   depositoDefectoId Int?     @map("deposito_defecto_id")
+  precioReferencia  Float?   @map("precio_referencia") // Precio estimado cuando no hay compras registradas
   stockMinimo       Float    @default(0) @map("stock_minimo")
   stockIdeal        Float    @default(0) @map("stock_ideal")
   activo            Boolean  @default(true)

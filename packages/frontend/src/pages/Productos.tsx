@@ -41,7 +41,9 @@ const UNIDADES = [
 const emptyForm = {
   codigo: '', nombre: '', rubro: '', subrubro: '', tipo: 'crudo',
   unidadCompra: 'kg', unidadUso: 'kg', factorConversion: 1,
-  codigoBarras: '', stockMinimo: 0, stockIdeal: 0, depositoDefectoId: null as number | null,
+  codigoBarras: '', stockMinimo: 0, stockIdeal: 0,
+  precioReferencia: '' as number | '',
+  depositoDefectoId: null as number | null,
 };
 
 export default function Productos() {
@@ -122,6 +124,7 @@ export default function Productos() {
         codigoBarras: producto.codigoBarras || '',
         stockMinimo: producto.stockMinimo,
         stockIdeal: producto.stockIdeal,
+        precioReferencia: producto.precioReferencia ?? '',
         depositoDefectoId: producto.depositoDefectoId,
       });
       if (rubroActual) {
@@ -158,6 +161,7 @@ export default function Productos() {
         factorConversion: factor,
         stockMinimo: Number(form.stockMinimo) || 0,
         stockIdeal: Number(form.stockIdeal) || 0,
+        precioReferencia: form.precioReferencia !== '' ? Number(form.precioReferencia) : null,
         depositoDefectoId: form.depositoDefectoId || null,
         codigoBarras: form.codigoBarras || null,
       };
@@ -512,6 +516,33 @@ export default function Productos() {
                 </p>
               )}
             </div>
+          </div>
+          {/* Precio de referencia — editable siempre, muestra el precio vigente si ya
+              hay compras registradas; sirve como fallback para recetas cuando no hay
+              movimientos con costo todavía. */}
+          <div>
+            <label className="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">
+              Precio de referencia
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant font-bold text-sm">$</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={form.precioReferencia}
+                onChange={e => setForm({ ...form, precioReferencia: e.target.value === '' ? '' : Number(e.target.value) })}
+                placeholder={editId && costosMap[editId]
+                  ? (costosMap[editId] as any).costoUnitario.toLocaleString('es-AR', { maximumFractionDigits: 2 })
+                  : '0.00'}
+                className="w-full pl-7 pr-3 py-2.5 rounded-lg bg-surface-high border-0 text-foreground text-sm font-semibold placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+            </div>
+            <p className="text-[10px] text-on-surface-variant mt-1">
+              {editId && costosMap[editId]
+                ? `Último precio registrado: $${(costosMap[editId] as any).costoUnitario.toLocaleString('es-AR', { maximumFractionDigits: 2 })} (${(costosMap[editId] as any).fecha}). Podés sobrescribirlo acá.`
+                : 'Precio por ' + (form.unidadUso || 'unidad') + '. Se usa en recetas cuando no hay compras registradas.'}
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Input
