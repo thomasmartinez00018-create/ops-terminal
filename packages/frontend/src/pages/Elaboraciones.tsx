@@ -285,8 +285,17 @@ export default function Elaboraciones() {
   const guardarPorcionado = async () => {
     if (!porcForm.productoOrigenId) { addToast('Seleccioná el producto a porcionar', 'error'); return; }
     if (!porcForm.cantidadOrigen || Number(porcForm.cantidadOrigen) <= 0) { addToast('Ingresá la cantidad de entrada', 'error'); return; }
-    const validItems = porcForm.items.filter(i => i.productoId && Number(i.cantidad) > 0 && Number(i.pesoUnidad) > 0);
-    if (!validItems.length) { addToast('Agregá al menos un sub-producto con cantidad y peso', 'error'); return; }
+    // Si items[0].cantidad está vacío (usuario usó el cálculo automático sin
+    // sobrescribirlo), inferimos la cantidad como floor(entrada / pesoUnidad).
+    const total = Number(porcForm.cantidadOrigen) || 0;
+    const itemsConCantidad = porcForm.items.map((item, idx) => {
+      if (idx === 0 && !Number(item.cantidad) && Number(item.pesoUnidad) > 0 && total > 0) {
+        return { ...item, cantidad: String(Math.floor(total / Number(item.pesoUnidad))) };
+      }
+      return item;
+    });
+    const validItems = itemsConCantidad.filter(i => i.productoId && Number(i.cantidad) > 0 && Number(i.pesoUnidad) > 0);
+    if (!validItems.length) { addToast('Configurá el producto porción con peso y cantidad', 'error'); return; }
 
     setPorcionadoLoading(true);
     try {
