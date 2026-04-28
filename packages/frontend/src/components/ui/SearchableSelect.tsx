@@ -217,7 +217,13 @@ export default function SearchableSelect({
               <button
                 key={`pin-${opt.value}`}
                 type="button"
-                onClick={() => handleSelect(opt)}
+                // onMouseDown + preventDefault: patrón estándar para dropdowns con
+                // búsqueda. Dispara la selección en el press (antes de blur/focus
+                // events) y previene que el input de búsqueda pierda foco.
+                // Con onClick (el original) había una race condition en React 19
+                // con portales anidados (DrawerModal + SearchableSelect ambos
+                // portales a body) donde el click no llegaba al handler.
+                onMouseDown={(e) => { e.preventDefault(); handleSelect(opt); }}
                 className={cn(
                   'w-full text-left px-4 py-2 text-sm font-semibold hover:bg-surface-high transition-colors',
                   opt.value === value ? 'text-primary bg-primary/5' : 'text-foreground'
@@ -237,7 +243,7 @@ export default function SearchableSelect({
             <button
               key={opt.value}
               type="button"
-              onClick={() => handleSelect(opt)}
+              onMouseDown={(e) => { e.preventDefault(); handleSelect(opt); }}
               className={cn(
                 'w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-surface-high transition-colors',
                 opt.value === value ? 'text-primary bg-primary/5' : 'text-foreground'
