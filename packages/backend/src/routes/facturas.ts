@@ -26,8 +26,18 @@ FORMATO DE RESPUESTA — JSON estricto, sin markdown, sin backticks, sin texto a
   ],
   "subtotal": 1500.00,
   "iva_total": 315.00,
+  "otros_impuestos": 0,
   "total": 1815.00
 }
+
+CAMPO otros_impuestos — MUY IMPORTANTE para facturas argentinas de bebidas/alimentos:
+Algunas facturas tienen impuestos ADEMÁS del IVA, como:
+- "Imp. Interno" / "Impuesto Interno" / "IMP. INTERNO" → impuesto al consumo de bebidas, cigarrillos, etc.
+- "Percepción IIBB" / "PERC. IIBB" → percepción de ingresos brutos
+- "Perc. Ganancias" / "PERC. GANANCIAS" → percepción de ganancias
+- "Int. No Grav." / "INT. NO GRAV." → intereses no gravados
+Suma TODOS estos impuestos adicionales en "otros_impuestos". Si no hay ninguno, poné 0.
+Ejemplo: si subtotal=$253.530,94, IVA=$53.241,49, Imp.Interno=$35.958,92 → otros_impuestos=35958.92, total=342731.35
 
 TIPO DE COMPROBANTE — determinalo así:
 1. Buscá la letra grande (A, B, C) en el recuadro central superior del documento → "A", "B" o "C".
@@ -52,7 +62,7 @@ REGLAS DE CANTIDADES Y UNIDADES:
 
 VALIDACIÓN — antes de responder, verificá:
 1. ¿La suma de (precio_unitario × cantidad) de todos los items es cercana al subtotal? Si difiere mucho, revisá los precios.
-2. ¿El total ≈ subtotal + iva_total? Si no cuadra, revisá.
+2. ¿El total ≈ subtotal + iva_total + otros_impuestos? Si no cuadra, revisá.
 3. ¿Incluiste TODOS los items/líneas de la factura? No te saltes ninguno.
 
 CAMPOS ILEGIBLES: Si no podés leer un campo con certeza, poné null. Es preferible null a inventar un valor.
@@ -268,6 +278,7 @@ router.post('/escanear', async (req, res) => {
         tipoComprobante: parsed.tipo_comprobante || 'ticket',
         subtotal: parsed.subtotal ?? null,
         ivaTotal: parsed.iva_total ?? null,
+        otrosImpuestos: parsed.otros_impuestos ?? null,
         total: parsed.total ?? null,
       },
       items,
@@ -294,7 +305,7 @@ router.post('/confirmar', async (req, res) => {
       items, proveedorId, depositoDestinoId, usuarioId,
       fecha, documentoRef,
       tipoComprobante, fechaVencimiento,
-      subtotal, iva, total,
+      subtotal, iva, otrosImpuestos, total,
       imagenBase64,
     } = req.body;
 
@@ -312,6 +323,8 @@ router.post('/confirmar', async (req, res) => {
       const nextNum = (last?.id || 0) + 1;
       const codigo = `FAC-${String(nextNum).padStart(4, '0')}`;
 
+      const esRemito = (tipoComprobante || 'ticket') === 'remito';
+
       // 1. Crear Factura — organizacionId explícito por defensa.
       const factura = await tx.factura.create({
         data: {
@@ -324,10 +337,13 @@ router.post('/confirmar', async (req, res) => {
           proveedorId: proveedorId ? Number(proveedorId) : 1, // fallback
           subtotal: Number(subtotal || 0),
           iva: Number(iva || 0),
+          otrosImpuestos: Number(otrosImpuestos || 0),
           total: Number(total || 0),
-          estado: 'pendiente',
+          // Remitos: quedan como "pagados" automáticamente (no hay importe real).
+          // Cuando llegue la factura correspondiente se registra por separado.
+          estado: esRemito ? 'pagada' : 'pendiente',
           imagenBase64: imagenBase64 || null,
-          observacion: `Ingreso desde factura escaneada`,
+          observacion: esRemito ? `Remito registrado (sin importe)` : `Ingreso desde factura escaneada`,
           creadoPorId: Number(usuarioId),
         },
       });
@@ -339,10 +355,19 @@ router.post('/confirmar', async (req, res) => {
         const n = Number(v);
         return Number.isFinite(n) ? n : d;
       };
-      const itemsValidos = items.filter((i: any) => i.productoId && toNum(i.cantidad) > 0);
+      // Para remitos la cantidad puede venir 0 o null — defaulteamos a 1 para
+      // que el movimiento de ingreso quede registrado aunque no sepamos la
+      // cantidad exacta (precio también puede ser 0).
+      const normalizarCantidad = (i: any) => esRemito
+        ? (toNum(i.cantidad) > 0 ? toNum(i.cantidad) : 1)
+        : toNum(i.cantidad);
+      // Items válidos para crear movimientos: remito solo necesita productoId.
+      const itemsValidos = items.filter((i: any) =>
+        i.productoId && (esRemito ? true : toNum(i.cantidad) > 0)
+      );
       await tx.facturaItem.createMany({
         data: items.map((item: any) => {
-          const qty = toNum(item.cantidad);
+          const qty = normalizarCantidad(item);
           const precio = toNum(item.precioUnitario);
           const alic = toNum(item.alicuotaIva);
           const subtotal = qty * precio;
@@ -369,7 +394,7 @@ router.post('/confirmar', async (req, res) => {
             organizacionId,
             tipo: 'ingreso',
             productoId: Number(item.productoId),
-            cantidad: toNum(item.cantidad),
+            cantidad: normalizarCantidad(item),
             unidad: item.unidad || 'unidad',
             costoUnitario: item.precioUnitario ? toNum(item.precioUnitario) : null,
             usuarioId: Number(usuarioId),

@@ -694,6 +694,7 @@ model Factura {
   ordenCompraId    Int?     @map("orden_compra_id")
   subtotal         Float    @default(0)
   iva              Float    @default(0)
+  otrosImpuestos   Float    @default(0) @map("otros_impuestos") // Imp. Interno, percepciones, etc.
   total            Float    @default(0)
   estado           String   @default("pendiente") // pendiente|parcial|pagada|anulada
   imagenBase64     String?  @map("imagen_base64")

@@ -27,6 +27,7 @@ interface FacturaResult {
     tipoComprobante: string;
     subtotal: number | null;
     ivaTotal: number | null;
+    otrosImpuestos: number | null;
     total: number | null;
   };
   items: FacturaItem[];
@@ -74,6 +75,7 @@ export default function EscanerFactura() {
   const [fechaVencimiento, setFechaVencimiento] = useState('');
   const [subtotal, setSubtotal] = useState('');
   const [ivaTotal, setIvaTotal] = useState('');
+  const [otrosImpuestos, setOtrosImpuestos] = useState('');
   const [total, setTotal] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -112,6 +114,7 @@ export default function EscanerFactura() {
       if (data.factura?.tipoComprobante) setTipoComprobante(data.factura.tipoComprobante);
       if (data.factura?.subtotal != null) setSubtotal(String(data.factura.subtotal));
       if (data.factura?.ivaTotal != null) setIvaTotal(String(data.factura.ivaTotal));
+      if (data.factura?.otrosImpuestos != null) setOtrosImpuestos(String(data.factura.otrosImpuestos));
       if (data.factura?.total != null) setTotal(String(data.factura.total));
       setStep('review');
     } catch (err: any) {
@@ -140,15 +143,20 @@ export default function EscanerFactura() {
 
   // ── Confirmar ──
   const confirmar = async () => {
-    const itemsValidos = items.filter(i => i.productoId && i.cantidad);
-    if (!itemsValidos.length) { setError('No hay items válidos para registrar'); return; }
+    const esRemito = tipoComprobante === 'remito';
+    // Remito: alcanza con tener productoId (cantidad y precio pueden ser 0).
+    // Factura/ticket: necesita productoId + cantidad.
+    const itemsParaGuardar = esRemito
+      ? items.filter(i => i.productoId)
+      : items.filter(i => i.productoId && i.cantidad);
+    if (!itemsParaGuardar.length) { setError('No hay items válidos para registrar'); return; }
     if (!depositoId) { setError('Seleccioná un depósito destino'); return; }
 
     setConfirmando(true);
     setError(null);
     try {
       const data = await api.confirmarFactura({
-        items: items.map(i => ({
+        items: itemsParaGuardar.map(i => ({
           productoId: i.productoId,
           descripcion: i.descripcion,
           cantidad: i.cantidad,
@@ -165,6 +173,7 @@ export default function EscanerFactura() {
         fechaVencimiento: fechaVencimiento || null,
         subtotal: subtotal ? Number(subtotal) : 0,
         iva: ivaTotal ? Number(ivaTotal) : 0,
+        otrosImpuestos: otrosImpuestos ? Number(otrosImpuestos) : 0,
         total: total ? Number(total) : 0,
         imagenBase64: imageBase64 || null,
       });
@@ -193,6 +202,7 @@ export default function EscanerFactura() {
     setFechaVencimiento('');
     setSubtotal('');
     setIvaTotal('');
+    setOtrosImpuestos('');
     setTotal('');
   };
 
@@ -324,65 +334,90 @@ export default function EscanerFactura() {
             </div>
 
             {/* Tipo comprobante + IVA + Totales */}
-            <div className="border-t border-border pt-4 grid grid-cols-2 md:grid-cols-5 gap-3">
-              <div>
-                <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider block mb-1">Tipo comprobante</label>
-                <select
-                  value={tipoComprobante}
-                  onChange={(e) => setTipoComprobante(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-surface-high border-0 text-sm font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                >
-                  {TIPOS_COMPROBANTE.map(t => (
-                    <option key={t.value} value={t.value}>{t.label}</option>
-                  ))}
-                </select>
-                <div className="mt-1">
-                  <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-lg border ${tipoBadgeColor(tipoComprobante)}`}>
-                    {TIPOS_COMPROBANTE.find(t => t.value === tipoComprobante)?.label}
-                  </span>
+            <div className="border-t border-border pt-4 space-y-3">
+              {/* Fila 1: tipo + vencimiento */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider block mb-1">Tipo comprobante</label>
+                  <select
+                    value={tipoComprobante}
+                    onChange={(e) => setTipoComprobante(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-surface-high border-0 text-sm font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  >
+                    {TIPOS_COMPROBANTE.map(t => (
+                      <option key={t.value} value={t.value}>{t.label}</option>
+                    ))}
+                  </select>
+                  <div className="mt-1">
+                    <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-lg border ${tipoBadgeColor(tipoComprobante)}`}>
+                      {TIPOS_COMPROBANTE.find(t => t.value === tipoComprobante)?.label}
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider block mb-1">Vencimiento</label>
+                  <input
+                    type="date"
+                    value={fechaVencimiento}
+                    onChange={(e) => setFechaVencimiento(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-surface-high border-0 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                  {tipoComprobante === 'remito' && (
+                    <p className="text-[10px] text-on-surface-variant mt-1">
+                      Los remitos no llevan importe — total $0 es correcto.
+                    </p>
+                  )}
                 </div>
               </div>
-              <div>
-                <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider block mb-1">Vencimiento</label>
-                <input
-                  type="date"
-                  value={fechaVencimiento}
-                  onChange={(e) => setFechaVencimiento(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-surface-high border-0 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider block mb-1">Subtotal</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={subtotal}
-                  onChange={(e) => setSubtotal(e.target.value)}
-                  placeholder="0.00"
-                  className="w-full px-3 py-2 rounded-lg bg-surface-high border-0 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider block mb-1">IVA total</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={ivaTotal}
-                  onChange={(e) => setIvaTotal(e.target.value)}
-                  placeholder="0.00"
-                  className="w-full px-3 py-2 rounded-lg bg-surface-high border-0 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider block mb-1">Total</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={total}
-                  onChange={(e) => setTotal(e.target.value)}
-                  placeholder="0.00"
-                  className="w-full px-3 py-2 rounded-lg bg-surface-high border-0 text-sm font-bold text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
-                />
+              {/* Fila 2: subtotal / IVA / otros impuestos / total */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider block mb-1">Subtotal</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={subtotal}
+                    onChange={(e) => setSubtotal(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 rounded-lg bg-surface-high border-0 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider block mb-1">IVA total</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={ivaTotal}
+                    onChange={(e) => setIvaTotal(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 rounded-lg bg-surface-high border-0 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider block mb-1">
+                    Imp. Interno / Otros
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={otrosImpuestos}
+                    onChange={(e) => setOtrosImpuestos(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 rounded-lg bg-surface-high border-0 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                  <p className="text-[9px] text-on-surface-variant mt-0.5">Imp. Interno, IIBB, etc.</p>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider block mb-1">Total</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={total}
+                    onChange={(e) => setTotal(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 rounded-lg bg-surface-high border-0 text-sm font-bold text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -503,20 +538,39 @@ export default function EscanerFactura() {
           {/* Resumen y acciones */}
           <div className="flex items-center justify-between bg-surface border border-border rounded-xl p-4">
             <div className="text-sm">
-              <span className="text-on-surface-variant font-medium">Listos: </span>
-              <span className="font-bold text-success">{items.filter(i => i.productoId && i.cantidad).length}</span>
-              <span className="text-on-surface-variant font-medium"> / {items.length} items</span>
-              {items.some(i => !i.productoId) && (
-                <span className="text-warning text-xs font-semibold ml-2">(asigná los sin match)</span>
+              {tipoComprobante === 'remito' ? (
+                <>
+                  <span className="text-on-surface-variant font-medium">Items: </span>
+                  <span className="font-bold text-success">{items.filter(i => i.productoId).length}</span>
+                  <span className="text-on-surface-variant font-medium"> / {items.length} con producto</span>
+                  {items.some(i => !i.productoId) && (
+                    <span className="text-warning text-xs font-semibold ml-2">(asigná los sin match)</span>
+                  )}
+                </>
+              ) : (
+                <>
+                  <span className="text-on-surface-variant font-medium">Listos: </span>
+                  <span className="font-bold text-success">{items.filter(i => i.productoId && i.cantidad).length}</span>
+                  <span className="text-on-surface-variant font-medium"> / {items.length} items</span>
+                  {items.some(i => !i.productoId) && (
+                    <span className="text-warning text-xs font-semibold ml-2">(asigná los sin match)</span>
+                  )}
+                </>
               )}
             </div>
             <button
               onClick={confirmar}
-              disabled={confirmando || !items.some(i => i.productoId && i.cantidad) || !depositoId}
+              disabled={
+                confirmando ||
+                (tipoComprobante === 'remito'
+                  ? !items.some(i => i.productoId)
+                  : !items.some(i => i.productoId && i.cantidad)) ||
+                !depositoId
+              }
               className="flex items-center gap-2 px-5 py-2.5 bg-primary hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed text-on-primary font-bold rounded-xl transition"
             >
               {confirmando ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-              Registrar factura
+              {tipoComprobante === 'remito' ? 'Registrar remito' : 'Registrar factura'}
             </button>
           </div>
         </div>
