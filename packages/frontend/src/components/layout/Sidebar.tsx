@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Package, Warehouse, Users, ArrowRightLeft,
   ClipboardList, LogOut, ChefHat, Truck, ClipboardCheck,
   Upload, BarChart3, Link2, ShoppingCart, ScanBarcode, AlertTriangle, ScanLine, ListTodo, FlaskConical,
-  FileText, DollarSign, TrendingUp, Settings, ChevronDown, Crown, Repeat, Search
+  FileText, DollarSign, TrendingUp, Settings, ChevronDown, Crown, Repeat, Search, Utensils
 } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 
@@ -85,6 +85,7 @@ const navGroups: NavGroup[] = [
       { to: '/productos', label: 'Productos', icon: Package, permiso: 'productos' },
       { to: '/depositos', label: 'Depósitos', icon: Warehouse, permiso: 'depositos' },
       { to: '/recetas', label: 'Recetas', icon: ChefHat, permiso: 'recetas' },
+      { to: '/carta', label: 'Carta', icon: Utensils, permiso: 'recetas' },
       { to: '/importar', label: 'Importar (Maxirest)', icon: Upload, adminOnly: true },
       { to: '/usuarios', label: 'Usuarios', icon: Users, adminOnly: true },
       { to: '/suscripcion', label: 'Suscripción', icon: Crown, adminOnly: true },

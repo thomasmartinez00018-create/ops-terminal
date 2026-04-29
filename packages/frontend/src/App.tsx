@@ -14,6 +14,7 @@ import Usuarios from './pages/Usuarios';
 import Movimientos from './pages/Movimientos';
 import Stock from './pages/Stock';
 import Recetas from './pages/Recetas';
+import Carta from './pages/Carta';
 import Proveedores from './pages/Proveedores';
 import Inventarios from './pages/Inventarios';
 import Reportes from './pages/Reportes';
@@ -116,6 +117,7 @@ function SessionGate() {
             <Route path="/reposicion" element={<Reposicion />} />
             <Route path="/stock" element={<Stock />} />
             <Route path="/recetas" element={<Recetas />} />
+            <Route path="/carta" element={<Carta />} />
             <Route path="/proveedores" element={<Proveedores />} />
             <Route path="/inventarios" element={<Inventarios />} />
             <Route path="/importar" element={<Lazy><Importar /></Lazy>} />

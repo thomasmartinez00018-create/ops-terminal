@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import PageTour from '../components/PageTour';
 import { api } from '../lib/api';
 import Button from '../components/ui/Button';
@@ -298,6 +298,7 @@ async function comprimirImagen(file: File, maxDim = 800, quality = 0.75): Promis
 
 export default function Recetas() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { addToast } = useToast();
   const { confirm, dialogProps } = useConfirm();
 
@@ -355,6 +356,22 @@ export default function Recetas() {
   const cargar = () => {
     api.getRecetas({ activo: 'true' }).then(setRecetas).catch(console.error);
   };
+
+  // Si llegamos con ?edit=ID (desde la página Carta o un link directo),
+  // abrir el modal de esa receta automáticamente. Limpia el query param
+  // tras abrir para que recargar no re-dispare el efecto.
+  useEffect(() => {
+    const editId = searchParams.get('edit');
+    if (!editId || recetas.length === 0) return;
+    const receta = recetas.find(r => String(r.id) === editId);
+    if (receta) {
+      abrir(receta);
+      // Saca el query param sin recargar
+      searchParams.delete('edit');
+      setSearchParams(searchParams, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recetas, searchParams]);
 
   useEffect(() => {
     cargar();

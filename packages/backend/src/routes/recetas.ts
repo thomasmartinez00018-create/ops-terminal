@@ -512,4 +512,77 @@ router.get('/:id/costo', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/recetas/bulk-precio - Subir/bajar precios masivamente
+// Body: {
+//   ajuste: { tipo: 'porcentaje' | 'fijo', valor: number, redondear?: number },
+//   filtro?: { categoria?: string, sector?: string, salidaACarta?: boolean, ids?: number[] }
+// }
+// Aplica el ajuste a precioVenta de todas las recetas que matchen el filtro
+// y tengan precioVenta != null. Si redondear=N, redondea al múltiplo de N
+// más cercano (ej: redondear=100 → $8.547 → $8.500 o $8.600).
+router.post('/bulk-precio', async (req: Request, res: Response) => {
+  try {
+    const { organizacionId } = getTenant();
+    void organizacionId; // tenant filter aplicado por prisma extension
+    const { ajuste, filtro } = req.body || {};
+    if (!ajuste || typeof ajuste.valor !== 'number' || isNaN(ajuste.valor)) {
+      res.status(400).json({ error: 'Falta ajuste.valor (número)' });
+      return;
+    }
+    if (ajuste.tipo !== 'porcentaje' && ajuste.tipo !== 'fijo') {
+      res.status(400).json({ error: 'ajuste.tipo debe ser "porcentaje" o "fijo"' });
+      return;
+    }
+
+    const where: any = { precioVenta: { not: null } };
+    if (filtro?.categoria) where.categoria = String(filtro.categoria);
+    if (filtro?.sector) where.sector = String(filtro.sector);
+    if (filtro?.salidaACarta !== undefined) where.salidaACarta = !!filtro.salidaACarta;
+    if (Array.isArray(filtro?.ids) && filtro.ids.length > 0) {
+      where.id = { in: filtro.ids.map((n: any) => Number(n)).filter((n: number) => !isNaN(n)) };
+    }
+
+    const recetas = await prisma.receta.findMany({
+      where,
+      select: { id: true, nombre: true, precioVenta: true },
+    });
+
+    const redondear = Number(ajuste.redondear) > 0 ? Number(ajuste.redondear) : 0;
+    const aplicarAjuste = (precioActual: number): number => {
+      let nuevo: number;
+      if (ajuste.tipo === 'porcentaje') {
+        nuevo = precioActual * (1 + Number(ajuste.valor) / 100);
+      } else {
+        nuevo = precioActual + Number(ajuste.valor);
+      }
+      if (nuevo < 0) nuevo = 0;
+      if (redondear > 0) {
+        nuevo = Math.round(nuevo / redondear) * redondear;
+      }
+      return Math.round(nuevo * 100) / 100;
+    };
+
+    const cambios: { id: number; nombre: string; antes: number; despues: number }[] = [];
+    for (const r of recetas) {
+      const antes = Number(r.precioVenta) || 0;
+      const despues = aplicarAjuste(antes);
+      if (despues === antes) continue;
+      await prisma.receta.update({
+        where: { id: r.id },
+        data: { precioVenta: despues },
+      });
+      cambios.push({ id: r.id, nombre: r.nombre, antes, despues });
+    }
+
+    res.json({
+      actualizados: cambios.length,
+      total: recetas.length,
+      cambios: cambios.slice(0, 50), // limit response size
+    });
+  } catch (error: any) {
+    console.error('[recetas/bulk-precio]', error);
+    res.status(500).json({ error: 'Error al actualizar precios' });
+  }
+});
+
 export default router;

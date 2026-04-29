@@ -417,6 +417,15 @@ export const api = {
   getRecetaCosto: (id: number) => request<any>(`/recetas/${id}/costo`),
   getDisponibilidadRecetas: () =>
     request<{ sinStock: any[]; bajoStock: any[]; totalRecetas: number }>('/recetas/disponibilidad'),
+  bulkPrecioRecetas: (params: {
+    ajuste: { tipo: 'porcentaje' | 'fijo'; valor: number; redondear?: number };
+    filtro?: { categoria?: string; sector?: string; salidaACarta?: boolean; ids?: number[] };
+  }) =>
+    request<{
+      actualizados: number;
+      total: number;
+      cambios: { id: number; nombre: string; antes: number; despues: number }[];
+    }>('/recetas/bulk-precio', { method: 'POST', body: JSON.stringify(params) }),
 
   // Proveedores
   getProveedores: (params?: Record<string, string>) => request<any[]>(`/proveedores${qs(params)}`),
