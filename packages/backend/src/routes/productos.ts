@@ -198,17 +198,124 @@ router.get('/rubros/lista', async (_req: Request, res: Response) => {
 });
 
 // GET /api/productos/rubros/con-conteo - Rubros con cantidad de productos
+// Une los rubros derivados de productos con los rubros "extra" creados
+// manualmente por el usuario (Organizacion.extraRubros) que aún no tienen
+// productos. Los manuales aparecen con cantProductos = 0.
 router.get('/rubros/con-conteo', async (_req: Request, res: Response) => {
   try {
-    const rubros = await prisma.producto.groupBy({
-      by: ['rubro'],
-      _count: { _all: true },
-      where: { activo: true },
-      orderBy: { rubro: 'asc' },
-    });
-    res.json(rubros.map(r => ({ rubro: r.rubro, cantProductos: r._count._all })));
+    const { organizacionId } = getTenant();
+    const [productosRubros, org] = await Promise.all([
+      prisma.producto.groupBy({
+        by: ['rubro'],
+        _count: { _all: true },
+        where: { activo: true },
+        orderBy: { rubro: 'asc' },
+      }),
+      prisma.organizacion.findUnique({
+        where: { id: organizacionId },
+        select: { extraRubros: true },
+      }),
+    ]);
+    const conteo = new Map<string, number>();
+    for (const r of productosRubros) {
+      conteo.set(r.rubro, r._count._all);
+    }
+    // Sumar extras (con cantProductos 0 si no aparecen en productos)
+    const extras: string[] = (() => {
+      try { return JSON.parse(org?.extraRubros || '[]'); } catch { return []; }
+    })();
+    for (const e of extras) {
+      if (!conteo.has(e)) conteo.set(e, 0);
+    }
+    const lista = Array.from(conteo.entries())
+      .map(([rubro, cantProductos]) => ({ rubro, cantProductos }))
+      .sort((a, b) => a.rubro.localeCompare(b.rubro, 'es'));
+    res.json(lista);
   } catch (error) {
+    console.error('[productos/rubros/con-conteo]', error);
     res.status(500).json({ error: 'Error al obtener rubros con conteo' });
+  }
+});
+
+// POST /api/productos/rubros - Crear un nuevo rubro manual
+// Body: { nombre: string }
+// Lo guarda en Organizacion.extraRubros (JSON array). Si ya existe (en
+// extras o en algún producto), devuelve 409 sin error fatal.
+router.post('/rubros', async (req: Request, res: Response) => {
+  try {
+    const { organizacionId } = getTenant();
+    const nombre = String(req.body?.nombre || '').trim();
+    if (!nombre) {
+      res.status(400).json({ error: 'El nombre del rubro es requerido' });
+      return;
+    }
+    if (nombre.length > 60) {
+      res.status(400).json({ error: 'El nombre del rubro es demasiado largo (máx 60)' });
+      return;
+    }
+    // ¿Ya existe en productos?
+    const yaEnProductos = await prisma.producto.findFirst({
+      where: { rubro: nombre },
+      select: { id: true },
+    });
+    const org = await prisma.organizacion.findUnique({
+      where: { id: organizacionId },
+      select: { extraRubros: true },
+    });
+    const extras: string[] = (() => {
+      try { return JSON.parse(org?.extraRubros || '[]'); } catch { return []; }
+    })();
+    if (yaEnProductos || extras.includes(nombre)) {
+      res.status(409).json({ error: 'Ese rubro ya existe' });
+      return;
+    }
+    const nuevosExtras = [...extras, nombre].sort((a, b) => a.localeCompare(b, 'es'));
+    await prisma.organizacion.update({
+      where: { id: organizacionId },
+      data: { extraRubros: JSON.stringify(nuevosExtras) },
+    });
+    res.json({ rubro: nombre, cantProductos: 0 });
+  } catch (error: any) {
+    console.error('[productos/rubros POST]', error);
+    res.status(500).json({ error: 'Error al crear rubro' });
+  }
+});
+
+// DELETE /api/productos/rubros/:nombre - Eliminar un rubro manual
+// Solo permite borrar rubros sin productos asociados (los que están solo en
+// extraRubros). Si hay productos con ese rubro, devuelve 409.
+router.delete('/rubros/:nombre', async (req: Request, res: Response) => {
+  try {
+    const { organizacionId } = getTenant();
+    const nombre = decodeURIComponent(String(req.params.nombre || '')).trim();
+    if (!nombre) {
+      res.status(400).json({ error: 'Nombre requerido' });
+      return;
+    }
+    const conProductos = await prisma.producto.findFirst({
+      where: { rubro: nombre },
+      select: { id: true },
+    });
+    if (conProductos) {
+      res.status(409).json({ error: 'Hay productos en este rubro. Reasignalos primero.' });
+      return;
+    }
+    const org = await prisma.organizacion.findUnique({
+      where: { id: organizacionId },
+      select: { extraRubros: true },
+    });
+    const extras: string[] = (() => {
+      try { return JSON.parse(org?.extraRubros || '[]'); } catch { return []; }
+    })();
+    const filtrados = extras.filter(e => e !== nombre);
+    await prisma.organizacion.update({
+      where: { id: organizacionId },
+      data: { extraRubros: JSON.stringify(filtrados) },
+    });
+    res.json({ borrado: true });
+  } catch (error: any) {
+    console.error('[productos/rubros DELETE]', error);
+    res.status(500).json({ error: 'Error al eliminar rubro' });
   }
 });
 
@@ -234,6 +341,36 @@ router.put('/rubros/rename', async (req: Request, res: Response) => {
       where: { rubro: String(rubroViejo) },
       data: { rubro: nuevo },
     });
+    // También actualizar extraRubros si el rubroViejo aparece ahí.
+    try {
+      const { organizacionId } = getTenant();
+      const org = await prisma.organizacion.findUnique({
+        where: { id: organizacionId },
+        select: { extraRubros: true },
+      });
+      const extras: string[] = (() => {
+        try { return JSON.parse(org?.extraRubros || '[]'); } catch { return []; }
+      })();
+      if (extras.includes(String(rubroViejo))) {
+        const nuevos = extras
+          .filter(e => e !== String(rubroViejo))
+          .filter(e => e !== nuevo); // evitar duplicado si ya existía
+        // Solo agregamos a extras si NO hay productos con el nuevo nombre
+        // (si hay productos, el rubro ya aparece via groupBy).
+        const tieneProductos = await prisma.producto.findFirst({
+          where: { rubro: nuevo },
+          select: { id: true },
+        });
+        if (!tieneProductos) nuevos.push(nuevo);
+        nuevos.sort((a, b) => a.localeCompare(b, 'es'));
+        await prisma.organizacion.update({
+          where: { id: organizacionId },
+          data: { extraRubros: JSON.stringify(nuevos) },
+        });
+      }
+    } catch (e) {
+      console.error('[productos/rubros/rename] extraRubros sync error', e);
+    }
     res.json({ actualizados: result.count, rubroViejo, rubroNuevo: nuevo });
   } catch (error: any) {
     console.error('[productos/rubros/rename]', error);

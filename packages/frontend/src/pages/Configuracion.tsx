@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { Trash2, AlertTriangle, RefreshCw, ShieldAlert, Package, Warehouse, Users, Truck, ChefHat, ArrowRightLeft, ClipboardCheck, ShoppingCart, ListTodo, FlaskConical, FileText, DollarSign, Tag, Edit2, Check, X } from 'lucide-react';
+import { Trash2, AlertTriangle, RefreshCw, ShieldAlert, Package, Warehouse, Users, Truck, ChefHat, ArrowRightLeft, ClipboardCheck, ShoppingCart, ListTodo, FlaskConical, FileText, DollarSign, Tag, Edit2, Check, X, Plus } from 'lucide-react';
 
 interface Stats {
   maestros: { productos: number; depositos: number; usuarios: number; proveedores: number; recetas: number };
@@ -38,6 +38,8 @@ export default function Configuracion() {
   const [editandoRubro, setEditandoRubro] = useState<string | null>(null);
   const [draftRubro, setDraftRubro] = useState('');
   const [renombrando, setRenombrando] = useState(false);
+  const [nuevoRubro, setNuevoRubro] = useState('');
+  const [creandoRubro, setCreandoRubro] = useState(false);
 
   const cargarRubros = async () => {
     setLoadingRubros(true);
@@ -58,6 +60,36 @@ export default function Configuracion() {
   const cancelarEdicion = () => {
     setEditandoRubro(null);
     setDraftRubro('');
+  };
+
+  const crearNuevoRubro = async () => {
+    const nombre = nuevoRubro.trim();
+    if (!nombre) return;
+    setCreandoRubro(true);
+    try {
+      await api.crearRubro(nombre);
+      addToast(`Rubro "${nombre}" creado`);
+      setNuevoRubro('');
+      cargarRubros();
+    } catch (e: any) {
+      addToast(e?.message || 'Error al crear rubro', 'error');
+    }
+    setCreandoRubro(false);
+  };
+
+  const eliminarRubro = async (rubro: string, cantProductos: number) => {
+    if (cantProductos > 0) {
+      addToast('Reasigná los productos antes de eliminar el rubro', 'error');
+      return;
+    }
+    if (!confirm(`¿Eliminar el rubro "${rubro}"?`)) return;
+    try {
+      await api.borrarRubro(rubro);
+      addToast(`Rubro "${rubro}" eliminado`);
+      cargarRubros();
+    } catch (e: any) {
+      addToast(e?.message || 'Error al eliminar rubro', 'error');
+    }
   };
 
   const confirmarRename = async (rubroViejo: string) => {
@@ -217,9 +249,29 @@ export default function Configuracion() {
               </button>
             </div>
             <p className="text-xs text-on-surface-variant mt-1">
-              Los rubros se crean al cargar productos. Acá podés renombrarlos — el cambio se aplica en todos los productos que lo usan.
+              Definí la estructura de rubros para tu operación. Podés crearlos acá antes de cargar productos, renombrarlos o eliminar los que estén vacíos.
             </p>
           </div>
+        </div>
+
+        {/* Crear nuevo rubro */}
+        <div className="flex items-center gap-2 mb-3 pb-3 border-b border-border/50">
+          <input
+            type="text"
+            value={nuevoRubro}
+            onChange={e => setNuevoRubro(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') crearNuevoRubro(); }}
+            placeholder="Ej: Vinos, Carnes, Limpieza..."
+            disabled={creandoRubro}
+            className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-surface-high border-0 text-sm font-semibold text-foreground placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary/50"
+          />
+          <button
+            onClick={crearNuevoRubro}
+            disabled={creandoRubro || !nuevoRubro.trim()}
+            className="px-3 py-2 rounded-lg bg-primary text-background text-xs font-bold hover:bg-primary/90 disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+          >
+            <Plus size={14} /> Agregar rubro
+          </button>
         </div>
 
         {loadingRubros ? (
@@ -278,6 +330,15 @@ export default function Configuracion() {
                       >
                         <Edit2 size={14} />
                       </button>
+                      {cantProductos === 0 && (
+                        <button
+                          onClick={() => eliminarRubro(rubro, cantProductos)}
+                          className="p-1.5 rounded-lg text-on-surface-variant hover:text-destructive hover:bg-destructive/10 transition-colors"
+                          title="Eliminar rubro vacío"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </>
                   )}
                 </div>

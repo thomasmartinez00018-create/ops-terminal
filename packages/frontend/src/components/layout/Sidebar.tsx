@@ -85,6 +85,7 @@ const navGroups: NavGroup[] = [
       { to: '/productos', label: 'Productos', icon: Package, permiso: 'productos' },
       { to: '/depositos', label: 'Depósitos', icon: Warehouse, permiso: 'depositos' },
       { to: '/recetas', label: 'Recetas', icon: ChefHat, permiso: 'recetas' },
+      { to: '/importar', label: 'Importar (Maxirest)', icon: Upload, adminOnly: true },
       { to: '/usuarios', label: 'Usuarios', icon: Users, adminOnly: true },
       { to: '/suscripcion', label: 'Suscripción', icon: Crown, adminOnly: true },
       { to: '/configuracion', label: 'Ajustes', icon: Settings, adminOnly: true },

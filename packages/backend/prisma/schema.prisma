@@ -70,6 +70,13 @@ model Organizacion {
   // qué tours/recomendaciones mostrar en el Dashboard. null = wizard no
   // completado todavía (seguimos mostrándolo hasta que responda u omita).
   perfilOnboarding     String?   @map("perfil_onboarding")
+  // ── Rubros manuales ───────────────────────────────────────────────────
+  // JSON array de rubros creados por el usuario que aún no tienen productos.
+  // Los rubros con productos se derivan de Producto.rubro vía groupBy. Este
+  // campo es para "anclar" rubros que el usuario quiere tener disponibles
+  // antes de cargar productos (ej: arranca la operación, define los rubros
+  // y luego va cargando insumos).
+  extraRubros          String?   @map("extra_rubros")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 

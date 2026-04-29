@@ -103,6 +103,90 @@ router.post('/csv', async (req: Request, res: Response) => {
           resultados.errores.push(`Error: ${e.message?.slice(0, 100)}`);
         }
       }
+    } else if (tipo === 'recetas') {
+      // Importar carta/menú de Maxirest u otro POS — crea esqueletos de Receta.
+      // Cada fila debería tener: codigo (del plato en el POS), nombre (descripción),
+      // precioVenta (precio en carta), categoria (entrada/plato/postre/bebida),
+      // sector (cocina/pizzeria/etc), porciones (default 1).
+      // El chef completa los ingredientes después en la página Recetas.
+      // Si la receta ya existe (mismo código), actualiza nombre/precio/categoría
+      // pero NO toca los ingredientes ni el productoResultadoId (no destructivo).
+      for (const row of datos) {
+        try {
+          const data: any = mapeo
+            ? Object.fromEntries(
+                Object.entries(mapeo)
+                  .map(([o, d]) => [d, row[o]])
+                  .filter(([, v]) => v !== undefined && v !== '')
+              )
+            : { ...row };
+
+          if (!data.nombre) {
+            resultados.errores.push(`Plato sin nombre: ${JSON.stringify(row).slice(0, 80)}`);
+            continue;
+          }
+
+          // Normalizar categoría a valores aceptados
+          const catRaw = String(data.categoria || '').toLowerCase().trim();
+          let categoria: string | null = null;
+          if (/entrada|aperitiv/i.test(catRaw)) categoria = 'entrada';
+          else if (/postre|dulce/i.test(catRaw)) categoria = 'postre';
+          else if (/bebid|trago|vino|cerveza|gaseo/i.test(catRaw)) categoria = 'bebida';
+          else if (/guarn|acomp/i.test(catRaw)) categoria = 'guarnicion';
+          else if (catRaw) categoria = 'plato';
+
+          const sectorRaw = String(data.sector || '').toLowerCase().trim();
+          let sector: string | null = null;
+          if (/pizza/i.test(sectorRaw)) sector = 'pizzeria';
+          else if (/cocina/i.test(sectorRaw)) sector = 'cocina';
+          else if (/pastel|reposter|postre/i.test(sectorRaw)) sector = 'pasteleria';
+          else if (/pasta/i.test(sectorRaw)) sector = 'pastas';
+
+          const codigo = String(data.codigo || '').trim() || null;
+          const precioVenta = data.precioVenta ? parseFloat(String(data.precioVenta).replace(',', '.')) : null;
+          const porciones = data.porciones ? Math.max(1, parseInt(String(data.porciones))) : 1;
+          const margenObjetivo = data.margenObjetivo ? parseFloat(String(data.margenObjetivo)) : 70;
+
+          const recetaData: any = {
+            nombre: String(data.nombre).trim(),
+            codigo,
+            categoria,
+            sector,
+            precioVenta,
+            porciones,
+            margenObjetivo,
+            // Marca como salida a carta — son platos del menú importados.
+            salidaACarta: true,
+          };
+
+          // Buscar existente por código (si tiene) o por nombre exacto
+          const existing = codigo
+            ? await prisma.receta.findFirst({ where: { codigo } })
+            : await prisma.receta.findFirst({ where: { nombre: recetaData.nombre } });
+
+          if (existing) {
+            // Actualización no destructiva: solo nombre/categoría/sector/precio.
+            // No tocamos ingredientes ni productoResultadoId.
+            await prisma.receta.update({
+              where: { id: existing.id },
+              data: {
+                nombre: recetaData.nombre,
+                categoria: recetaData.categoria ?? existing.categoria,
+                sector: recetaData.sector ?? existing.sector,
+                precioVenta: recetaData.precioVenta ?? existing.precioVenta,
+                margenObjetivo: recetaData.margenObjetivo ?? existing.margenObjetivo,
+                salidaACarta: true,
+              },
+            });
+            resultados.actualizados++;
+          } else {
+            await prisma.receta.create({ data: recetaData });
+            resultados.insertados++;
+          }
+        } catch (e: any) {
+          resultados.errores.push(`Error en fila: ${e.message?.slice(0, 100)}`);
+        }
+      }
     } else if (tipo === 'ventas') {
       // Import sales data from Maxirest - creates consumo_interno movements
       // Expected: array of { recetaCodigo, cantidad, fecha?, depositoOrigenId? }
@@ -178,6 +262,10 @@ router.get('/plantillas/:tipo', (req: Request, res: Response) => {
     ventas: {
       columnas: ['recetaCodigo', 'cantidad', 'fecha', 'hora'],
       ejemplo: { recetaCodigo: 'REC-001', cantidad: '3', fecha: '2026-03-31', hora: '20:30' }
+    },
+    recetas: {
+      columnas: ['codigo', 'nombre', 'categoria', 'sector', 'precioVenta', 'porciones'],
+      ejemplo: { codigo: 'PLATO-001', nombre: 'Milanesa con papas', categoria: 'plato', sector: 'cocina', precioVenta: '8500', porciones: '1' }
     }
   };
 

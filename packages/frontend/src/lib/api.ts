@@ -353,6 +353,16 @@ export const api = {
       `/productos/rubros/rename`,
       { method: 'PUT', body: JSON.stringify({ rubroViejo, rubroNuevo }) }
     ),
+  crearRubro: (nombre: string) =>
+    request<{ rubro: string; cantProductos: number }>(`/productos/rubros`, {
+      method: 'POST',
+      body: JSON.stringify({ nombre }),
+    }),
+  borrarRubro: (nombre: string) =>
+    request<{ borrado: boolean }>(
+      `/productos/rubros/${encodeURIComponent(nombre)}`,
+      { method: 'DELETE' }
+    ),
   getUltimosCostos: (ids: number[]) =>
     ids.length === 0
       ? Promise.resolve({} as Record<number, { costoUnitario: number; fecha: string }>)

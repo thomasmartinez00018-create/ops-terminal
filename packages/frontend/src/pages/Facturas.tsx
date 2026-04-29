@@ -408,7 +408,33 @@ export default function Facturas() {
               </div>
             </div>
 
-            {/* Totales */}
+            {/* Desglose impositivo — solo si hay datos relevantes (típico
+                de facturas A/B argentinas: subtotal + IVA + Imp. Interno).
+                Para tickets/remitos donde solo hay total, lo ocultamos. */}
+            {(Number(detalle.subtotal) > 0 || Number(detalle.iva) > 0 || Number(detalle.otrosImpuestos) > 0) && (
+              <div className="bg-surface-high/60 rounded-xl p-3 space-y-1.5 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-on-surface-variant font-medium">Subtotal</span>
+                  <span className="font-mono font-semibold tabular-nums text-foreground">{formatMoney(detalle.subtotal || 0)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-on-surface-variant font-medium">IVA</span>
+                  <span className="font-mono font-semibold tabular-nums text-foreground">{formatMoney(detalle.iva || 0)}</span>
+                </div>
+                {Number(detalle.otrosImpuestos) > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-on-surface-variant font-medium">Imp. Interno / Otros</span>
+                    <span className="font-mono font-semibold tabular-nums text-amber-500">{formatMoney(detalle.otrosImpuestos)}</span>
+                  </div>
+                )}
+                <div className="border-t border-border/60 pt-1.5 mt-1.5 flex items-center justify-between">
+                  <span className="text-foreground font-bold uppercase text-[10px] tracking-widest">Total</span>
+                  <span className="font-mono font-extrabold tabular-nums text-foreground text-base">{formatMoney(detalle.total)}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Totales pago */}
             <div className="grid grid-cols-3 gap-3 bg-surface-high rounded-xl p-3">
               <div className="text-center">
                 <p className="text-[10px] font-bold text-on-surface-variant uppercase">Total</p>

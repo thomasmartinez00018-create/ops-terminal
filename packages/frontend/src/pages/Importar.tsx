@@ -8,10 +8,12 @@ import Badge from '../components/ui/Badge';
 import { Upload, FileSpreadsheet, Check, AlertTriangle, Download, Zap } from 'lucide-react';
 
 const TIPOS_IMPORT = [
-  { value: 'maxirest_insumos', label: 'Maxirest - Insumos', desc: 'Importar insumos desde el archivo INSUMO.XLSX exportado por Maxirest. Las columnas se mapean automaticamente.' },
-  { value: 'productos', label: 'Productos (CSV)', desc: 'Importar maestro de productos con codigo, nombre, rubro, unidad y stock minimo.' },
-  { value: 'proveedores', label: 'Proveedores (CSV)', desc: 'Importar proveedores con razon social, CUIT, contacto y condiciones.' },
-  { value: 'ventas', label: 'Ventas (Maxirest)', desc: 'Importar ventas exportadas desde Maxirest para descontar stock automaticamente.' },
+  { value: 'maxirest_insumos', label: 'Maxirest — Insumos', desc: 'Importar insumos desde el archivo INSUMO.XLSX exportado por Maxirest. Las columnas se mapean automáticamente.' },
+  { value: 'maxirest_carta', label: 'Maxirest — Carta / Platos', desc: 'Importar la carta del restaurante (platos con precio de venta) desde el export de Maxirest. Crea recetas vacías para que el chef complete los ingredientes después.' },
+  { value: 'productos', label: 'Productos (CSV)', desc: 'Importar maestro de productos con código, nombre, rubro, unidad y stock mínimo.' },
+  { value: 'recetas', label: 'Recetas (CSV)', desc: 'Importar lista de platos/recetas con nombre, precio y categoría. Útil si exportás la carta de otro sistema.' },
+  { value: 'proveedores', label: 'Proveedores (CSV)', desc: 'Importar proveedores con razón social, CUIT, contacto y condiciones.' },
+  { value: 'ventas', label: 'Ventas (Maxirest)', desc: 'Importar ventas exportadas desde Maxirest para descontar stock automáticamente.' },
 ];
 
 // Normaliza las unidades de Maxirest al formato interno
@@ -93,6 +95,63 @@ function procesarMaxirestInsumos(rows: any[][]): { headers: string[]; rows: stri
   return { headers: outHeaders, rows: outRows };
 }
 
+// Procesa el XLSX de Maxirest exportado de la carta/platos. Maxirest exporta
+// con encabezados típicos: COD_PLA, NOMBRE_PLATO, PRECIO, CATEGORIA, SECTOR.
+// Tomamos los más comunes; si el cliente tiene otro layout, el flujo de
+// CSV genérico permite mapear manualmente.
+function procesarMaxirestCarta(rows: any[][]): { headers: string[]; rows: string[][] } {
+  let headerIdx = 0;
+  for (let i = 0; i < Math.min(rows.length, 5); i++) {
+    const r = rows[i].map(c => String(c || '').toUpperCase().trim());
+    const matches = r.filter(c =>
+      c === 'COD_PLA' || c === 'CODIGO' || c === 'COD_PLATO' ||
+      c === 'NOMBRE' || c === 'NOMBRE_PLATO' || c === 'DESCRIPCION' ||
+      c === 'PRECIO' || c === 'PRECIO_V' || c === 'PRECIO_VENTA'
+    ).length;
+    if (matches >= 2) { headerIdx = i; break; }
+  }
+
+  const rawHeaders = rows[headerIdx].map(c => String(c || '').toUpperCase().trim());
+  const findCol = (...keys: string[]) => {
+    for (const k of keys) {
+      const i = rawHeaders.indexOf(k);
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+  const colCodigo   = findCol('COD_PLA', 'CODIGO', 'COD_PLATO', 'COD');
+  const colNombre   = findCol('NOMBRE_PLATO', 'NOMBRE', 'DESCRIPCION', 'PLATO');
+  const colPrecio   = findCol('PRECIO_V', 'PRECIO_VENTA', 'PRECIO', 'PRE_VTA');
+  const colCategoria = findCol('CATEGORIA', 'TIPO', 'CAT');
+  const colSector   = findCol('SECTOR', 'AREA', 'COD_SEC');
+
+  const outHeaders = ['codigo', 'nombre', 'categoria', 'sector', 'precioVenta', 'porciones'];
+  const outRows: string[][] = [];
+
+  for (let i = headerIdx + 1; i < rows.length; i++) {
+    const row = rows[i];
+    const nombre = colNombre >= 0 ? String(row[colNombre] || '').trim() : '';
+    if (!nombre) continue;
+
+    const maxCodigo = colCodigo >= 0 ? String(row[colCodigo] || '').trim() : '';
+    const codigo = maxCodigo ? `MAX-${maxCodigo}` : '';
+    const precio = colPrecio >= 0 ? parseFloat(String(row[colPrecio] || '0').replace(',', '.')) || 0 : 0;
+    const categoria = colCategoria >= 0 ? String(row[colCategoria] || '').trim() : '';
+    const sector = colSector >= 0 ? String(row[colSector] || '').trim() : '';
+
+    outRows.push([
+      codigo,
+      nombre,
+      categoria,
+      sector,
+      precio > 0 ? String(precio) : '',
+      '1',
+    ]);
+  }
+
+  return { headers: outHeaders, rows: outRows };
+}
+
 function parseCSV(text: string): { headers: string[]; rows: string[][] } {
   const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
   if (lines.length === 0) return { headers: [], rows: [] };
@@ -163,14 +222,21 @@ export default function Importar() {
   const seleccionarTipo = async (value: string) => {
     setTipo(value);
     setError('');
-    setIsMaxirest(value === 'maxirest_insumos');
+    setIsMaxirest(value === 'maxirest_insumos' || value === 'maxirest_carta');
     if (!value) { setPlantilla(null); return; }
 
     if (value === 'maxirest_insumos') {
-      // Plantilla fija para Maxirest — no hace falta fetch
       setPlantilla({
         columnas: ['codigo', 'nombre', 'rubro', 'tipo', 'unidad_compra', 'unidad_uso', 'precio'],
         ejemplo: { codigo: 'MAX-175', nombre: 'Papa negra', rubro: 'Verduras', tipo: 'insumo', unidad_compra: 'kg', unidad_uso: 'kg', precio: '1250' },
+      });
+      return;
+    }
+
+    if (value === 'maxirest_carta') {
+      setPlantilla({
+        columnas: ['codigo', 'nombre', 'categoria', 'sector', 'precioVenta', 'porciones'],
+        ejemplo: { codigo: 'MAX-101', nombre: 'Milanesa con papas', categoria: 'plato', sector: 'cocina', precioVenta: '8500', porciones: '1' },
       });
       return;
     }
@@ -214,9 +280,11 @@ export default function Importar() {
             const wb = XLSX.read(buffer, { type: 'array' });
             const ws = wb.Sheets[wb.SheetNames[0]];
             const rawData: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-            const { headers, rows } = procesarMaxirestInsumos(rawData);
+            const { headers, rows } = tipo === 'maxirest_carta'
+              ? procesarMaxirestCarta(rawData)
+              : procesarMaxirestInsumos(rawData);
             if (headers.length === 0 || rows.length === 0) {
-              setError('No se encontraron datos válidos en el archivo.');
+              setError('No se encontraron datos válidos en el archivo. Revisá el formato del export de Maxirest.');
               return;
             }
             setParsedHeaders(headers);
@@ -290,7 +358,13 @@ export default function Importar() {
         return obj;
       });
 
-      const tipoBackend = isMaxirest ? 'productos' : tipo;
+      // Mapear el tipo del wizard al tipo que entiende el backend.
+      // maxirest_insumos → productos (carga insumos)
+      // maxirest_carta   → recetas  (carga platos del menú)
+      const tipoBackend =
+        tipo === 'maxirest_insumos' ? 'productos' :
+        tipo === 'maxirest_carta' ? 'recetas' :
+        tipo;
       const res = await api.importarCSV({ tipo: tipoBackend, datos: mappedRows, mapeo: mapping });
       setResults(res);
     } catch (e: any) {
