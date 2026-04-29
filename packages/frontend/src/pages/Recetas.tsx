@@ -339,6 +339,18 @@ export default function Recetas() {
   const [filtroCat, setFiltroCat] = useState('');
   // filtroCarta: '' = todas, 'si' = solo carta, 'no' = solo preparaciones
   const [filtroCarta, setFiltroCarta] = useState<'' | 'si' | 'no'>('');
+  // ── Modo Cocina ─────────────────────────────────────────────────────
+  // Cuando está activo: oculta circuito de producción, precio de carta,
+  // sector, salidaACarta, ficha técnica avanzada. Deja solo lo que el chef
+  // necesita: nombre + foto + porciones + ingredientes. Pensado para que
+  // el chef cargue recetas desde el celular en su casa sin abrumarse.
+  // Persiste en localStorage por usuario.
+  const [modoCocina, setModoCocina] = useState<boolean>(() => {
+    try { return localStorage.getItem('recetas_modo_cocina') === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('recetas_modo_cocina', modoCocina ? '1' : '0'); } catch { }
+  }, [modoCocina]);
 
   const cargar = () => {
     api.getRecetas({ activo: 'true' }).then(setRecetas).catch(console.error);
@@ -895,10 +907,45 @@ export default function Recetas() {
         size="2xl"
       >
         <div className="space-y-4">
+          {/* ── TOGGLE MODO COCINA — switch grande para que el chef ponga el
+              form en "modo simple" desde su celular. Oculta todo lo que no
+              es estrictamente cocina (precio, circuito, ficha técnica). */}
+          <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl border border-border/60 bg-surface-high/30">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="text-2xl shrink-0" aria-hidden>👨‍🍳</span>
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-foreground">Modo cocina</p>
+                <p className="text-[11px] text-on-surface-variant truncate">
+                  {modoCocina
+                    ? 'Solo nombre, foto y ingredientes — sin precios ni circuito'
+                    : 'Vista completa con precio de carta, circuito de producción y ficha técnica'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={modoCocina}
+              onClick={() => setModoCocina(m => !m)}
+              className={`relative shrink-0 w-12 h-7 rounded-full transition-colors ${
+                modoCocina ? 'bg-primary' : 'bg-surface-high border border-border'
+              }`}
+              title={modoCocina ? 'Desactivar modo cocina' : 'Activar modo cocina'}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-background shadow-md transition-transform ${
+                  modoCocina ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+
           {/* ── FLOW HERO — Circuito de producción como héroe grande y clickeable
               Inspirado en el mockup "Producción · circuito" del cliente. Cada
               nodo muestra icon + label + sub + value. El paso 3 (Receta) es
-              el activo; los anteriores se marcan como "hechos" (done). */}
+              el activo; los anteriores se marcan como "hechos" (done).
+              Oculto en Modo Cocina — el chef no usa el circuito directamente. */}
+          {!modoCocina && (
           <div className="rounded-xl border border-border/60 bg-surface-high/20 p-4">
             <div className="flex items-end justify-between gap-3 mb-3">
               <div>
@@ -1020,12 +1067,14 @@ export default function Recetas() {
               );
             })()}
           </div>
+          )}{/* fin Flow Hero (modoCocina) */}
 
           {/* ── RECIPE TOP — grid 1.35fr/1fr en desktop (md+ ≈768px),
               apilado en mobile. Plato card izq + Precio card der como mockup
               var-c2-receta. Breakpoint md (no lg) porque el DrawerModal
-              "2xl" mide 1152px y a partir de tablet ya cabe en 2 cols. */}
-          <div className="grid grid-cols-1 md:grid-cols-[1.35fr_1fr] gap-3 items-start">
+              "2xl" mide 1152px y a partir de tablet ya cabe en 2 cols.
+              En Modo Cocina mostramos solo la Plato Card a ancho completo. */}
+          <div className={`grid grid-cols-1 ${modoCocina ? '' : 'md:grid-cols-[1.35fr_1fr]'} gap-3 items-start`}>
 
           {/* ── PLATO CARD — imita el mockup var-c2-receta: foto + chips + nombre
               gigante editable + subtitulo + datos compactos. Consolida Hero
@@ -1144,8 +1193,9 @@ export default function Recetas() {
                   </>
                 )}
                 {/* Costo por porción inline — reemplaza el Hero gigante, ahora
-                    es parte del subtitulo como el mockup (plato-sub). */}
-                {costoPorPorcion > 0 && (
+                    es parte del subtitulo como el mockup (plato-sub).
+                    Oculto en Modo Cocina — el costo no es info útil para el chef. */}
+                {!modoCocina && costoPorPorcion > 0 && (
                   <>
                     <span className="w-1 h-1 rounded-full bg-on-surface-variant/40"></span>
                     <span>
@@ -1157,8 +1207,10 @@ export default function Recetas() {
 
               {/* Campos editables compactos en grid — reemplazan los Input
                   sueltos del layout viejo. Mantienen funcionalidad pero
-                  visualmente están integrados al plato-card. */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-1.5 pt-2 border-t border-border/30">
+                  visualmente están integrados al plato-card.
+                  En Modo Cocina: solo Porciones y Categoría (oculta Código + Sector). */}
+              <div className={`grid ${modoCocina ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-4'} gap-2 mt-1.5 pt-2 border-t border-border/30`}>
+                {!modoCocina && (
                 <div>
                   <label className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.15em]">Código</label>
                   <input
@@ -1169,28 +1221,30 @@ export default function Recetas() {
                     className="w-full px-2 py-1 mt-0.5 rounded bg-surface-high border border-border/60 text-xs font-mono font-semibold focus:outline-none focus:border-primary/50"
                   />
                 </div>
+                )}
                 <div>
-                  <label className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.15em]">Porciones</label>
+                  <label className={`${modoCocina ? 'text-[11px]' : 'text-[9px]'} font-bold text-on-surface-variant uppercase tracking-[0.15em]`}>Porciones</label>
                   <input
                     type="number"
                     inputMode="numeric"
                     min={1}
                     value={form.porciones}
                     onChange={e => setForm({ ...form, porciones: Number(e.target.value) || 1 })}
-                    className="w-full px-2 py-1 mt-0.5 rounded bg-surface-high border border-border/60 text-xs font-mono font-semibold tabular-nums focus:outline-none focus:border-primary/50"
+                    className={`w-full px-2 ${modoCocina ? 'py-2.5 text-base' : 'py-1 text-xs'} mt-0.5 rounded bg-surface-high border border-border/60 font-mono font-semibold tabular-nums focus:outline-none focus:border-primary/50`}
                   />
                 </div>
                 <div>
-                  <label className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.15em]">Categoría</label>
+                  <label className={`${modoCocina ? 'text-[11px]' : 'text-[9px]'} font-bold text-on-surface-variant uppercase tracking-[0.15em]`}>Categoría</label>
                   <select
                     value={form.categoria}
                     onChange={e => setForm({ ...form, categoria: e.target.value })}
-                    className="w-full px-2 py-1 mt-0.5 rounded bg-surface-high border border-border/60 text-xs font-semibold focus:outline-none focus:border-primary/50"
+                    className={`w-full px-2 ${modoCocina ? 'py-2.5 text-base' : 'py-1 text-xs'} mt-0.5 rounded bg-surface-high border border-border/60 font-semibold focus:outline-none focus:border-primary/50`}
                   >
                     <option value="">—</option>
                     {CATEGORIAS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                   </select>
                 </div>
+                {!modoCocina && (
                 <div>
                   <label className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.15em]">Sector</label>
                   <select
@@ -1201,6 +1255,7 @@ export default function Recetas() {
                     {SECTORES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                   </select>
                 </div>
+                )}
               </div>
             </div>
           </div>
@@ -1208,7 +1263,9 @@ export default function Recetas() {
           {/* ── PRECIO CARD — siempre visible como el mockup, input gigante
               gold centrado, food cost / margen / mark up en vivo debajo.
               Reemplaza el antiguo <details> colapsable porque el precio
-              de carta es información crítica para el chef, no opcional. */}
+              de carta es información crítica para el chef, no opcional.
+              Oculto en Modo Cocina — el precio es decisión del dueño, no del chef. */}
+          {!modoCocina && (
           <div ref={refPrecio} className="rounded-xl border border-primary/30 p-4 space-y-3"
             style={{
               background: 'radial-gradient(ellipse at 100% 0%, rgba(212,175,55,.08), transparent 60%), var(--color-surface-high)',
@@ -1323,13 +1380,16 @@ export default function Recetas() {
               );
             })()}
           </div>
+          )}{/* fin Precio Card (modoCocina) */}
 
           {/* ── cierre del grid recipe-top ── */}
           </div>
 
           {/* Producto elaborado — solo si la receta también produce stock.
               Movido fuera del grid recipe-top para que plato + precio queden
-              alineados side-by-side (mockup var-c2-receta). */}
+              alineados side-by-side (mockup var-c2-receta).
+              Oculto en Modo Cocina — es decisión técnica/operativa. */}
+          {!modoCocina && (
           <details className="rounded-xl border border-border bg-surface-high/20 group">
             <summary className="flex items-center gap-2 p-3 cursor-pointer list-none select-none">
               <Package size={13} className="text-primary" />
@@ -1384,6 +1444,7 @@ export default function Recetas() {
               </div>
             </div>
           </details>
+          )}{/* fin Producto elaborado (modoCocina) */}
 
           {/* Ficha técnica — método de preparación + foto + tiempo. Colapsado
               por default porque es opcional y no queremos saturar al usuario. */}
@@ -1761,8 +1822,9 @@ export default function Recetas() {
             {/* Fila de TOTALES al pie — como el mockup de Recetas.
                 Muestra suma de cantidad por unidad (cuando hay misma unidad)
                 y costo total, con línea divisoria superior doble para marcarlo
-                como totales contables. */}
-            {form.ingredientes.length > 0 && (() => {
+                como totales contables.
+                Oculto en Modo Cocina — el costo no es info útil para el chef. */}
+            {!modoCocina && form.ingredientes.length > 0 && (() => {
               // Contadores contados (PP/PE/Bruto) para el breakdown del total
               const countPP = form.ingredientes.filter(i => i.productoId && tiposCircuito.porcion.has(i.productoId)).length;
               const countPE = form.ingredientes.filter(i => i.productoId && tiposCircuito.elaborado.has(i.productoId)).length;
