@@ -41,6 +41,7 @@ router.get('/', async (req: Request, res: Response) => {
         precioVenta: true,
         margenObjetivo: true,
         salidaACarta: true,
+        rubro: true,
         metodoPreparacion: true,
         tiempoPreparacion: true,
         notasChef: true,
@@ -261,6 +262,9 @@ function camposOpcionales(body: any): Record<string, any> {
   if ('notasChef' in body) {
     out.notasChef = typeof body.notasChef === 'string'
       ? body.notasChef.slice(0, 2000) || null : null;
+  }
+  if ('rubro' in body) {
+    out.rubro = typeof body.rubro === 'string' ? body.rubro.slice(0, 100) || null : null;
   }
   if ('imagenBase64' in body) {
     // Cap a ~500KB de base64 (~375KB de imagen) para no romper el transfer
@@ -585,4 +589,165 @@ router.post('/bulk-precio', async (req: Request, res: Response) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PATCH /api/recetas/:id/precio — actualizar precio de venta rápidamente
+// Usado desde la Carta para edición inline sin abrir el modal completo.
+// Body: { precioVenta: number | null }
+// ─────────────────────────────────────────────────────────────────────────────
+router.patch('/:id/precio', async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id as string);
+    if (isNaN(id)) { res.status(400).json({ error: 'ID inválido' }); return; }
+
+    const raw = req.body?.precioVenta;
+    const precio = raw === null || raw === '' ? null : Number(raw);
+    if (precio !== null && (!Number.isFinite(precio) || precio < 0)) {
+      res.status(400).json({ error: 'precioVenta inválido' }); return;
+    }
+
+    await prisma.receta.update({
+      where: { id },
+      data: { precioVenta: precio },
+    });
+    res.json({ ok: true, id, precioVenta: precio });
+  } catch (error: any) {
+    console.error('[recetas/precio]', error);
+    res.status(500).json({ error: 'Error al actualizar precio' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/recetas/carta — datos enriquecidos para la página Carta
+// ---------------------------------------------------------------------------
+// Devuelve todas las recetas con salidaACarta=true enriquecidas con:
+//   · costoPorPorcion: calculado desde ingredientes × último precio de stock
+//   · margenReal: ((precioVenta - costo) / precioVenta) × 100
+//   · elaboraciones: {total30d, totalHistorico, porciones30d, porcionesHistoricas}
+//     para construir el ranking de "más vendidos" mes a mes.
+//
+// Hace 3 queries en total (no N+1): recetas+ingredientes / costos / elaboraciones.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get('/carta', async (req: Request, res: Response) => {
+  try {
+    // ── 1. Recetas de la carta (sin imagen base64) ───────────────────────────
+    const recetas = await prisma.receta.findMany({
+      where: { salidaACarta: true, activo: true },
+      select: {
+        id: true, codigo: true, nombre: true, categoria: true, sector: true,
+        rubro: true, porciones: true, precioVenta: true, margenObjetivo: true,
+        metodoPreparacion: true, tiempoPreparacion: true, notasChef: true,
+        ingredientes: {
+          select: {
+            productoId: true,
+            cantidad: true,
+            mermaEsperada: true,
+          }
+        }
+      },
+      orderBy: { nombre: 'asc' },
+    });
+
+    if (recetas.length === 0) {
+      res.json([]); return;
+    }
+
+    // ── 2. Últimos costos unitarios de los productos involucrados (bulk) ─────
+    // Solo productos que aparecen en algún ingrediente de carta.
+    const productoIds = [...new Set(
+      recetas.flatMap(r => r.ingredientes.map(i => i.productoId))
+    )];
+
+    type CostoRow = { producto_id: number; costo_unitario: number };
+    const costoRows = productoIds.length > 0
+      ? await prisma.$queryRawUnsafe<CostoRow[]>(`
+          SELECT DISTINCT ON (producto_id) producto_id, costo_unitario
+          FROM movimientos
+          WHERE producto_id = ANY(ARRAY[${productoIds.join(',')}]::int[])
+            AND costo_unitario IS NOT NULL
+            AND costo_unitario > 0
+          ORDER BY producto_id, fecha DESC, id DESC
+        `)
+      : [];
+
+    const costoMap = new Map<number, number>();
+    for (const row of costoRows) {
+      costoMap.set(Number(row.producto_id), Number(row.costo_unitario) || 0);
+    }
+
+    // ── 3. Estadísticas de elaboraciones por receta (ranking) ────────────────
+    const recetaIds = recetas.map(r => r.id);
+    const hace30dias = new Date();
+    hace30dias.setDate(hace30dias.getDate() - 30);
+    const fecha30dStr = hace30dias.toISOString().slice(0, 10);
+
+    type ElabRow = {
+      receta_id: number;
+      total_historico: string;
+      total_30d: string;
+    };
+    const elabRows = await prisma.$queryRawUnsafe<ElabRow[]>(`
+      SELECT
+        receta_id,
+        COUNT(*)::text                                              AS total_historico,
+        COUNT(*) FILTER (WHERE fecha >= '${fecha30dStr}')::text     AS total_30d
+      FROM elaboracion_lotes
+      WHERE receta_id = ANY(ARRAY[${recetaIds.join(',')}]::int[])
+      GROUP BY receta_id
+    `);
+
+    const elabMap = new Map<number, { totalHistorico: number; total30d: number }>();
+    for (const row of elabRows) {
+      elabMap.set(Number(row.receta_id), {
+        totalHistorico: Number(row.total_historico) || 0,
+        total30d: Number(row.total_30d) || 0,
+      });
+    }
+
+    // ── 4. Calcular costo, margen y armar respuesta ──────────────────────────
+    const resultado = recetas.map(r => {
+      let costoTotal = 0;
+      for (const ing of r.ingredientes) {
+        const costoUnit = costoMap.get(ing.productoId) ?? 0;
+        const merma = (ing.mermaEsperada ?? 0) / 100;
+        const cantBruta = merma > 0 && merma < 1
+          ? ing.cantidad / (1 - merma)
+          : ing.cantidad;
+        costoTotal += cantBruta * costoUnit;
+      }
+      const costoPorPorcion = r.porciones > 0 ? costoTotal / r.porciones : 0;
+      const precioVenta = r.precioVenta ?? null;
+      let margenReal: number | null = null;
+      if (precioVenta && precioVenta > 0 && costoPorPorcion > 0) {
+        margenReal = ((precioVenta - costoPorPorcion) / precioVenta) * 100;
+      }
+
+      const elab = elabMap.get(r.id) ?? { totalHistorico: 0, total30d: 0 };
+
+      return {
+        id: r.id,
+        codigo: r.codigo,
+        nombre: r.nombre,
+        categoria: r.categoria,
+        sector: r.sector,
+        rubro: r.rubro,
+        porciones: r.porciones,
+        precioVenta,
+        margenObjetivo: r.margenObjetivo,
+        costoPorPorcion: Math.round(costoPorPorcion * 100) / 100,
+        margenReal: margenReal !== null ? Math.round(margenReal * 10) / 10 : null,
+        elaboraciones: {
+          totalHistorico: elab.totalHistorico,
+          total30d: elab.total30d,
+        },
+      };
+    });
+
+    res.json(resultado);
+  } catch (error: any) {
+    console.error('[recetas/carta]', error);
+    res.status(500).json({ error: 'Error al cargar carta' });
+  }
+});
+
 export default router;
+

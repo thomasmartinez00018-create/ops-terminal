@@ -420,6 +420,16 @@ model Receta {
   // ── Ficha técnica (opcional, feature 3) ──────────────────────────────
   // Campos para convertir la receta en una ficha técnica completa que
   // el chef pueda imprimir y pegar en la pared de la cocina.
+  // ── Rubro de carta ───────────────────────────────────────────────────
+  // Clasificación libre del dueño para agrupar platos en su carta:
+  // "Pescados", "Carnes", "Pastas", "Entradas frías", etc. Distinto de
+  // `categoria` (entrada/plato/postre — slot fijo de menú) y de `sector`
+  // (área de cocina). El rubro es la lectura del comensal, el sector es
+  // la lectura del chef.
+  rubro               String? // libre: "Pescados", "Carnes", "Pastas", etc.
+  // ── Ficha técnica (opcional, feature 3) ──────────────────────────────
+  // Campos para convertir la receta en una ficha técnica completa que
+  // el chef pueda imprimir y pegar en la pared de la cocina.
   metodoPreparacion   String? @map("metodo_preparacion")
   tiempoPreparacion   Int?    @map("tiempo_preparacion") // minutos
   notasChef           String? @map("notas_chef")

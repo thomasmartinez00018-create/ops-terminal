@@ -70,6 +70,7 @@ const emptyForm = {
   nombre: '',
   categoria: '',
   sector: '',
+  rubro: '',
   porciones: 1,
   productoResultadoId: null as number | null,
   cantidadProducida: '' as string | number,
@@ -436,6 +437,7 @@ export default function Recetas() {
         nombre: opts?.duplicar ? `${receta.nombre} (copia)` : receta.nombre,
         categoria: receta.categoria,
         sector: receta.sector || '',
+        rubro: receta.rubro || '',
         porciones: receta.porciones,
         productoResultadoId: opts?.duplicar ? null : (receta.productoResultadoId ?? null),
         cantidadProducida: receta.cantidadProducida ?? '',
@@ -471,6 +473,7 @@ export default function Recetas() {
         nombre: form.nombre,
         categoria: form.categoria,
         sector: form.sector || null,
+        rubro: form.rubro || null,
         porciones: Number(form.porciones),
         productoResultadoId: form.productoResultadoId ?? null,
         cantidadProducida: form.cantidadProducida !== '' ? Number(form.cantidadProducida) : null,
@@ -1226,7 +1229,7 @@ export default function Recetas() {
                   sueltos del layout viejo. Mantienen funcionalidad pero
                   visualmente están integrados al plato-card.
                   En Modo Cocina: solo Porciones y Categoría (oculta Código + Sector). */}
-              <div className={`grid ${modoCocina ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-4'} gap-2 mt-1.5 pt-2 border-t border-border/30`}>
+              <div className={`grid ${modoCocina ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-5'} gap-2 mt-1.5 pt-2 border-t border-border/30`}>
                 {!modoCocina && (
                 <div>
                   <label className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.15em]">Código</label>
@@ -1271,6 +1274,18 @@ export default function Recetas() {
                   >
                     {SECTORES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                   </select>
+                </div>
+                )}
+                {!modoCocina && (
+                <div>
+                  <label className="text-[9px] font-bold text-on-surface-variant uppercase tracking-[0.15em]">Rubro (carta)</label>
+                  <input
+                    type="text"
+                    placeholder="Ej: Pescados, Carnes…"
+                    value={form.rubro}
+                    onChange={e => setForm({ ...form, rubro: e.target.value })}
+                    className="w-full px-2 py-1 mt-0.5 rounded bg-surface-high border border-border/60 text-xs font-semibold focus:outline-none focus:border-primary/50"
+                  />
                 </div>
                 )}
               </div>

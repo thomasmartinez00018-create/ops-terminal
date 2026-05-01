@@ -426,6 +426,14 @@ export const api = {
       total: number;
       cambios: { id: number; nombre: string; antes: number; despues: number }[];
     }>('/recetas/bulk-precio', { method: 'POST', body: JSON.stringify(params) }),
+  // Carta enriquecida — recetas de carta con costo, margen y ranking
+  getCartaData: () => request<any[]>('/recetas/carta'),
+  // Actualizar precio de venta inline desde la Carta
+  patchPrecioReceta: (id: number, precioVenta: number | null) =>
+    request<{ ok: boolean; id: number; precioVenta: number | null }>(
+      `/recetas/${id}/precio`,
+      { method: 'PATCH', body: JSON.stringify({ precioVenta }) },
+    ),
 
   // Proveedores
   getProveedores: (params?: Record<string, string>) => request<any[]>(`/proveedores${qs(params)}`),
