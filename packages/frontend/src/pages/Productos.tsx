@@ -44,6 +44,9 @@ const emptyForm = {
   codigoBarras: '', stockMinimo: 0, stockIdeal: 0,
   precioReferencia: '' as number | '',
   depositoDefectoId: null as number | null,
+  // Punto de Venta — venta directa sin receta (kiosco/carrito/barra/evento)
+  vendibleDirecto: false,
+  precioVenta: '' as number | '',
 };
 
 export default function Productos() {
@@ -126,6 +129,8 @@ export default function Productos() {
         stockIdeal: producto.stockIdeal,
         precioReferencia: producto.precioReferencia ?? '',
         depositoDefectoId: producto.depositoDefectoId,
+        vendibleDirecto: !!producto.vendibleDirecto,
+        precioVenta: producto.precioVenta ?? '',
       });
       if (rubroActual) {
         api.getSubrubros(rubroActual).then(setSubrubrosForm).catch(() => setSubrubrosForm([]));
@@ -162,6 +167,8 @@ export default function Productos() {
         stockMinimo: Number(form.stockMinimo) || 0,
         stockIdeal: Number(form.stockIdeal) || 0,
         precioReferencia: form.precioReferencia !== '' ? Number(form.precioReferencia) : null,
+        precioVenta: form.precioVenta !== '' ? Number(form.precioVenta) : null,
+        vendibleDirecto: !!form.vendibleDirecto,
         depositoDefectoId: form.depositoDefectoId || null,
         codigoBarras: form.codigoBarras || null,
       };
@@ -333,6 +340,13 @@ export default function Productos() {
                   </span>
                 )}
                 {p.codigoBarras && <span className="font-mono">· {p.codigoBarras}</span>}
+                {p.vendibleDirecto && (
+                  <span className="font-mono font-bold text-emerald-500">
+                    · venta ${p.precioVenta != null
+                      ? Number(p.precioVenta).toLocaleString('es-AR', { maximumFractionDigits: 0 })
+                      : '—'}
+                  </span>
+                )}
               </div>
             </div>
           ))}
@@ -365,6 +379,11 @@ export default function Productos() {
                       <div className="flex flex-wrap gap-1">
                         <Badge>{p.rubro}</Badge>
                         {p.subrubro && <Badge variant="secondary">{p.subrubro}</Badge>}
+                        {p.vendibleDirecto && (
+                          <Badge variant="success">
+                            Venta {p.precioVenta != null ? `$${Number(p.precioVenta).toLocaleString('es-AR', { maximumFractionDigits: 0 })}` : ''}
+                          </Badge>
+                        )}
                       </div>
                     </td>
                     <td className="p-3 hidden md:table-cell capitalize text-on-surface-variant">{p.tipo}</td>
@@ -568,6 +587,48 @@ export default function Productos() {
             options={depositos.map(d => ({ value: d.id.toString(), label: d.nombre }))}
             placeholder="Sin depósito por defecto"
           />
+
+          {/* ── Punto de Venta — venta directa sin receta ──────────────────
+              Marcá vendible si el producto se vende suelto en kiosco/carrito/
+              barra/evento. El precio de venta acá es para venta directa; los
+              platos/elaborados con receta usan el precio de la receta. */}
+          <div className="rounded-lg border border-border/40 bg-surface/40 p-3 space-y-3">
+            <label className="flex items-start gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={form.vendibleDirecto}
+                onChange={e => setForm({ ...form, vendibleDirecto: e.target.checked })}
+                className="mt-0.5 w-4 h-4 accent-primary"
+              />
+              <div>
+                <div className="text-xs font-bold uppercase tracking-wider">
+                  Vendible en Punto de Venta
+                </div>
+                <div className="text-[10px] text-on-surface-variant">
+                  Aparece en el catálogo del carrito/kiosco/barra para venta directa.
+                </div>
+              </div>
+            </label>
+            {form.vendibleDirecto && (
+              <div>
+                <label className="block text-[10px] font-bold text-on-surface-variant mb-1 uppercase tracking-wider">
+                  Precio de venta
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant font-bold text-sm">$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={form.precioVenta}
+                    onChange={e => setForm({ ...form, precioVenta: e.target.value === '' ? '' : Number(e.target.value) })}
+                    placeholder="0.00"
+                    className="w-full pl-7 pr-3 py-2 rounded-lg bg-surface-high border-0 text-foreground text-sm font-semibold placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
 
           {error && <p className="text-sm text-destructive font-semibold">{error}</p>}
 
