@@ -764,4 +764,29 @@ export const api = {
 
   deleteAlertaPrecio: (id: number) =>
     request<{ ok: boolean }>(`/alertas-precio/${id}`, { method: 'DELETE' }),
+
+  // ── Punto de Venta — productos vendibles + precio venta directo ─────────
+  getProductosVendibles: (depositoId?: number) =>
+    request<any[]>(`/productos/vendibles${depositoId ? `?depositoId=${depositoId}` : ''}`),
+  patchProductoPrecioVenta: (id: number, data: { precioVenta?: number | null; vendibleDirecto?: boolean }) =>
+    request<any>(`/productos/${id}/precio-venta`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // ── Sesiones de venta (kiosco/carrito/barra/evento) ─────────────────────
+  getSesiones: (params?: Record<string, string>) => request<any[]>(`/sesiones${qs(params)}`),
+  getSesion: (id: number) => request<any>(`/sesiones/${id}`),
+  getSesionAbierta: (depositoId: number) => request<any | null>(`/sesiones/abierta/${depositoId}`),
+  getDepositosDisponibles: () => request<any[]>('/sesiones/depositos/disponibles'),
+  getSesionStockActual: (id: number) => request<any[]>(`/sesiones/${id}/stock-actual`),
+  abrirSesion: (data: { depositoId: number; operadorId: number; observaciones?: string }) =>
+    request<any>('/sesiones', { method: 'POST', body: JSON.stringify(data) }),
+  registrarVenta: (sesionId: number, data: { productoId: number; cantidad: number; precioUnitario: number; clienteUuid?: string }) =>
+    request<any>(`/sesiones/${sesionId}/ventas`, { method: 'POST', body: JSON.stringify(data) }),
+  eliminarVenta: (sesionId: number, ventaId: number) =>
+    request<{ ok: boolean }>(`/sesiones/${sesionId}/ventas/${ventaId}`, { method: 'DELETE' }),
+  cerrarSesion: (sesionId: number, data: {
+    cobros: Array<{ medio: string; monto: number; observacion?: string }>;
+    conteos?: Array<{ productoId: number; real: number; esperado?: number }>;
+    observaciones?: string;
+  }) =>
+    request<any>(`/sesiones/${sesionId}/cerrar`, { method: 'POST', body: JSON.stringify(data) }),
 };

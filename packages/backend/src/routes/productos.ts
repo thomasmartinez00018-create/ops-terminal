@@ -139,6 +139,63 @@ router.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/productos/vendibles?depositoId=X
+// Lista productos marcados como vendibleDirecto=true con su stock en el
+// depósito indicado (para mostrar en pantalla de Punto de Venta).
+router.get('/vendibles', async (req: Request, res: Response) => {
+  try {
+    const depositoId = req.query.depositoId ? parseInt(String(req.query.depositoId)) : null;
+    const productos = await prisma.producto.findMany({
+      where: { vendibleDirecto: true, activo: true },
+      select: {
+        id: true, codigo: true, nombre: true, rubro: true, subrubro: true,
+        unidadUso: true, codigoBarras: true, precioVenta: true,
+      },
+      orderBy: [{ rubro: 'asc' }, { nombre: 'asc' }],
+    });
+    if (!depositoId) return res.json(productos.map(p => ({ ...p, stockDeposito: null })));
+
+    const ids = productos.map(p => p.id);
+    if (!ids.length) return res.json([]);
+    const placeholders = ids.map((_, i) => `$${i + 2}`).join(', ');
+    const stockRows = await prisma.$queryRawUnsafe<Array<{ producto_id: number; stock: number }>>(
+      `SELECT producto_id::int as producto_id,
+              COALESCE(SUM(CASE WHEN deposito_destino_id = $1 THEN cantidad
+                                WHEN deposito_origen_id  = $1 THEN -cantidad
+                                ELSE 0 END), 0)::float AS stock
+         FROM movimientos
+        WHERE (deposito_destino_id = $1 OR deposito_origen_id = $1)
+          AND producto_id IN (${placeholders})
+        GROUP BY producto_id`,
+      depositoId, ...ids,
+    );
+    const stockMap = new Map(stockRows.map(r => [Number(r.producto_id), Number(r.stock)]));
+    res.json(productos.map(p => ({ ...p, stockDeposito: stockMap.get(p.id) ?? 0 })));
+  } catch (error: any) {
+    console.error('[productos/vendibles]', error);
+    res.status(500).json({ error: error?.message || 'Error' });
+  }
+});
+
+// PATCH /api/productos/:id/precio-venta
+// Endpoint liviano para actualizar precio de venta sin tocar el resto.
+router.patch('/:id/precio-venta', async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(String(req.params.id));
+    const { precioVenta, vendibleDirecto } = req.body || {};
+    const data: any = {};
+    if (precioVenta !== undefined) {
+      data.precioVenta = precioVenta === null || precioVenta === '' ? null : Number(precioVenta);
+    }
+    if (vendibleDirecto !== undefined) data.vendibleDirecto = Boolean(vendibleDirecto);
+    if (Object.keys(data).length === 0) return res.status(400).json({ error: 'Sin cambios' });
+    const out = await prisma.producto.update({ where: { id }, data });
+    res.json(out);
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || 'Error' });
+  }
+});
+
 // POST /api/productos
 router.post('/', async (req: Request, res: Response) => {
   try {

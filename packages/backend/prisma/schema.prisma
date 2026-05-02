@@ -100,6 +100,7 @@ model Organizacion {
   stockParametros    StockParametro[]
   ordenesReposicion  OrdenReposicion[]
   alertasPrecio      AlertaPrecio[]
+  sesionesVenta      SesionVenta[]
   suscripcion        Suscripcion?
 
   @@map("organizaciones")
@@ -161,6 +162,12 @@ model Producto {
   codigoBarras      String?  @map("codigo_barras")
   depositoDefectoId Int?     @map("deposito_defecto_id")
   precioReferencia  Float?   @map("precio_referencia") // Precio estimado cuando no hay compras registradas
+  // Venta directa (kiosco / carrito / barra): productos que se venden sueltos
+  // sin necesidad de receta. Si vendibleDirecto=true, aparece en pantalla de
+  // Punto de Venta con su precioVenta. Distinto a Receta.precioVenta (eso es
+  // venta de un plato/elaborado).
+  precioVenta       Float?   @map("precio_venta")
+  vendibleDirecto   Boolean  @default(false) @map("vendible_directo")
   stockMinimo       Float    @default(0) @map("stock_minimo")
   stockIdeal        Float    @default(0) @map("stock_ideal")
   activo            Boolean  @default(true)
@@ -183,6 +190,8 @@ model Producto {
   stockParametros     StockParametro[]
   ordenReposicionItem OrdenReposicionItem[]
   alertasPrecio       AlertaPrecio[]
+  ventaItems          VentaItem[]
+  conteosCierre       ConteoCierre[]
 
   @@unique([organizacionId, codigo])
   @@index([organizacionId])
@@ -223,6 +232,9 @@ model Deposito {
   // Reposiciones donde este depósito es origen / destino
   reposicionesOrigen  OrdenReposicion[] @relation("reposicionOrigen")
   reposicionesDestino OrdenReposicion[] @relation("reposicionDestino")
+  // Sesiones de venta abiertas/cerradas en este depósito (relevante para
+  // depósitos tipo "carrito", "barra", "punto_venta").
+  sesionesVenta       SesionVenta[]
 
   @@unique([organizacionId, codigo])
   @@index([organizacionId])
@@ -268,6 +280,7 @@ model Usuario {
   reposicionesAsignadas  OrdenReposicion[] @relation("repoAsignado")
   reposicionesEjecutadas OrdenReposicion[] @relation("repoEjecutor")
   alertasPrecioRevisadas AlertaPrecio[]    @relation("alertaPrecioRevisor")
+  sesionesVenta          SesionVenta[]     @relation("sesionOperador")
 
   @@unique([organizacionId, codigo])
   @@index([organizacionId])
@@ -1053,4 +1066,103 @@ model AlertaPrecio {
   @@index([estado])
   @@index([productoId])
   @@map("alertas_precio")
+}
+
+// ==========================================
+// SESIONES DE VENTA (Punto de Venta móvil — kiosco, carrito, barra, evento)
+// ==========================================
+// Una SesionVenta es la "ventana operativa" de un depósito móvil/punto de
+// venta. Modelo genérico aplicable a:
+//   - kiosco + carrito (recorrido por pisos)
+//   - cocina + delivery propio (turno del repartidor)
+//   - depósito + bar de evento (turno de la barra)
+//   - food truck (jornada del truck)
+//   - cantina + buffet (servicio del mediodía)
+//
+// Flujo:
+//   1. Operador abre sesión sobre un Deposito → estado='abierta'
+//   2. Registra VentaItem (no descuenta stock todavía — permite editar)
+//   3. Registra Cobros (medio: efectivo, transferencia, mp, qr, tarjeta...)
+//   4. Cierra sesión:
+//      - se descuenta el stock del depósito (Movimiento tipo='salida')
+//      - se registran ConteoCierre con diferencia esperado vs real
+//      - estado='cerrada' (inmutable)
+//
+// Una sola sesión activa por depósito a la vez (constraint en endpoint).
+// ==========================================
+model SesionVenta {
+  id             Int       @id @default(autoincrement())
+  organizacionId Int       @default(0) @map("organizacion_id")
+  depositoId     Int       @map("deposito_id")
+  operadorId     Int       @map("operador_id")
+  abiertaAt      DateTime  @default(now()) @map("abierta_at")
+  cerradaAt      DateTime? @map("cerrada_at")
+  estado         String    @default("abierta") // abierta | cerrada
+  observaciones  String?
+  // Total calculado al cierre (sum venta_items.subtotal). Se guarda denormalizado
+  // para evitar recalcular en dashboards y mantener histórico aunque cambien
+  // precios después.
+  totalVentas    Float?    @map("total_ventas")
+  totalCobros    Float?    @map("total_cobros")
+
+  organizacion Organizacion  @relation(fields: [organizacionId], references: [id])
+  deposito     Deposito      @relation(fields: [depositoId], references: [id])
+  operador     Usuario       @relation("sesionOperador", fields: [operadorId], references: [id])
+  ventas       VentaItem[]
+  cobros       Cobro[]
+  conteos      ConteoCierre[]
+
+  @@index([organizacionId])
+  @@index([depositoId, estado]) // para validar "una activa por depósito"
+  @@index([operadorId])
+  @@map("sesiones_venta")
+}
+
+model VentaItem {
+  id             Int      @id @default(autoincrement())
+  sesionId       Int      @map("sesion_id")
+  productoId     Int      @map("producto_id")
+  cantidad       Float
+  precioUnitario Float    @map("precio_unitario")
+  subtotal       Float                                      // = cantidad * precioUnitario
+  registradoAt   DateTime @default(now()) @map("registrado_at")
+  // Idempotencia para retries de red / futuro modo offline.
+  // Cliente genera UUID, server deduplica si llega duplicado.
+  clienteUuid    String?  @unique @map("cliente_uuid")
+
+  sesion   SesionVenta @relation(fields: [sesionId], references: [id], onDelete: Cascade)
+  producto Producto    @relation(fields: [productoId], references: [id])
+
+  @@index([sesionId])
+  @@index([productoId])
+  @@map("venta_items")
+}
+
+model Cobro {
+  id        Int      @id @default(autoincrement())
+  sesionId  Int      @map("sesion_id")
+  medio     String                 // efectivo | transferencia | mp | qr | tarjeta | otro
+  monto     Float
+  registradoAt DateTime @default(now()) @map("registrado_at")
+  observacion  String?
+
+  sesion SesionVenta @relation(fields: [sesionId], references: [id], onDelete: Cascade)
+
+  @@index([sesionId])
+  @@map("cobros")
+}
+
+model ConteoCierre {
+  sesionId   Int   @map("sesion_id")
+  productoId Int   @map("producto_id")
+  esperado   Float                  // stock teórico al cierre (lo que dice el sistema)
+  real       Float                  // lo que el operador contó físicamente
+  diferencia Float                  // real - esperado (negativo = faltante, positivo = sobrante)
+
+  sesion   SesionVenta @relation(fields: [sesionId], references: [id], onDelete: Cascade)
+  producto Producto    @relation(fields: [productoId], references: [id])
+
+  @@id([sesionId, productoId])
+  @@index([productoId])
+  @@map("conteos_cierre")
 }

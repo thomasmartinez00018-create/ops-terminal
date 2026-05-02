@@ -48,6 +48,9 @@ const TENANT_MODELS = new Set([
   // las orgs. Leak cross-tenant confirmado. PorcionadoItem es child y se
   // escopea vía parent (igual que RecetaIngrediente).
   'Porcionado',
+  // Sesiones de venta del módulo Punto de Venta (kiosco/carrito/barra/evento).
+  // VentaItem, Cobro y ConteoCierre se escopean vía parent (sesionId).
+  'SesionVenta',
 ]);
 
 const READ_OPS = new Set([

@@ -5,7 +5,7 @@ import { api } from '../../lib/api';
 import {
   LayoutDashboard, Package, Warehouse, Users, ArrowRightLeft,
   ClipboardList, LogOut, ChefHat, Truck, ClipboardCheck,
-  Upload, BarChart3, Link2, ShoppingCart, ScanBarcode, AlertTriangle, ScanLine, ListTodo, FlaskConical,
+  Upload, BarChart3, Link2, ShoppingCart, ShoppingBag, Store, ScanBarcode, AlertTriangle, ScanLine, ListTodo, FlaskConical,
   FileText, DollarSign, TrendingUp, Settings, ChevronDown, Crown, Repeat, Search, Utensils
 } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
@@ -45,6 +45,8 @@ const navGroups: NavGroup[] = [
       { to: '/elaboraciones', label: 'Elaborar', icon: FlaskConical, permiso: 'movimientos' },
       { to: '/ordenes-compra', label: 'Órdenes', icon: ShoppingCart, permiso: 'ordenes-compra' },
       { to: '/control-scanner', label: 'Control', icon: ScanBarcode, permiso: 'control-scanner' },
+      { to: '/punto-venta', label: 'Punto de Venta', icon: Store, permiso: 'movimientos' },
+      { to: '/sesiones', label: 'Sesiones', icon: ShoppingBag, permiso: 'movimientos' },
     ],
   },
   {
