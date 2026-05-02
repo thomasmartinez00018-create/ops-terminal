@@ -122,26 +122,14 @@ router.get('/tipos-circuito', async (_req: Request, res: Response) => {
   }
 });
 
-// GET /api/productos/:id
-router.get('/:id', async (req: Request, res: Response) => {
-  try {
-    const producto = await prisma.producto.findUnique({
-      where: { id: parseInt(req.params.id as string) },
-      include: { depositoDefecto: true }
-    });
-    if (!producto) {
-      res.status(404).json({ error: 'Producto no encontrado' });
-      return;
-    }
-    res.json(producto);
-  } catch (error) {
-    res.status(500).json({ error: 'Error al obtener producto' });
-  }
-});
-
 // GET /api/productos/vendibles?depositoId=X
 // Lista productos marcados como vendibleDirecto=true con su stock en el
 // depósito indicado (para mostrar en pantalla de Punto de Venta).
+//
+// IMPORTANTE: esta ruta debe declararse ANTES de `router.get('/:id', ...)`
+// — Express matchea por orden y `:id` es un wildcard que captura cualquier
+// string. Si /:id va antes, /vendibles cae acá y validateNumericParam('id')
+// devuelve 400 ("Parámetro id inválido").
 router.get('/vendibles', async (req: Request, res: Response) => {
   try {
     const depositoId = req.query.depositoId ? parseInt(String(req.query.depositoId)) : null;
@@ -193,6 +181,25 @@ router.patch('/:id/precio-venta', async (req: Request, res: Response) => {
     res.json(out);
   } catch (error: any) {
     res.status(500).json({ error: error?.message || 'Error' });
+  }
+});
+
+// GET /api/productos/:id
+// Va DESPUÉS de las rutas con segmento fijo (/vendibles, /ultimos-costos,
+// /tipos-circuito, /:id/precio-venta) — sino /:id captura todo.
+router.get('/:id', async (req: Request, res: Response) => {
+  try {
+    const producto = await prisma.producto.findUnique({
+      where: { id: parseInt(req.params.id as string) },
+      include: { depositoDefecto: true }
+    });
+    if (!producto) {
+      res.status(404).json({ error: 'Producto no encontrado' });
+      return;
+    }
+    res.json(producto);
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener producto' });
   }
 });
 
