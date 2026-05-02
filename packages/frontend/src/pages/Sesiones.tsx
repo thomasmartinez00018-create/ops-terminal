@@ -65,7 +65,7 @@ export default function Sesiones() {
     if (filtroDeposito) params.depositoId = filtroDeposito;
     api.getSesiones(params)
       .then(d => { if (!cancel) setSesiones(d); })
-      .catch(e => addToast({ type: 'error', message: e?.message || 'Error' }))
+      .catch(e => addToast(e?.message || 'Error', 'error'))
       .finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
   }, [filtroEstado, filtroDeposito]);
@@ -75,7 +75,7 @@ export default function Sesiones() {
       const d = await api.getSesion(id);
       setSeleccionada(d);
     } catch (e: any) {
-      addToast({ type: 'error', message: e?.message || 'Error' });
+      addToast(e?.message || 'Error', 'error');
     }
   }
 

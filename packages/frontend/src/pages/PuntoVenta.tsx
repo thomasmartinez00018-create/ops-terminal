@@ -112,7 +112,7 @@ export default function PuntoVenta() {
         const data = await api.getDepositosDisponibles();
         if (!cancel) setDepositos(data);
       } catch (e: any) {
-        addToast({ type: 'error', message: e?.message || 'Error cargando depósitos' });
+        addToast(e?.message || 'Error cargando depósitos', 'error');
       }
     })();
     return () => { cancel = true; };
@@ -127,7 +127,7 @@ export default function PuntoVenta() {
         const data = await api.getProductosVendibles(sesion.depositoId);
         if (!cancel) setProductos(data);
       } catch (e: any) {
-        addToast({ type: 'error', message: e?.message || 'Error cargando productos' });
+        addToast(e?.message || 'Error cargando productos', 'error');
       }
     })();
     return () => { cancel = true; };
@@ -149,7 +149,7 @@ export default function PuntoVenta() {
       setSesion(s);
       setStep('venta');
     } catch (e: any) {
-      addToast({ type: 'error', message: e?.message || 'No se pudo abrir la sesión' });
+      addToast(e?.message || 'No se pudo abrir la sesión', 'error');
     } finally {
       setLoading(false);
     }
@@ -168,7 +168,7 @@ export default function PuntoVenta() {
   async function agregar(producto: ProductoVendible, cantidad: number) {
     if (!sesion) return;
     if (producto.precioVenta == null) {
-      addToast({ type: 'error', message: 'Producto sin precio de venta — defínelo en el catálogo' });
+      addToast('Producto sin precio de venta — defínelo en el catálogo', 'error');
       return;
     }
     try {
@@ -179,9 +179,9 @@ export default function PuntoVenta() {
         clienteUuid: uuid(),
       });
       setSesion(s => s ? { ...s, ventas: [item, ...s.ventas] } : s);
-      addToast({ type: 'success', message: `+${cantidad} ${producto.nombre}` });
+      addToast(`+${cantidad} ${producto.nombre}`, 'success');
     } catch (e: any) {
-      addToast({ type: 'error', message: e?.message || 'Error agregando' });
+      addToast(e?.message || 'Error agregando', 'error');
     }
   }
 
@@ -191,7 +191,7 @@ export default function PuntoVenta() {
       await api.eliminarVenta(sesion.id, ventaId);
       setSesion(s => s ? { ...s, ventas: s.ventas.filter(v => v.id !== ventaId) } : s);
     } catch (e: any) {
-      addToast({ type: 'error', message: e?.message || 'No se pudo eliminar' });
+      addToast(e?.message || 'No se pudo eliminar', 'error');
     }
   }
 
@@ -231,7 +231,7 @@ export default function PuntoVenta() {
         totalVentas={totalVentas}
         onVolver={() => setStep('venta')}
         onCerradoOk={() => {
-          addToast({ type: 'success', message: 'Sesión cerrada y stock sincronizado' });
+          addToast('Sesión cerrada y stock sincronizado', 'success');
           setSesion(null);
           setProductos([]);
           setStep('eleccion');
@@ -671,14 +671,14 @@ function Cierre({
 
   async function cerrar() {
     if (totalVentas <= 0) {
-      addToast({ type: 'error', message: 'No hay ventas registradas' });
+      addToast('No hay ventas registradas', 'error');
       return;
     }
     const cobrosLimpios = cobros
       .filter(c => parseFloat(c.monto) > 0)
       .map(c => ({ medio: c.medio, monto: parseFloat(c.monto) }));
     if (!cobrosLimpios.length) {
-      addToast({ type: 'error', message: 'Registrá al menos un medio de cobro' });
+      addToast('Registrá al menos un medio de cobro', 'error');
       return;
     }
 
@@ -701,7 +701,7 @@ function Cierre({
       });
       onCerradoOk();
     } catch (e: any) {
-      addToast({ type: 'error', message: e?.message || 'Error cerrando sesión' });
+      addToast(e?.message || 'Error cerrando sesión', 'error');
     } finally {
       setSubmitting(false);
     }

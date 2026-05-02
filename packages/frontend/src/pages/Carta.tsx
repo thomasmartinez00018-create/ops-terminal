@@ -7,7 +7,7 @@ import { useToast } from '../context/ToastContext';
 import {
   ChefHat, DollarSign, TrendingUp, Search, Pencil, Utensils,
   Sparkles, Filter, Eye, ArrowRight, Calculator, BarChart3,
-  Check, X, ArrowUpDown, TrendingDown,
+  Check, X, TrendingDown,
 } from 'lucide-react';
 
 // ============================================================================
@@ -27,17 +27,6 @@ type Orden = 'nombre' | 'precio_asc' | 'precio_desc' | 'margen_asc' | 'margen_de
 function fmtPrecio(n: number): string {
   if (!Number.isFinite(n) || n === 0) return '$0';
   return `$${Math.round(n).toLocaleString('es-AR')}`;
-}
-
-function MargenBadge({ margen, objetivo }: { margen: number | null; objetivo: number | null }) {
-  if (margen === null) return null;
-  const obj = objetivo ?? 70;
-  const color = margen >= obj ? 'text-success' : margen >= obj - 10 ? 'text-amber-500' : 'text-destructive';
-  return (
-    <span className={`text-[10px] font-bold font-mono tabular-nums ${color}`}>
-      {margen.toFixed(0)}%
-    </span>
-  );
 }
 
 // ── Componente de precio editable inline ────────────────────────────────────
@@ -220,7 +209,7 @@ export default function Carta() {
     const out: { categoria: string; label: string; emoji: string; items: any[] }[] = [];
     for (const cat of CATEGORIAS_ORDEN) {
       const items = filtradas.filter(r => r.categoria === cat.value);
-      if (items.length > 0) out.push({ ...cat, items });
+      if (items.length > 0) out.push({ categoria: cat.value, label: cat.label, emoji: cat.emoji, items });
     }
     const sinCat = filtradas.filter(r => !r.categoria || !CATEGORIAS_ORDEN.some(c => c.value === r.categoria));
     if (sinCat.length > 0) out.push({ categoria: '', label: 'Sin categoría', emoji: '📋', items: sinCat });
