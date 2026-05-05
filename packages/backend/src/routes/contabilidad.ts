@@ -422,7 +422,7 @@ router.get('/cuentas-por-pagar', async (_req: Request, res: Response) => {
         COUNT(*)::int AS cant_facturas
       FROM (
         SELECT f.*,
-               EXTRACT(EPOCH FROM (CURRENT_DATE - COALESCE(f.fecha_vencimiento, f.fecha)::date)) / 86400 AS dias
+               (CURRENT_DATE - COALESCE(f.fecha_vencimiento, f.fecha)::date) AS dias
         FROM facturas f
         WHERE f.organizacion_id = $1
           AND f.estado IN ('pendiente', 'parcial')
