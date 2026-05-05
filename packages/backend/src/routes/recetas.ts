@@ -207,10 +207,17 @@ router.get('/disponibilidad', async (_req: Request, res: Response) => {
 });
 
 // GET /api/recetas/:id
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', async (req: Request, res: Response, next) => {
   try {
+    // Guard: si el "id" no es numérico (ej: /recetas/carta, declarada DESPUÉS
+    // de /:id), llamamos a next() para que Express siga matcheando handlers
+    // en orden y termine encontrando el correcto. El validateNumericParam
+    // global de server.ts NO se hereda al sub-router → este guard es la red
+    // de seguridad para que /:id no capture rutas no-numéricas.
+    const id = parseInt(req.params.id as string);
+    if (!Number.isInteger(id) || id <= 0) return next();
     const receta = await prisma.receta.findUnique({
-      where: { id: parseInt(req.params.id as string) },
+      where: { id },
       include: {
         productoResultado: { select: { id: true, nombre: true, unidadUso: true } },
         ingredientes: {
