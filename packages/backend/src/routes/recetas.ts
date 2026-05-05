@@ -629,13 +629,16 @@ router.patch('/:id/precio', async (req: Request, res: Response) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/carta', async (req: Request, res: Response) => {
   try {
-    // ── 1. Recetas de la carta (sin imagen base64) ───────────────────────────
+    // ── 1. Recetas de la carta ──────────────────────────────────────────
+    // OOM-safe: NO traer metodoPreparacion / notasChef / tiempoPreparacion ni
+    // imagen — la carta no los muestra, solo los necesita el editor de
+    // recetas. Con 1300+ recetas en una org grande, traer esos textos largos
+    // explota el heap de 400MB de Railway al hacer JSON.stringify.
     const recetas = await prisma.receta.findMany({
       where: { salidaACarta: true, activo: true },
       select: {
         id: true, codigo: true, nombre: true, categoria: true, sector: true,
         rubro: true, porciones: true, precioVenta: true, margenObjetivo: true,
-        metodoPreparacion: true, tiempoPreparacion: true, notasChef: true,
         ingredientes: {
           select: {
             productoId: true,
