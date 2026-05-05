@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import ExportMenu from '../components/ui/ExportMenu';
 import type { ExportConfig } from '../lib/exportUtils';
 import { todayStr, formatCurrency } from '../lib/exportUtils';
-import { DollarSign, AlertTriangle, FileText } from 'lucide-react';
+import { DollarSign, AlertTriangle, FileText, CalendarDays } from 'lucide-react';
 
 export default function CuentasPorPagar() {
   const navigate = useNavigate();
@@ -48,7 +48,15 @@ export default function CuentasPorPagar() {
           <p className="text-[10px] font-bold text-primary uppercase tracking-[0.15em]">Contabilidad</p>
           <h1 className="text-xl font-extrabold text-foreground mt-1">Cuentas por Pagar</h1>
         </div>
-        <ExportMenu getConfig={getExportConfig} disabled={proveedores.length === 0} size="sm" />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate('/proyeccion-pagos')}
+            className="px-3 py-1.5 text-xs rounded-lg bg-primary/10 text-primary border border-primary/30 hover:bg-primary/15 flex items-center gap-1.5 font-bold"
+          >
+            <CalendarDays size={14} /> Ver proyección
+          </button>
+          <ExportMenu getConfig={getExportConfig} disabled={proveedores.length === 0} size="sm" />
+        </div>
       </div>
 
       {/* Cards resumen */}

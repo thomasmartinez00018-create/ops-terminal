@@ -761,4 +761,194 @@ router.get('/historial-precios/:productoId', async (req: Request, res: Response)
   }
 });
 
+// ============================================================================
+// GET /api/contabilidad/proyeccion-pagos?mes=YYYY-MM&proveedorId=X
+// ============================================================================
+// Vista forward-looking del cash-flow: qué tengo que pagar y cuándo.
+// Complemento de /cuentas-por-pagar (que es backward-looking, aging).
+//
+// Devuelve:
+//   - mesActual: { ano, mes }
+//   - facturas: lista de facturas pendientes/parciales con saldo y fecha
+//                de pago (fechaVencimiento o inferida del proveedor)
+//   - porDia: agrupado por fecha → { fecha, total, cantidad }
+//   - resumen: total mes, total vencido, próximos 3, días con/sin pagos
+//   - cashFlow30d: array [{ fecha, total }] para el chart de 30 días
+//   - alertaConcentracion: día con >40% del cash mensual saliendo (si aplica)
+//
+// Inferencia de fechaVencimiento:
+//   - Si la factura tiene fechaVencimiento → la usa
+//   - Si no, calcula plazoPromedio del proveedor (avg de
+//       fechaVencimiento - fecha en facturas que SÍ tienen fechaVencimiento)
+//   - Default fallback: 30 días post emisión
+// ============================================================================
+router.get('/proyeccion-pagos', async (req: Request, res: Response) => {
+  try {
+    const mesParam = (req.query.mes as string) || (() => {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    })();
+    const proveedorIdParam = req.query.proveedorId
+      ? parseInt(String(req.query.proveedorId))
+      : null;
+
+    const [yearStr, monthStr] = mesParam.split('-');
+    const year = parseInt(yearStr);
+    const month = parseInt(monthStr);
+    if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+      return res.status(400).json({ error: 'Parámetro mes inválido (formato YYYY-MM)' });
+    }
+
+    // Rango del mes (YYYY-MM-01 → YYYY-MM-último)
+    const ultimoDia = new Date(year, month, 0).getDate();
+    const inicioMes = `${yearStr}-${monthStr}-01`;
+    const finMes = `${yearStr}-${monthStr}-${String(ultimoDia).padStart(2, '0')}`;
+    const hoy = new Date();
+    const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+
+    // ── 1. Plazo promedio por proveedor (para inferir vencimiento) ──────
+    const plazos = await prisma.$queryRawUnsafe<Array<{ proveedor_id: number; plazo_dias: number }>>(
+      `SELECT proveedor_id::int AS proveedor_id,
+              ROUND(AVG(EXTRACT(EPOCH FROM (fecha_vencimiento::date - fecha::date)) / 86400))::int AS plazo_dias
+         FROM facturas
+        WHERE fecha_vencimiento IS NOT NULL
+          AND fecha IS NOT NULL
+          AND fecha_vencimiento >= fecha
+        GROUP BY proveedor_id`,
+    );
+    const plazoMap = new Map(plazos.map(p => [Number(p.proveedor_id), Number(p.plazo_dias) || 30]));
+
+    // ── 2. Facturas no pagadas del tenant (todas, sin filtro de mes — necesitamos
+    //      las vencidas de meses anteriores también, y las del mes actual y
+    //      siguiente para el cash-flow de 30 días). ─────────────────────────
+    const where: any = { estado: { in: ['pendiente', 'parcial'] } };
+    if (proveedorIdParam) where.proveedorId = proveedorIdParam;
+
+    const facturas = await prisma.factura.findMany({
+      where,
+      select: {
+        id: true,
+        codigo: true,
+        numero: true,
+        tipoComprobante: true,
+        fecha: true,
+        fechaVencimiento: true,
+        total: true,
+        estado: true,
+        proveedorId: true,
+        proveedor: { select: { id: true, nombre: true } },
+        pagos: { select: { monto: true } },
+      },
+      orderBy: { fechaVencimiento: 'asc' },
+    });
+
+    // Agregar fechaPago (efectiva: vencimiento o inferida) + saldo pendiente
+    type FacturaProy = {
+      id: number; codigo: string; numero: string; tipoComprobante: string;
+      fecha: string; fechaVencimiento: string | null; fechaPago: string;
+      fechaPagoInferida: boolean;
+      total: number; pagado: number; saldo: number;
+      estado: string; diasVencido: number;
+      proveedorId: number; proveedorNombre: string;
+    };
+    const enriquecidas: FacturaProy[] = facturas.map(f => {
+      const pagado = f.pagos.reduce((s, p) => s + p.monto, 0);
+      const saldo = +(f.total - pagado).toFixed(2);
+      let fechaPago = f.fechaVencimiento;
+      let inferida = false;
+      if (!fechaPago && f.fecha) {
+        const plazo = plazoMap.get(f.proveedorId) ?? 30;
+        const d = new Date(f.fecha + 'T00:00:00');
+        d.setDate(d.getDate() + plazo);
+        fechaPago = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        inferida = true;
+      }
+      const diasVencido = fechaPago && fechaPago < hoyStr
+        ? Math.floor((new Date(hoyStr + 'T00:00:00').getTime() - new Date(fechaPago + 'T00:00:00').getTime()) / 86400000)
+        : 0;
+      return {
+        id: f.id, codigo: f.codigo, numero: f.numero, tipoComprobante: f.tipoComprobante,
+        fecha: f.fecha, fechaVencimiento: f.fechaVencimiento, fechaPago: fechaPago || f.fecha,
+        fechaPagoInferida: inferida,
+        total: f.total, pagado, saldo,
+        estado: f.estado, diasVencido,
+        proveedorId: f.proveedorId, proveedorNombre: f.proveedor?.nombre ?? '—',
+      };
+    }).filter(f => f.saldo > 0.001);
+
+    // ── 3. Agrupar por día (todas las pendientes — del mes y de antes/después) ─
+    const porDiaMap = new Map<string, { total: number; cantidad: number }>();
+    for (const f of enriquecidas) {
+      const key = f.fechaPago;
+      const ex = porDiaMap.get(key) || { total: 0, cantidad: 0 };
+      ex.total += f.saldo;
+      ex.cantidad += 1;
+      porDiaMap.set(key, ex);
+    }
+    const porDia = Array.from(porDiaMap.entries())
+      .map(([fecha, v]) => ({ fecha, total: +v.total.toFixed(2), cantidad: v.cantidad }))
+      .sort((a, b) => a.fecha.localeCompare(b.fecha));
+
+    // ── 4. Filtrar para el mes ─────────────────────────────────────────
+    const facturasDelMes = enriquecidas.filter(f => f.fechaPago >= inicioMes && f.fechaPago <= finMes);
+    const vencidas = enriquecidas.filter(f => f.fechaPago < hoyStr);
+    const proximos3 = enriquecidas
+      .filter(f => f.fechaPago >= hoyStr)
+      .sort((a, b) => a.fechaPago.localeCompare(b.fechaPago))
+      .slice(0, 3);
+
+    const totalMes = +facturasDelMes.reduce((s, f) => s + f.saldo, 0).toFixed(2);
+    const totalVencido = +vencidas.reduce((s, f) => s + f.saldo, 0).toFixed(2);
+
+    // Días del mes con pagos
+    const diasConPagos = new Set<number>();
+    for (const [fecha] of porDiaMap) {
+      if (fecha >= inicioMes && fecha <= finMes) {
+        diasConPagos.add(parseInt(fecha.slice(8, 10)));
+      }
+    }
+
+    // ── 5. Cash-flow 30 días (forward) ─────────────────────────────────
+    const cashFlow30d: { fecha: string; total: number }[] = [];
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(hoy);
+      d.setDate(d.getDate() + i);
+      const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      cashFlow30d.push({ fecha: k, total: porDiaMap.get(k)?.total ?? 0 });
+    }
+
+    // ── 6. Alerta de concentración (un día > 40% del mes) ──────────────
+    let alertaConcentracion: { fecha: string; total: number; pct: number } | null = null;
+    if (totalMes > 0) {
+      for (const [fecha, v] of porDiaMap) {
+        if (fecha < inicioMes || fecha > finMes) continue;
+        const pct = v.total / totalMes;
+        if (pct > 0.4 && (!alertaConcentracion || v.total > alertaConcentracion.total)) {
+          alertaConcentracion = { fecha, total: +v.total.toFixed(2), pct: +(pct * 100).toFixed(1) };
+        }
+      }
+    }
+
+    res.json({
+      mesActual: { ano: year, mes: month, inicioMes, finMes, ultimoDia, hoy: hoyStr },
+      facturas: enriquecidas, // todas (incluyen vencidas para mostrar en el header)
+      porDia,
+      resumen: {
+        totalMes,
+        totalVencido,
+        cantFacturasMes: facturasDelMes.length,
+        cantVencidas: vencidas.length,
+        diasConPagos: diasConPagos.size,
+        diasSinPagos: ultimoDia - diasConPagos.size,
+        proximos3,
+      },
+      cashFlow30d,
+      alertaConcentracion,
+    });
+  } catch (e: any) {
+    console.error('[contabilidad/proyeccion-pagos]', e);
+    res.status(500).json({ error: e?.message || 'Error' });
+  }
+});
+
 export default router;

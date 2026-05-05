@@ -5,7 +5,7 @@ import { api } from '../../lib/api';
 import {
   LayoutDashboard, Package, Warehouse, Users, ArrowRightLeft,
   ClipboardList, LogOut, ChefHat, Truck, ClipboardCheck,
-  Upload, BarChart3, Link2, ShoppingCart, ShoppingBag, Store, ScanBarcode, AlertTriangle, ScanLine, ListTodo, FlaskConical,
+  Upload, BarChart3, Link2, ShoppingCart, ShoppingBag, Store, ScanBarcode, AlertTriangle, ScanLine, ListTodo, FlaskConical, CalendarDays,
   FileText, DollarSign, TrendingUp, Settings, ChevronDown, Crown, Repeat, Search, Utensils
 } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
@@ -76,6 +76,7 @@ const navGroups: NavGroup[] = [
       { to: '/facturas', label: 'Facturas', icon: FileText, permiso: 'contabilidad' },
       { to: '/alertas-precio', label: 'Alertas de precio', icon: AlertTriangle, permiso: 'contabilidad', badgeKey: 'alertasPrecio' },
       { to: '/cuentas-por-pagar', label: 'Cuentas x Pagar', icon: DollarSign, permiso: 'contabilidad' },
+      { to: '/proyeccion-pagos', label: 'Proyección de pagos', icon: CalendarDays, permiso: 'contabilidad' },
       { to: '/reportes-costos', label: 'Costos', icon: TrendingUp, permiso: 'contabilidad' },
       { to: '/escanear-factura', label: 'Escanear Factura', icon: ScanLine, permiso: 'contabilidad' },
     ],

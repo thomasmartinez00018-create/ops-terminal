@@ -17,6 +17,7 @@ import Recetas from './pages/Recetas';
 import Carta from './pages/Carta';
 import PuntoVenta from './pages/PuntoVenta';
 import Sesiones from './pages/Sesiones';
+import ProyeccionPagos from './pages/ProyeccionPagos';
 import Proveedores from './pages/Proveedores';
 import Inventarios from './pages/Inventarios';
 import Reportes from './pages/Reportes';
@@ -122,6 +123,7 @@ function SessionGate() {
             <Route path="/carta" element={<Carta />} />
             <Route path="/punto-venta" element={<PuntoVenta />} />
             <Route path="/sesiones" element={<Sesiones />} />
+            <Route path="/proyeccion-pagos" element={<ProyeccionPagos />} />
             <Route path="/proveedores" element={<Proveedores />} />
             <Route path="/inventarios" element={<Inventarios />} />
             <Route path="/importar" element={<Lazy><Importar /></Lazy>} />

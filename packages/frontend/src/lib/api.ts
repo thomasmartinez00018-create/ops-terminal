@@ -570,6 +570,35 @@ export const api = {
 
   // Contabilidad — Reportes
   getCuentasPorPagar: () => request<any>('/contabilidad/cuentas-por-pagar'),
+  // Proyección de pagos: vista forward-looking del cash-flow
+  getProyeccionPagos: (params?: { mes?: string; proveedorId?: number }) =>
+    request<{
+      mesActual: { ano: number; mes: number; inicioMes: string; finMes: string; ultimoDia: number; hoy: string };
+      facturas: Array<{
+        id: number; codigo: string; numero: string; tipoComprobante: string;
+        fecha: string; fechaVencimiento: string | null; fechaPago: string;
+        fechaPagoInferida: boolean;
+        total: number; pagado: number; saldo: number;
+        estado: string; diasVencido: number;
+        proveedorId: number; proveedorNombre: string;
+      }>;
+      porDia: Array<{ fecha: string; total: number; cantidad: number }>;
+      resumen: {
+        totalMes: number; totalVencido: number;
+        cantFacturasMes: number; cantVencidas: number;
+        diasConPagos: number; diasSinPagos: number;
+        proximos3: Array<{ id: number; proveedorNombre: string; fechaPago: string; saldo: number; codigo: string }>;
+      };
+      cashFlow30d: Array<{ fecha: string; total: number }>;
+      alertaConcentracion: { fecha: string; total: number; pct: number } | null;
+    }>(`/contabilidad/proyeccion-pagos${qs(params as any)}`),
+  // Registrar pago contra una factura
+  crearPagoFactura: (facturaId: number, data: {
+    fecha: string; monto: number; medioPago?: string; referencia?: string; observacion?: string; creadoPorId: number;
+  }) =>
+    request<any>(`/contabilidad/facturas/${facturaId}/pagos`, {
+      method: 'POST', body: JSON.stringify(data),
+    }),
   getSaldoProveedor: (proveedorId: number) => request<any>(`/contabilidad/saldo-proveedor/${proveedorId}`),
   getCogs: (params?: Record<string, string>) => request<any>(`/contabilidad/cogs${qs(params)}`),
   getCogsDetalle: (params: { rubro: string; desde?: string; hasta?: string }) =>
