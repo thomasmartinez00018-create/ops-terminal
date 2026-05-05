@@ -807,9 +807,13 @@ router.get('/proyeccion-pagos', async (req: Request, res: Response) => {
     const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
 
     // ── 1. Plazo promedio por proveedor (para inferir vencimiento) ──────
+    // Postgres: date - date devuelve INTEGER (días) directamente.
+    // No usar EXTRACT(EPOCH ...) acá — eso requiere interval/timestamp,
+    // no integer, y tira "function pg_catalog.extract(unknown, integer)
+    // does not exist".
     const plazos = await prisma.$queryRawUnsafe<Array<{ proveedor_id: number; plazo_dias: number }>>(
       `SELECT proveedor_id::int AS proveedor_id,
-              ROUND(AVG(EXTRACT(EPOCH FROM (fecha_vencimiento::date - fecha::date)) / 86400))::int AS plazo_dias
+              ROUND(AVG((fecha_vencimiento::date - fecha::date)))::int AS plazo_dias
          FROM facturas
         WHERE fecha_vencimiento IS NOT NULL
           AND fecha IS NOT NULL
