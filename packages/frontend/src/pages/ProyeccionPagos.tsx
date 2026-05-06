@@ -24,7 +24,10 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ChevronLeft, ChevronRight, AlertTriangle, Calendar, Wallet,
   TrendingUp, Printer, X, Check, Filter, Clock, Sparkles,
+  FileText, Trash2, ExternalLink, Image as ImageIcon, Package,
+  CreditCard, Receipt, Eye,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -77,6 +80,7 @@ function diasEntre(a: string, b: string): number {
 export default function ProyeccionPagos() {
   const { user } = useAuth();
   const { addToast } = useToast();
+  const navigate = useNavigate();
   const [data, setData] = useState<Proyeccion | null>(null);
   const [loading, setLoading] = useState(true);
   const [mes, setMes] = useState(() => {
@@ -87,6 +91,8 @@ export default function ProyeccionPagos() {
   const [proveedores, setProveedores] = useState<any[]>([]);
   const [filtroProveedor, setFiltroProveedor] = useState<string>('');
   const [pagoActivo, setPagoActivo] = useState<Factura | null>(null);
+  const [detalleFacturaId, setDetalleFacturaId] = useState<number | null>(null);
+  const [vistaListaCompleta, setVistaListaCompleta] = useState(false);
 
   // ── Cargar proveedores para el filtro ──────────────────────────────────
   useEffect(() => {
@@ -177,7 +183,24 @@ export default function ProyeccionPagos() {
       />
 
       {/* Stats hero */}
-      <StatsHero data={data} onClickVencido={() => setDiaSeleccionado(null)} />
+      <StatsHero
+        data={data}
+        onClickVencido={() => {
+          // Scroll a la sección de vencidas
+          setDiaSeleccionado(null);
+          setTimeout(() => {
+            document.getElementById('seccion-vencidas')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }, 50);
+        }}
+        onClickProximo={() => {
+          const fecha = data.resumen.proximos3[0]?.fechaPago;
+          if (!fecha) return;
+          const m = fecha.slice(0, 7);
+          if (m !== mes) setMes(m);
+          setDiaSeleccionado(fecha);
+        }}
+        onClickDiasMes={() => setVistaListaCompleta(true)}
+      />
 
       {/* Alerta concentración */}
       {data.alertaConcentracion && (
@@ -220,6 +243,7 @@ export default function ProyeccionPagos() {
             <Agenda
               data={data}
               onSeleccionarFactura={f => setPagoActivo(f)}
+              onVerFactura={id => setDetalleFacturaId(id)}
               hoy={data.mesActual.hoy}
             />
           </div>
@@ -227,7 +251,16 @@ export default function ProyeccionPagos() {
 
         {/* Sidebar */}
         <div className="lg:col-span-2 space-y-3 print:hidden">
-          <CashFlowChart cashFlow30d={data.cashFlow30d} hoy={data.mesActual.hoy} />
+          <CashFlowChart
+            cashFlow30d={data.cashFlow30d}
+            hoy={data.mesActual.hoy}
+            onSeleccionarDia={(fecha) => {
+              // Si la fecha cae en otro mes, navegar y seleccionar
+              const m = fecha.slice(0, 7);
+              if (m !== mes) setMes(m);
+              setDiaSeleccionado(fecha);
+            }}
+          />
           <ProximosPagos proximos={data.resumen.proximos3} onVer={(id) => {
             const f = data.facturas.find(x => x.id === id);
             if (f) setDiaSeleccionado(f.fechaPago);
@@ -237,7 +270,7 @@ export default function ProyeccionPagos() {
 
       {/* Vencidas (siempre visible si hay) */}
       {vencidasTodas.length > 0 && (
-        <div className="mb-4 rounded-xl border border-rose-500/40 bg-rose-500/5 overflow-hidden print:break-inside-avoid">
+        <div id="seccion-vencidas" className="mb-4 rounded-xl border border-rose-500/40 bg-rose-500/5 overflow-hidden print:break-inside-avoid">
           <div className="px-4 py-3 border-b border-rose-500/30 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <AlertTriangle size={16} className="text-rose-500" />
@@ -253,6 +286,7 @@ export default function ProyeccionPagos() {
                 key={f.id}
                 factura={f}
                 onPagar={() => setPagoActivo(f)}
+                onVer={() => setDetalleFacturaId(f.id)}
                 vencida
               />
             ))}
@@ -288,7 +322,12 @@ export default function ProyeccionPagos() {
           ) : (
             <div>
               {facturasDia.map(f => (
-                <FacturaRow key={f.id} factura={f} onPagar={() => setPagoActivo(f)} />
+                <FacturaRow
+                  key={f.id}
+                  factura={f}
+                  onPagar={() => setPagoActivo(f)}
+                  onVer={() => setDetalleFacturaId(f.id)}
+                />
               ))}
             </div>
           )}
@@ -302,6 +341,33 @@ export default function ProyeccionPagos() {
           operadorId={user.id}
           onClose={() => setPagoActivo(null)}
           onOk={onPagoOk}
+        />
+      )}
+
+      {/* Modal detalle de factura — interactivo: ver items, pagos, imagen */}
+      {detalleFacturaId && (
+        <ModalDetalleFactura
+          facturaId={detalleFacturaId}
+          onClose={() => setDetalleFacturaId(null)}
+          onPagar={(f) => {
+            setDetalleFacturaId(null);
+            // Buscar la versión de proyección para el modal de pago
+            const enProyeccion = data.facturas.find(x => x.id === f.id);
+            if (enProyeccion) setPagoActivo(enProyeccion);
+          }}
+          onPagoEliminado={cargar}
+          onIrAFactura={(id) => navigate(`/facturas?id=${id}`)}
+        />
+      )}
+
+      {/* Vista lista completa del mes */}
+      {vistaListaCompleta && (
+        <ModalListaMes
+          facturas={data.facturas.filter(f => f.fechaPago >= data.mesActual.inicioMes && f.fechaPago <= data.mesActual.finMes)}
+          mes={mes}
+          onClose={() => setVistaListaCompleta(false)}
+          onVer={(id) => { setVistaListaCompleta(false); setDetalleFacturaId(id); }}
+          onPagar={(f) => { setVistaListaCompleta(false); setPagoActivo(f); }}
         />
       )}
 
@@ -378,44 +444,57 @@ function Header({
 // ============================================================================
 // StatsHero — 4 cards con totales
 // ============================================================================
-function StatsHero({ data, onClickVencido }: { data: Proyeccion; onClickVencido: () => void }) {
+function StatsHero({
+  data, onClickVencido, onClickProximo, onClickDiasMes,
+}: {
+  data: Proyeccion;
+  onClickVencido: () => void;
+  onClickProximo: () => void;
+  onClickDiasMes: () => void;
+}) {
   const r = data.resumen;
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-4 print:break-inside-avoid">
-      <Card
-        accent="text-primary"
-        bg="bg-primary/5 border-primary/30"
-        icon={<Wallet size={16} />}
-        label="Total a pagar (mes)"
-        value={fmt(r.totalMes)}
-        sub={`${r.cantFacturasMes} ${r.cantFacturasMes === 1 ? 'factura' : 'facturas'}`}
-      />
-      <button onClick={onClickVencido} className="text-left">
+      <button onClick={onClickDiasMes} className="text-left group" title="Ver lista completa del mes">
+        <Card
+          accent="text-primary"
+          bg="bg-primary/5 border-primary/30 group-hover:border-primary/60 transition-colors"
+          icon={<Wallet size={16} />}
+          label="Total a pagar (mes)"
+          value={fmt(r.totalMes)}
+          sub={`${r.cantFacturasMes} ${r.cantFacturasMes === 1 ? 'factura' : 'facturas'} →`}
+        />
+      </button>
+      <button onClick={onClickVencido} className="text-left group" title="Ver vencidas sin pagar">
         <Card
           accent={r.totalVencido > 0 ? 'text-rose-500' : 'text-emerald-500'}
-          bg={r.totalVencido > 0 ? 'bg-rose-500/5 border-rose-500/30' : 'bg-emerald-500/5 border-emerald-500/30'}
+          bg={`${r.totalVencido > 0 ? 'bg-rose-500/5 border-rose-500/30 group-hover:border-rose-500/60' : 'bg-emerald-500/5 border-emerald-500/30 group-hover:border-emerald-500/60'} transition-colors`}
           icon={<AlertTriangle size={16} />}
           label="Vencidas sin pagar"
           value={fmt(r.totalVencido)}
-          sub={r.cantVencidas > 0 ? `${r.cantVencidas} ${r.cantVencidas === 1 ? 'factura' : 'facturas'}` : 'Al día ✓'}
+          sub={r.cantVencidas > 0 ? `${r.cantVencidas} ${r.cantVencidas === 1 ? 'factura' : 'facturas'} →` : 'Al día ✓'}
         />
       </button>
-      <Card
-        accent="text-foreground"
-        bg="bg-surface border-border/60"
-        icon={<Calendar size={16} />}
-        label="Días con pagos"
-        value={String(r.diasConPagos)}
-        sub={`${r.diasSinPagos} sin pagos`}
-      />
-      <Card
-        accent="text-foreground"
-        bg="bg-surface border-border/60"
-        icon={<Clock size={16} />}
-        label="Próximo vencimiento"
-        value={r.proximos3[0] ? fmtDay(r.proximos3[0].fechaPago) : '—'}
-        sub={r.proximos3[0] ? fmt(r.proximos3[0].saldo) : 'Sin próximos'}
-      />
+      <button onClick={onClickDiasMes} className="text-left group" title="Ver lista completa del mes">
+        <Card
+          accent="text-foreground"
+          bg="bg-surface border-border/60 group-hover:border-primary/40 transition-colors"
+          icon={<Calendar size={16} />}
+          label="Días con pagos"
+          value={String(r.diasConPagos)}
+          sub={`${r.diasSinPagos} sin pagos →`}
+        />
+      </button>
+      <button onClick={onClickProximo} disabled={!r.proximos3[0]} className="text-left group disabled:cursor-default" title="Ir al próximo día">
+        <Card
+          accent="text-foreground"
+          bg={`bg-surface border-border/60 ${r.proximos3[0] ? 'group-hover:border-primary/40' : ''} transition-colors`}
+          icon={<Clock size={16} />}
+          label="Próximo vencimiento"
+          value={r.proximos3[0] ? fmtDay(r.proximos3[0].fechaPago) : '—'}
+          sub={r.proximos3[0] ? `${fmt(r.proximos3[0].saldo)} →` : 'Sin próximos'}
+        />
+      </button>
     </div>
   );
 }
@@ -519,8 +598,8 @@ function Calendario({
 // Agenda (mobile) — lista cronológica
 // ============================================================================
 function Agenda({
-  data, onSeleccionarFactura, hoy,
-}: { data: Proyeccion; onSeleccionarFactura: (f: Factura) => void; hoy: string }) {
+  data, onSeleccionarFactura, onVerFactura, hoy,
+}: { data: Proyeccion; onSeleccionarFactura: (f: Factura) => void; onVerFactura: (id: number) => void; hoy: string }) {
   // Agrupar facturas por fecha
   const grupos = useMemo(() => {
     const m = new Map<string, Factura[]>();
@@ -561,7 +640,13 @@ function Agenda({
             </div>
             <div>
               {g.facturas.map(f => (
-                <FacturaRow key={f.id} factura={f} onPagar={() => onSeleccionarFactura(f)} vencida={vencido} />
+                <FacturaRow
+                  key={f.id}
+                  factura={f}
+                  onPagar={() => onSeleccionarFactura(f)}
+                  onVer={() => onVerFactura(f.id)}
+                  vencida={vencido}
+                />
               ))}
             </div>
           </div>
@@ -574,7 +659,13 @@ function Agenda({
 // ============================================================================
 // CashFlowChart — barras 30 días
 // ============================================================================
-function CashFlowChart({ cashFlow30d, hoy }: { cashFlow30d: Array<{ fecha: string; total: number }>; hoy: string }) {
+function CashFlowChart({
+  cashFlow30d, hoy, onSeleccionarDia,
+}: {
+  cashFlow30d: Array<{ fecha: string; total: number }>;
+  hoy: string;
+  onSeleccionarDia: (fecha: string) => void;
+}) {
   const max = Math.max(...cashFlow30d.map(c => c.total), 1);
   const total = cashFlow30d.reduce((s, c) => s + c.total, 0);
   return (
@@ -584,24 +675,29 @@ function CashFlowChart({ cashFlow30d, hoy }: { cashFlow30d: Array<{ fecha: strin
         <div className="text-sm font-bold">Próximos 30 días</div>
       </div>
       <div className="text-2xl font-extrabold text-primary mb-2">{fmt(total)}</div>
-      <div className="h-20 flex items-end gap-[1.5px]">
+      <div className="h-20 flex items-end gap-[1.5px] print:hidden">
         {cashFlow30d.map((c, i) => {
           const h = Math.max((c.total / max) * 100, c.total > 0 ? 4 : 0);
           const isHoy = c.fecha === hoy;
+          const tienePagos = c.total > 0;
           return (
-            <div
+            <button
               key={i}
-              className="flex-1 rounded-t-sm transition-all"
+              onClick={() => tienePagos && onSeleccionarDia(c.fecha)}
+              disabled={!tienePagos}
+              className={`flex-1 rounded-t-sm transition-all ${
+                tienePagos ? 'hover:opacity-80 hover:scale-y-110 origin-bottom cursor-pointer' : 'cursor-default'
+              }`}
               style={{
                 height: `${h}%`,
                 backgroundColor: isHoy
                   ? 'rgb(var(--primary) / 1)'
-                  : c.total > 0
+                  : tienePagos
                   ? 'rgb(var(--primary) / 0.4)'
                   : 'rgb(var(--border) / 0.5)',
-                minHeight: c.total > 0 ? '3px' : '0',
+                minHeight: tienePagos ? '3px' : '0',
               }}
-              title={`${c.fecha}: ${fmt(c.total)}`}
+              title={tienePagos ? `${fmtDay(c.fecha)}: ${fmt(c.total)} — click para ver` : c.fecha}
             />
           );
         })}
@@ -657,13 +753,23 @@ function ProximosPagos({
 // FacturaRow — fila de factura (en lista de día o en vencidas)
 // ============================================================================
 function FacturaRow({
-  factura, onPagar, vencida = false,
-}: { factura: Factura; onPagar: () => void; vencida?: boolean }) {
+  factura, onPagar, onVer, vencida = false,
+}: { factura: Factura; onPagar: () => void; onVer: () => void; vencida?: boolean }) {
   return (
-    <div className="px-4 py-2.5 border-b border-border/30 last:border-0 flex items-center gap-3 hover:bg-surface-high/50 transition-colors">
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onVer}
+      onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && onVer()}
+      className="px-4 py-2.5 border-b border-border/30 last:border-0 flex items-center gap-3 hover:bg-surface-high/70 active:bg-surface-high transition-colors cursor-pointer group"
+      title="Click para ver detalle de la factura"
+    >
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-bold truncate">{factura.proveedorNombre}</div>
-        <div className="text-[11px] text-on-surface-variant flex items-center gap-2">
+        <div className="text-sm font-bold truncate flex items-center gap-1.5">
+          {factura.proveedorNombre}
+          <Eye size={12} className="opacity-0 group-hover:opacity-60 transition-opacity text-on-surface-variant" />
+        </div>
+        <div className="text-[11px] text-on-surface-variant flex items-center gap-2 flex-wrap">
           <span>{factura.tipoComprobante} {factura.numero}</span>
           {factura.fechaPagoInferida && (
             <span title="Fecha estimada (sin vencimiento explícito)" className="text-[9px] bg-amber-500/15 text-amber-500 px-1.5 py-0.5 rounded font-bold uppercase">
@@ -689,7 +795,7 @@ function FacturaRow({
         )}
       </div>
       <button
-        onClick={onPagar}
+        onClick={e => { e.stopPropagation(); onPagar(); }}
         className="px-3 py-1.5 text-[11px] font-bold rounded-lg bg-primary text-on-primary hover:bg-primary/90 print:hidden"
       >
         Pagar
@@ -871,6 +977,385 @@ function ModalPago({
           >
             Cancelar
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// ModalDetalleFactura — vista interactiva completa de la factura
+// ============================================================================
+function ModalDetalleFactura({
+  facturaId, onClose, onPagar, onPagoEliminado, onIrAFactura,
+}: {
+  facturaId: number;
+  onClose: () => void;
+  onPagar: (f: { id: number }) => void;
+  onPagoEliminado: () => void;
+  onIrAFactura: (id: number) => void;
+}) {
+  const { addToast } = useToast();
+  const [factura, setFactura] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [verImagen, setVerImagen] = useState(false);
+  const [eliminandoPagoId, setEliminandoPagoId] = useState<number | null>(null);
+
+  async function cargar() {
+    setLoading(true);
+    try {
+      const f = await api.getFactura(facturaId);
+      setFactura(f);
+    } catch (e: any) {
+      addToast(e?.message || 'Error cargando factura', 'error');
+      onClose();
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [facturaId]);
+
+  async function eliminarPago(pagoId: number, monto: number) {
+    if (!confirm(`¿Eliminar el pago de ${fmt(monto)}? Esta acción no se puede deshacer.`)) return;
+    setEliminandoPagoId(pagoId);
+    try {
+      await api.eliminarPago(pagoId);
+      addToast('Pago eliminado', 'success');
+      await cargar();
+      onPagoEliminado();
+    } catch (e: any) {
+      addToast(e?.message || 'No se pudo eliminar', 'error');
+    } finally {
+      setEliminandoPagoId(null);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto print:hidden" onClick={onClose}>
+      <div
+        className="bg-bg-primary rounded-t-2xl sm:rounded-2xl border border-border/60 w-full sm:max-w-2xl max-h-[95vh] sm:max-h-[90vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header sticky */}
+        <div className="sticky top-0 bg-bg-primary border-b border-border/60 px-4 sm:px-5 py-3 flex items-start justify-between gap-3 z-10">
+          <div className="min-w-0">
+            <div className="text-[10px] font-bold text-primary uppercase tracking-wider flex items-center gap-1">
+              <FileText size={11} /> Factura
+            </div>
+            <div className="text-base font-extrabold mt-0.5 truncate">
+              {loading ? 'Cargando…' : factura?.proveedor?.nombre || '—'}
+            </div>
+            {!loading && factura && (
+              <div className="text-[11px] text-on-surface-variant truncate">
+                {factura.tipoComprobante} {factura.numero} · {factura.codigo}
+              </div>
+            )}
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 -m-1 hover:bg-surface rounded shrink-0"
+            aria-label="Cerrar"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {loading && (
+          <div className="p-12 text-center text-sm text-on-surface-variant">Cargando factura…</div>
+        )}
+
+        {!loading && factura && (
+          <div className="p-4 sm:p-5 space-y-5">
+            {/* Banda de totales — clickeable para registrar pago */}
+            <div className="grid grid-cols-3 gap-2">
+              <div className="rounded-lg bg-surface border border-border/60 p-3">
+                <div className="text-[10px] uppercase tracking-wider text-on-surface-variant">Total factura</div>
+                <div className="text-lg font-extrabold">{fmt(factura.total)}</div>
+              </div>
+              <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/30 p-3">
+                <div className="text-[10px] uppercase tracking-wider text-on-surface-variant">Pagado</div>
+                <div className="text-lg font-extrabold text-emerald-500">{fmt(factura.totalPagado)}</div>
+              </div>
+              <div className="rounded-lg bg-primary/5 border border-primary/30 p-3">
+                <div className="text-[10px] uppercase tracking-wider text-on-surface-variant">Saldo</div>
+                <div className="text-lg font-extrabold text-primary">{fmt(factura.saldoPendiente)}</div>
+              </div>
+            </div>
+
+            {/* Acciones rápidas */}
+            <div className="flex gap-2 flex-wrap">
+              {factura.saldoPendiente > 0.001 && (
+                <button
+                  onClick={() => onPagar({ id: factura.id })}
+                  className="flex-1 sm:flex-none px-4 py-2.5 rounded-lg bg-primary text-on-primary text-sm font-bold flex items-center justify-center gap-2 hover:bg-primary/90"
+                >
+                  <CreditCard size={14} /> Registrar pago
+                </button>
+              )}
+              {factura.saldoPendiente <= 0.001 && (
+                <div className="flex-1 sm:flex-none px-4 py-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/40 text-emerald-500 text-sm font-bold flex items-center justify-center gap-2">
+                  <Check size={14} /> Factura pagada
+                </div>
+              )}
+              <button
+                onClick={() => onIrAFactura(factura.id)}
+                className="px-3 py-2.5 rounded-lg bg-surface border border-border/60 hover:border-primary/60 text-sm font-bold flex items-center gap-2"
+                title="Abrir factura completa"
+              >
+                <ExternalLink size={14} /> Ir a factura
+              </button>
+              {factura.imagenBase64 && (
+                <button
+                  onClick={() => setVerImagen(v => !v)}
+                  className="px-3 py-2.5 rounded-lg bg-surface border border-border/60 hover:border-primary/60 text-sm font-bold flex items-center gap-2"
+                >
+                  <ImageIcon size={14} /> {verImagen ? 'Ocultar' : 'Ver'} imagen
+                </button>
+              )}
+            </div>
+
+            {/* Imagen escaneada (toggle) */}
+            {verImagen && factura.imagenBase64 && (
+              <div className="rounded-lg overflow-hidden border border-border/60 bg-surface">
+                <img
+                  src={factura.imagenBase64.startsWith('data:') ? factura.imagenBase64 : `data:image/jpeg;base64,${factura.imagenBase64}`}
+                  alt="Factura escaneada"
+                  className="w-full h-auto"
+                />
+              </div>
+            )}
+
+            {/* Datos básicos */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              <Info label="Fecha emisión" value={factura.fecha} />
+              <Info
+                label="Vencimiento"
+                value={factura.fechaVencimiento || '—'}
+                accent={factura.fechaVencimiento ? undefined : 'text-amber-500'}
+              />
+              <Info
+                label="Estado"
+                value={factura.estado}
+                accent={
+                  factura.estado === 'pagada' ? 'text-emerald-500' :
+                  factura.estado === 'parcial' ? 'text-amber-500' :
+                  factura.estado === 'pendiente' ? 'text-primary' : 'text-rose-500'
+                }
+              />
+              <Info label="Cargada por" value={factura.creadoPor?.nombre || '—'} />
+            </div>
+
+            {/* Items de la factura */}
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <Package size={14} className="text-primary" />
+                <div className="text-sm font-bold">
+                  Items ({factura.items?.length || 0})
+                </div>
+              </div>
+              {factura.items?.length > 0 ? (
+                <div className="rounded-lg border border-border/60 overflow-hidden">
+                  <div className="divide-y divide-border/30">
+                    {factura.items.map((it: any) => (
+                      <div key={it.id} className="px-3 py-2 flex items-center gap-3 hover:bg-surface-high/50 transition-colors text-xs">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold truncate">{it.producto?.nombre || it.descripcion}</div>
+                          {it.producto && (
+                            <div className="text-[10px] text-on-surface-variant font-mono">{it.producto.codigo}</div>
+                          )}
+                        </div>
+                        <div className="text-on-surface-variant w-20 text-right tabular-nums">
+                          {it.cantidad} {it.unidad}
+                        </div>
+                        <div className="text-on-surface-variant w-20 text-right tabular-nums">
+                          {fmt(it.precioUnitario)}
+                        </div>
+                        <div className="font-bold w-24 text-right tabular-nums text-primary">
+                          {fmt(it.subtotal)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-[11px] text-on-surface-variant py-2">Sin items detallados.</div>
+              )}
+              {/* Totales factura */}
+              <div className="flex justify-end gap-6 mt-2 text-xs">
+                <div className="text-on-surface-variant">
+                  Subtotal: <span className="font-bold text-foreground tabular-nums">{fmt(factura.subtotal)}</span>
+                </div>
+                <div className="text-on-surface-variant">
+                  IVA: <span className="font-bold text-foreground tabular-nums">{fmt(factura.iva)}</span>
+                </div>
+                {factura.otrosImpuestos > 0 && (
+                  <div className="text-on-surface-variant">
+                    Otros: <span className="font-bold text-foreground tabular-nums">{fmt(factura.otrosImpuestos)}</span>
+                  </div>
+                )}
+                <div className="text-foreground font-extrabold">
+                  Total: <span className="text-primary tabular-nums">{fmt(factura.total)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Historial de pagos */}
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <Receipt size={14} className="text-primary" />
+                <div className="text-sm font-bold">
+                  Historial de pagos ({factura.pagos?.length || 0})
+                </div>
+              </div>
+              {factura.pagos?.length > 0 ? (
+                <div className="rounded-lg border border-border/60 overflow-hidden">
+                  <div className="divide-y divide-border/30">
+                    {factura.pagos.map((p: any) => (
+                      <div key={p.id} className="px-3 py-2 flex items-center gap-3 text-xs">
+                        <div className="w-1.5 h-8 rounded-full bg-emerald-500/40 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold flex items-center gap-2">
+                            <span className="capitalize">{p.medioPago}</span>
+                            {p.referencia && (
+                              <span className="text-[10px] font-mono text-on-surface-variant truncate">
+                                ref: {p.referencia}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-on-surface-variant">
+                            {p.fecha} · {p.creadoPor?.nombre || '—'}
+                            {p.observacion && <> · {p.observacion}</>}
+                          </div>
+                        </div>
+                        <div className="font-bold tabular-nums text-emerald-500">
+                          {fmt(p.monto)}
+                        </div>
+                        <button
+                          onClick={() => eliminarPago(p.id, p.monto)}
+                          disabled={eliminandoPagoId === p.id}
+                          className="p-1.5 rounded hover:bg-rose-500/10 text-rose-500 disabled:opacity-50"
+                          title="Eliminar pago"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-[11px] text-on-surface-variant py-2">
+                  Esta factura no tiene pagos registrados todavía.
+                </div>
+              )}
+            </div>
+
+            {/* Observaciones */}
+            {factura.observacion && (
+              <div className="rounded-lg bg-surface border border-border/60 p-3">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant mb-1">
+                  Observación
+                </div>
+                <div className="text-xs">{factura.observacion}</div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Info({ label, value, accent }: { label: string; value: string; accent?: string }) {
+  return (
+    <div className="rounded-lg bg-surface border border-border/40 p-2">
+      <div className="text-[9px] font-bold uppercase tracking-wider text-on-surface-variant">{label}</div>
+      <div className={`text-xs font-bold capitalize mt-0.5 ${accent || ''}`}>{value}</div>
+    </div>
+  );
+}
+
+// ============================================================================
+// ModalListaMes — vista lista completa del mes con todas las facturas
+// ============================================================================
+function ModalListaMes({
+  facturas, mes, onClose, onVer, onPagar,
+}: {
+  facturas: Factura[];
+  mes: string;
+  onClose: () => void;
+  onVer: (id: number) => void;
+  onPagar: (f: Factura) => void;
+}) {
+  const [yearStr, monthStr] = mes.split('-');
+  const nombreMes = NOMBRES_MES[parseInt(monthStr) - 1];
+
+  // Agrupar por día
+  const porDia = useMemo(() => {
+    const m = new Map<string, Factura[]>();
+    for (const f of facturas) {
+      const arr = m.get(f.fechaPago) || [];
+      arr.push(f);
+      m.set(f.fechaPago, arr);
+    }
+    return Array.from(m.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([fecha, facs]) => ({ fecha, facturas: facs.sort((a, b) => b.saldo - a.saldo) }));
+  }, [facturas]);
+
+  const total = facturas.reduce((s, f) => s + f.saldo, 0);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto print:hidden" onClick={onClose}>
+      <div
+        className="bg-bg-primary rounded-t-2xl sm:rounded-2xl border border-border/60 w-full sm:max-w-3xl max-h-[95vh] sm:max-h-[90vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="sticky top-0 bg-bg-primary border-b border-border/60 px-4 sm:px-5 py-3 flex items-start justify-between gap-3 z-10">
+          <div>
+            <div className="text-[10px] font-bold text-primary uppercase tracking-wider">
+              Lista completa del mes
+            </div>
+            <div className="text-base font-extrabold mt-0.5">
+              {nombreMes} {yearStr}
+            </div>
+            <div className="text-[11px] text-on-surface-variant">
+              {facturas.length} {facturas.length === 1 ? 'factura' : 'facturas'} · total {fmt(total)}
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1 -m-1 hover:bg-surface rounded">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="p-3 sm:p-4 space-y-3">
+          {porDia.length === 0 && (
+            <div className="text-center text-sm text-on-surface-variant py-12">
+              Sin facturas en este mes.
+            </div>
+          )}
+          {porDia.map(g => {
+            const totalDia = g.facturas.reduce((s, f) => s + f.saldo, 0);
+            return (
+              <div key={g.fecha} className="rounded-lg border border-border/60 overflow-hidden">
+                <div className="px-3 py-2 bg-surface-high/40 border-b border-border/30 flex items-center justify-between">
+                  <div className="text-xs font-bold capitalize">{fmtDay(g.fecha)}</div>
+                  <div className="text-xs text-on-surface-variant">
+                    {g.facturas.length} · <span className="font-bold text-primary tabular-nums">{fmt(totalDia)}</span>
+                  </div>
+                </div>
+                <div>
+                  {g.facturas.map(f => (
+                    <FacturaRow
+                      key={f.id}
+                      factura={f}
+                      onVer={() => onVer(f.id)}
+                      onPagar={() => onPagar(f)}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
