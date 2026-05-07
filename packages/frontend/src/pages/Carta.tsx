@@ -146,6 +146,22 @@ export default function Carta() {
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkPreview, setBulkPreview] = useState<{ antes: number; despues: number; nombre: string }[] | null>(null);
 
+  // Modal sugerencias inteligentes (recetas con costo subido o margen bajo)
+  const [sugerenciasOpen, setSugerenciasOpen] = useState(false);
+
+  // Recetas con sugerencia activa: costo subió >1% o margen real está
+  // significativamente por debajo del objetivo y hay precio sugerido viable.
+  const sugerenciasList = useMemo(
+    () => recetas.filter(r => {
+      const ajuste = r.ajustePrecio as { dif: number; pct: number } | null;
+      if (!ajuste || ajuste.dif <= 0 || Math.abs(ajuste.pct) < 1) return false;
+      // requiere que tenga precio sugerido viable
+      return r.precioSugerido && r.precioSugerido > 0;
+    }),
+    [recetas]
+  );
+  const sugerenciasCount = sugerenciasList.length;
+
   const cargar = () => {
     setLoading(true);
     api.getCartaData()
@@ -278,10 +294,22 @@ export default function Carta() {
             Precio editable por plato · Margen en tiempo real · Ranking de elaboraciones
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Button variant="ghost" onClick={() => navigate('/recetas')}>
             <ChefHat size={14} /> Recetas
           </Button>
+          {sugerenciasCount > 0 && (
+            <Button
+              variant="ghost"
+              onClick={() => setSugerenciasOpen(true)}
+              className="!bg-amber-500/10 !text-amber-500 hover:!bg-amber-500/20 !border-amber-500/40"
+            >
+              <Sparkles size={14} /> Sugerencias{' '}
+              <span className="ml-1 text-[10px] bg-amber-500 text-background rounded-full px-1.5 py-0.5 font-extrabold">
+                {sugerenciasCount}
+              </span>
+            </Button>
+          )}
           <Button onClick={() => { setBulkPreview(null); setBulkOpen(true); }}>
             <TrendingUp size={14} /> Subir precios
           </Button>
@@ -398,6 +426,24 @@ export default function Carta() {
           ))}
         </div>
       )}
+
+      {/* Modal Sugerencias inteligentes */}
+      <SugerenciasModal
+        open={sugerenciasOpen}
+        onClose={() => setSugerenciasOpen(false)}
+        sugerencias={sugerenciasList}
+        onAplicar={async (id, precio) => {
+          await api.patchPrecioReceta(id, precio);
+          handlePrecioChange(id, precio);
+        }}
+        onAplicarTodas={async (cambios) => {
+          // Bulk: aplica todos los precios sugeridos en paralelo
+          await Promise.all(cambios.map(c => api.patchPrecioReceta(c.id, c.precio)));
+          for (const c of cambios) handlePrecioChange(c.id, c.precio);
+          setSugerenciasOpen(false);
+          addToast(`${cambios.length} precios actualizados`, 'success');
+        }}
+      />
 
       {/* Modal Bulk Pricing */}
       <Modal
@@ -541,6 +587,11 @@ function CartaCard({
 }) {
   const margen = receta.margenReal as number | null;
   const costo = receta.costoPorPorcion as number;
+  const variacionPct = receta.variacionCostoPct as number ?? 0;
+  const variacionAbs = receta.variacionCostoAbs as number ?? 0;
+  const costoAnterior = receta.costoAnteriorPorPorcion as number ?? costo;
+  const precioSugerido = receta.precioSugerido as number | null;
+  const ajuste = receta.ajustePrecio as { dif: number; pct: number } | null;
   const elab30d = receta.elaboraciones?.total30d ?? 0;
   const elaborHist = receta.elaboraciones?.totalHistorico ?? 0;
 
@@ -548,6 +599,11 @@ function CartaCard({
     margen >= (receta.margenObjetivo ?? 70) ? 'text-success' :
     margen >= (receta.margenObjetivo ?? 70) - 10 ? 'text-amber-500' :
     'text-destructive';
+
+  // Solo mostrar variación si es significativa (>0.5%)
+  const tieneVariacion = Math.abs(variacionPct) > 0.5;
+  const subio = variacionPct > 0;
+  const sugiereSubir = ajuste != null && ajuste.dif > 0 && Math.abs(ajuste.pct) > 1;
 
   return (
     <div className="rounded-xl bg-surface border border-border hover:border-primary/30 transition-all overflow-hidden">
@@ -610,8 +666,19 @@ function CartaCard({
         {/* Fila costo + ranking */}
         <div className="flex items-center justify-between gap-2">
           {costo > 0 ? (
-            <span className="text-[10px] text-on-surface-variant font-mono tabular-nums">
+            <span className="text-[10px] text-on-surface-variant font-mono tabular-nums flex items-center gap-1.5">
               Costo: {fmtPrecio(costo)}/porción
+              {tieneVariacion && (
+                <span
+                  className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded inline-flex items-center gap-0.5 ${
+                    subio ? 'bg-rose-500/15 text-rose-500' : 'bg-emerald-500/15 text-emerald-500'
+                  }`}
+                  title={`Costo anterior: ${fmtPrecio(costoAnterior)} · Variación: ${variacionAbs > 0 ? '+' : ''}${fmtPrecio(variacionAbs)}`}
+                >
+                  {subio ? <TrendingUp size={9} /> : <TrendingDown size={9} />}
+                  {variacionPct > 0 ? '+' : ''}{variacionPct.toFixed(0)}%
+                </span>
+              )}
             </span>
           ) : (
             <span className="text-[10px] text-on-surface-variant/40">Sin costo cargado</span>
@@ -627,7 +694,285 @@ function CartaCard({
             </div>
           )}
         </div>
+
+        {/* Banda de sugerencia: si subió costo o margen está bajo objetivo,
+            recomendar nuevo precio. Click → aplica el precio sugerido. */}
+        {sugiereSubir && precioSugerido && (
+          <button
+            onClick={async (e) => {
+              e.stopPropagation();
+              try {
+                await api.patchPrecioReceta(receta.id, precioSugerido);
+                onPrecioChange(receta.id, precioSugerido);
+              } catch (err: any) {
+                console.error('Error aplicando precio sugerido', err);
+              }
+            }}
+            className="w-full mt-1 px-2 py-1.5 rounded-md bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/15 text-left flex items-center gap-2 group transition-colors"
+            title={`Click para aplicar el precio sugerido. Mantiene el ${
+              receta.margenObjetivo ? `${receta.margenObjetivo}% objetivo` : '70% margen'
+            }.`}
+          >
+            <Sparkles size={10} className="text-amber-500 shrink-0" />
+            <div className="flex-1 min-w-0 text-[10px] leading-tight">
+              <span className="text-on-surface-variant">Sugerido </span>
+              <span className="font-extrabold text-amber-500 tabular-nums">{fmtPrecio(precioSugerido)}</span>
+              {receta.precioVenta && (
+                <span className="text-on-surface-variant"> (era {fmtPrecio(receta.precioVenta)}, +{ajuste!.pct.toFixed(0)}%)</span>
+              )}
+            </div>
+            <span className="text-[9px] font-bold text-amber-500 opacity-0 group-hover:opacity-100 transition-opacity">
+              APLICAR
+            </span>
+          </button>
+        )}
       </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// SugerenciasModal — bulk apply de precios sugeridos por aumento de costo
+// ============================================================================
+function SugerenciasModal({
+  open, onClose, sugerencias, onAplicar, onAplicarTodas,
+}: {
+  open: boolean;
+  onClose: () => void;
+  sugerencias: any[];
+  onAplicar: (id: number, precio: number) => Promise<void>;
+  onAplicarTodas: (cambios: { id: number; precio: number }[]) => Promise<void>;
+}) {
+  const [seleccionadas, setSeleccionadas] = useState<Set<number>>(new Set());
+  const [aplicando, setAplicando] = useState(false);
+
+  // Por defecto, todas seleccionadas cuando se abre
+  useEffect(() => {
+    if (open) setSeleccionadas(new Set(sugerencias.map(s => s.id)));
+  }, [open, sugerencias]);
+
+  const toggleSel = (id: number) => {
+    setSeleccionadas(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const todasSeleccionadas = sugerencias.length > 0 && sugerencias.every(s => seleccionadas.has(s.id));
+  const algunaSeleccionada = sugerencias.some(s => seleccionadas.has(s.id));
+
+  const sumImpactoMensual = useMemo(() => {
+    // Aproximación: por cada receta seleccionada, dif × elaboraciones30d
+    return sugerencias
+      .filter(s => seleccionadas.has(s.id))
+      .reduce((sum, s) => {
+        const dif = s.ajustePrecio?.dif ?? 0;
+        const e30 = s.elaboraciones?.total30d ?? 0;
+        return sum + dif * e30;
+      }, 0);
+  }, [sugerencias, seleccionadas]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto" onClick={onClose}>
+      <div
+        className="bg-bg-primary rounded-t-2xl sm:rounded-2xl border border-border w-full sm:max-w-3xl max-h-[95vh] sm:max-h-[90vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header sticky */}
+        <div className="sticky top-0 bg-bg-primary border-b border-border px-4 sm:px-5 py-3 flex items-start justify-between gap-3 z-10">
+          <div className="min-w-0">
+            <div className="text-[10px] font-bold text-amber-500 uppercase tracking-wider flex items-center gap-1">
+              <Sparkles size={11} /> Sugerencias inteligentes
+            </div>
+            <div className="text-base font-extrabold mt-0.5">
+              {sugerencias.length} {sugerencias.length === 1 ? 'plato necesita' : 'platos necesitan'} ajuste
+            </div>
+            <div className="text-[11px] text-on-surface-variant">
+              Calculadas para mantener el margen objetivo después del aumento de costos.
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1 -m-1 hover:bg-surface rounded shrink-0">
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Toggle todas + impacto mensual estimado */}
+        <div className="px-4 sm:px-5 py-3 border-b border-border flex items-center justify-between gap-3 bg-surface/50">
+          <button
+            onClick={() => {
+              if (todasSeleccionadas) setSeleccionadas(new Set());
+              else setSeleccionadas(new Set(sugerencias.map(s => s.id)));
+            }}
+            className="text-xs font-bold text-primary hover:underline flex items-center gap-1.5"
+          >
+            <input
+              type="checkbox"
+              checked={todasSeleccionadas}
+              onChange={() => {}}
+              className="w-3.5 h-3.5 accent-primary"
+            />
+            {todasSeleccionadas ? 'Deseleccionar todas' : 'Seleccionar todas'}
+          </button>
+          {sumImpactoMensual > 0 && (
+            <div className="text-[11px] text-on-surface-variant">
+              Impacto estimado:{' '}
+              <span className="font-bold text-emerald-500">+{fmtPrecio(sumImpactoMensual)}/mes</span>
+            </div>
+          )}
+        </div>
+
+        {/* Lista */}
+        <div className="divide-y divide-border/30 max-h-[55vh] overflow-y-auto">
+          {sugerencias.length === 0 && (
+            <div className="text-center py-12 text-sm text-on-surface-variant">
+              No hay sugerencias activas. Todos los platos tienen márgenes saludables.
+            </div>
+          )}
+          {sugerencias.map(s => (
+            <SugerenciaRow
+              key={s.id}
+              receta={s}
+              seleccionada={seleccionadas.has(s.id)}
+              onToggle={() => toggleSel(s.id)}
+              onAplicar={async () => {
+                if (!s.precioSugerido) return;
+                await onAplicar(s.id, s.precioSugerido);
+              }}
+            />
+          ))}
+        </div>
+
+        {/* Footer con bulk-apply */}
+        {sugerencias.length > 0 && (
+          <div className="sticky bottom-0 bg-bg-primary border-t border-border px-4 sm:px-5 py-3 flex flex-col sm:flex-row gap-2 sm:items-center">
+            <div className="text-xs text-on-surface-variant flex-1">
+              {seleccionadas.size === 0 ? (
+                'Seleccioná al menos una para aplicar'
+              ) : (
+                <>
+                  <span className="font-bold text-foreground">{seleccionadas.size}</span> seleccionado{seleccionadas.size !== 1 ? 's' : ''}
+                </>
+              )}
+            </div>
+            <button
+              onClick={onClose}
+              className="px-3 py-2 rounded-lg bg-surface border border-border text-xs font-bold"
+            >
+              Cancelar
+            </button>
+            <button
+              disabled={!algunaSeleccionada || aplicando}
+              onClick={async () => {
+                setAplicando(true);
+                try {
+                  const cambios = sugerencias
+                    .filter(s => seleccionadas.has(s.id) && s.precioSugerido)
+                    .map(s => ({ id: s.id, precio: s.precioSugerido as number }));
+                  await onAplicarTodas(cambios);
+                } finally {
+                  setAplicando(false);
+                }
+              }}
+              className="px-4 py-2 rounded-lg bg-primary text-on-primary text-xs font-bold disabled:opacity-50 flex items-center gap-1.5"
+            >
+              <Check size={14} />
+              {aplicando ? 'Aplicando…' : `Aplicar ${seleccionadas.size > 0 ? seleccionadas.size : ''} ${seleccionadas.size === 1 ? 'precio' : 'precios'}`}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SugerenciaRow({
+  receta, seleccionada, onToggle, onAplicar,
+}: {
+  receta: any;
+  seleccionada: boolean;
+  onToggle: () => void;
+  onAplicar: () => Promise<void>;
+}) {
+  const [aplicando, setAplicando] = useState(false);
+  const [aplicado, setAplicado] = useState(false);
+  const ajuste = receta.ajustePrecio as { dif: number; pct: number };
+  const variacionCosto = receta.variacionCostoPct ?? 0;
+  const margenAct = receta.margenReal as number | null;
+
+  return (
+    <div className={`px-4 py-3 flex items-start gap-3 transition-colors ${
+      seleccionada ? 'bg-primary/5' : 'hover:bg-surface-high/50'
+    }`}>
+      <input
+        type="checkbox"
+        checked={seleccionada}
+        onChange={onToggle}
+        disabled={aplicado}
+        className="mt-1 w-4 h-4 accent-primary shrink-0 disabled:opacity-50"
+      />
+      <button onClick={onToggle} className="flex-1 min-w-0 text-left">
+        {/* Línea 1: nombre + rubro */}
+        <div className="flex items-center gap-2 mb-1">
+          {receta.rubro && (
+            <span className="text-[9px] font-bold uppercase tracking-wider text-primary/80 bg-primary/10 px-1.5 py-0.5 rounded">
+              {receta.rubro}
+            </span>
+          )}
+          <span className="text-sm font-bold truncate">{receta.nombre}</span>
+        </div>
+        {/* Línea 2: precio actual → sugerido */}
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-on-surface-variant">
+            {fmtPrecio(receta.precioVenta || 0)}
+          </span>
+          <ArrowRight size={12} className="text-amber-500" />
+          <span className="font-extrabold text-amber-500 tabular-nums">
+            {fmtPrecio(receta.precioSugerido)}
+          </span>
+          <span className="text-[10px] font-bold text-amber-500">
+            (+{ajuste.pct.toFixed(0)}%)
+          </span>
+        </div>
+        {/* Línea 3: porqué */}
+        <div className="flex items-center gap-3 mt-1 text-[10px] text-on-surface-variant flex-wrap">
+          {variacionCosto > 0.5 && (
+            <span className="flex items-center gap-1">
+              <TrendingUp size={9} className="text-rose-500" />
+              Costo +{variacionCosto.toFixed(0)}% (era {fmtPrecio(receta.costoAnteriorPorPorcion)}, ahora {fmtPrecio(receta.costoPorPorcion)})
+            </span>
+          )}
+          {margenAct !== null && (
+            <span>
+              Margen actual: <span className="font-bold">{margenAct.toFixed(0)}%</span>
+              {receta.margenObjetivo && (
+                <> · Objetivo: <span className="font-bold">{receta.margenObjetivo}%</span></>
+              )}
+            </span>
+          )}
+          {receta.elaboraciones?.total30d > 0 && (
+            <span>{receta.elaboraciones.total30d} ventas/30d</span>
+          )}
+        </div>
+      </button>
+      <button
+        onClick={async () => {
+          setAplicando(true);
+          try { await onAplicar(); setAplicado(true); }
+          finally { setAplicando(false); }
+        }}
+        disabled={aplicando || aplicado}
+        className={`px-3 py-1.5 rounded-lg text-[11px] font-bold shrink-0 ${
+          aplicado
+            ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30'
+            : 'bg-primary text-on-primary hover:bg-primary/90 disabled:opacity-50'
+        }`}
+      >
+        {aplicado ? '✓ Aplicado' : aplicando ? '...' : 'Aplicar'}
+      </button>
     </div>
   );
 }

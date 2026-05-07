@@ -667,21 +667,33 @@ router.get('/carta', async (req: Request, res: Response) => {
       recetas.flatMap(r => r.ingredientes.map(i => i.productoId))
     )];
 
-    type CostoRow = { producto_id: number; costo_unitario: number };
+    // Trae los DOS últimos costos por producto: el actual y el anterior.
+    // Sirve para detectar variaciones y sugerir precios cuando un producto
+    // sube/baja. Si solo hay 1 costo histórico, anterior = actual (sin
+    // variación).
+    type CostoRow = { producto_id: number; costo_unitario: number; rn: number };
     const costoRows = productoIds.length > 0
       ? await prisma.$queryRawUnsafe<CostoRow[]>(`
-          SELECT DISTINCT ON (producto_id) producto_id, costo_unitario
-          FROM movimientos
-          WHERE producto_id = ANY(ARRAY[${productoIds.join(',')}]::int[])
-            AND costo_unitario IS NOT NULL
-            AND costo_unitario > 0
-          ORDER BY producto_id, fecha DESC, id DESC
+          SELECT producto_id, costo_unitario, rn
+          FROM (
+            SELECT producto_id, costo_unitario,
+                   ROW_NUMBER() OVER (PARTITION BY producto_id ORDER BY fecha DESC, id DESC) AS rn
+              FROM movimientos
+             WHERE producto_id = ANY(ARRAY[${productoIds.join(',')}]::int[])
+               AND costo_unitario IS NOT NULL
+               AND costo_unitario > 0
+          ) t
+          WHERE rn <= 2
         `)
       : [];
 
-    const costoMap = new Map<number, number>();
+    const costoMap = new Map<number, number>();        // último costo
+    const costoAnteriorMap = new Map<number, number>(); // penúltimo costo
     for (const row of costoRows) {
-      costoMap.set(Number(row.producto_id), Number(row.costo_unitario) || 0);
+      const pid = Number(row.producto_id);
+      const cost = Number(row.costo_unitario) || 0;
+      if (Number(row.rn) === 1) costoMap.set(pid, cost);
+      else if (Number(row.rn) === 2) costoAnteriorMap.set(pid, cost);
     }
 
     // ── 3. Estadísticas de elaboraciones por receta (ranking) ────────────────
@@ -713,22 +725,57 @@ router.get('/carta', async (req: Request, res: Response) => {
       });
     }
 
-    // ── 4. Calcular costo, margen y armar respuesta ──────────────────────────
+    // ── 4. Calcular costo, margen, variación y precio sugerido ──────────
     const resultado = recetas.map(r => {
       let costoTotal = 0;
+      let costoAnteriorTotal = 0;
+      const ingredientesConVariacion: Array<{
+        productoId: number;
+        costoActual: number;
+        costoAnterior: number;
+        variacionPct: number;
+      }> = [];
+
       for (const ing of r.ingredientes) {
         const costoUnit = costoMap.get(ing.productoId) ?? 0;
+        const costoAntUnit = costoAnteriorMap.get(ing.productoId) ?? costoUnit;
         const merma = (ing.mermaEsperada ?? 0) / 100;
-        const cantBruta = merma > 0 && merma < 1
-          ? ing.cantidad / (1 - merma)
-          : ing.cantidad;
+        const cantBruta = merma > 0 && merma < 1 ? ing.cantidad / (1 - merma) : ing.cantidad;
         costoTotal += cantBruta * costoUnit;
+        costoAnteriorTotal += cantBruta * costoAntUnit;
+        const variacion = costoAntUnit > 0 ? ((costoUnit - costoAntUnit) / costoAntUnit) * 100 : 0;
+        if (Math.abs(variacion) > 0.5) {
+          ingredientesConVariacion.push({
+            productoId: ing.productoId,
+            costoActual: costoUnit,
+            costoAnterior: costoAntUnit,
+            variacionPct: Math.round(variacion * 10) / 10,
+          });
+        }
       }
+
       const costoPorPorcion = r.porciones > 0 ? costoTotal / r.porciones : 0;
+      const costoAnteriorPorPorcion = r.porciones > 0 ? costoAnteriorTotal / r.porciones : 0;
+      const variacionCostoAbs = costoPorPorcion - costoAnteriorPorPorcion;
+      const variacionCostoPct = costoAnteriorPorPorcion > 0
+        ? ((costoPorPorcion - costoAnteriorPorPorcion) / costoAnteriorPorPorcion) * 100
+        : 0;
+
       const precioVenta = r.precioVenta ?? null;
       let margenReal: number | null = null;
       if (precioVenta && precioVenta > 0 && costoPorPorcion > 0) {
         margenReal = ((precioVenta - costoPorPorcion) / precioVenta) * 100;
+      }
+
+      // Precio sugerido: el que mantiene el margen objetivo (o el margen
+      // real previo si no hay objetivo). Fórmula: precio = costo / (1 - margen).
+      // Margen como ratio (0-1), no porcentaje.
+      const margenRef = r.margenObjetivo != null && r.margenObjetivo > 0
+        ? r.margenObjetivo / 100
+        : 0.70;
+      let precioSugerido: number | null = null;
+      if (costoPorPorcion > 0 && margenRef > 0 && margenRef < 1) {
+        precioSugerido = Math.round(costoPorPorcion / (1 - margenRef));
       }
 
       const elab = elabMap.get(r.id) ?? { totalHistorico: 0, total30d: 0 };
@@ -744,7 +791,21 @@ router.get('/carta', async (req: Request, res: Response) => {
         precioVenta,
         margenObjetivo: r.margenObjetivo,
         costoPorPorcion: Math.round(costoPorPorcion * 100) / 100,
+        costoAnteriorPorPorcion: Math.round(costoAnteriorPorPorcion * 100) / 100,
+        variacionCostoAbs: Math.round(variacionCostoAbs * 100) / 100,
+        variacionCostoPct: Math.round(variacionCostoPct * 10) / 10,
         margenReal: margenReal !== null ? Math.round(margenReal * 10) / 10 : null,
+        precioSugerido,
+        // Diferencia entre precio actual y sugerido (en $ y %)
+        ajustePrecio: precioVenta != null && precioSugerido != null
+          ? {
+              dif: precioSugerido - precioVenta,
+              pct: precioVenta > 0
+                ? Math.round(((precioSugerido - precioVenta) / precioVenta) * 1000) / 10
+                : 0,
+            }
+          : null,
+        ingredientesConVariacion, // detalle de qué ingrediente subió/bajó
         elaboraciones: {
           totalHistorico: elab.totalHistorico,
           total30d: elab.total30d,
