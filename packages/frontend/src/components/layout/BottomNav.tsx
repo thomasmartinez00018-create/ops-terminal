@@ -55,7 +55,7 @@ export default function BottomNav() {
 
   return (
     <>
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-surface border-t border-border/60 backdrop-blur-sm">
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-surface border-t border-border/60 backdrop-blur-sm pb-safe">
         <div className="flex items-stretch">
           {tabs.map(tab => (
             <NavLink
