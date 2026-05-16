@@ -236,12 +236,21 @@ export default function Carta() {
   const stats = useMemo(() => {
     const conPrecio = recetas.filter(r => r.precioVenta && r.precioVenta > 0);
     const sinPrecio = recetas.filter(r => !r.precioVenta || r.precioVenta <= 0);
-    const conMargen = recetas.filter(r => r.margenReal !== null);
-    const margenProm = conMargen.length > 0
-      ? conMargen.reduce((s, r) => s + r.margenReal, 0) / conMargen.length
+    // Para el PROMEDIO excluimos outliers de datos corruptos: un margen
+    // < -200% no es un dato real, es un costo mal cargado (ej: $3.500.000
+    // por porción). Si lo metés en el promedio te da "-29154%" que no le
+    // sirve a nadie. Esos casos se cuentan aparte como "a revisar".
+    const conMargenValido = recetas.filter(
+      r => r.margenReal !== null && r.margenReal > -200,
+    );
+    const aRevisar = recetas.filter(
+      r => r.margenReal !== null && r.margenReal <= -200,
+    ).length;
+    const margenProm = conMargenValido.length > 0
+      ? conMargenValido.reduce((s, r) => s + r.margenReal, 0) / conMargenValido.length
       : null;
     const totalElaborados30d = recetas.reduce((s, r) => s + (r.elaboraciones?.total30d ?? 0), 0);
-    return { total: recetas.length, conPrecio: conPrecio.length, sinPrecio: sinPrecio.length, margenProm, totalElaborados30d };
+    return { total: recetas.length, conPrecio: conPrecio.length, sinPrecio: sinPrecio.length, margenProm, aRevisar, totalElaborados30d };
   }, [recetas]);
 
   // Bulk
@@ -336,6 +345,11 @@ export default function Carta() {
           }`}>
             {stats.margenProm !== null ? `${stats.margenProm.toFixed(0)}%` : '—'}
           </p>
+          {stats.aRevisar > 0 && (
+            <p className="text-[10px] font-bold text-amber-500 mt-0.5">
+              {stats.aRevisar} con costo a revisar
+            </p>
+          )}
         </div>
         <div className="rounded-xl bg-surface border border-border p-3">
           <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Elab. 30 días</p>
@@ -653,13 +667,25 @@ function CartaCard({
             onChange={onPrecioChange}
           />
           {margen !== null && (
-            <div className={`flex items-center gap-1 text-[11px] font-bold tabular-nums ${margenColor}`}>
-              {margen >= (receta.margenObjetivo ?? 70)
-                ? <TrendingUp size={11} />
-                : <TrendingDown size={11} />
-              }
-              {margen.toFixed(0)}% margen
-            </div>
+            margen <= -200 ? (
+              // Margen absurdo = costo mal cargado. No mostramos "-58233%"
+              // (alarma sin info). Mostramos qué hacer.
+              <div
+                className="flex items-center gap-1 text-[11px] font-bold text-amber-500"
+                title="El costo cargado parece erróneo (muy alto vs. el precio). Revisá el costo del producto o sus ingredientes."
+              >
+                <TrendingDown size={11} />
+                Revisar costo
+              </div>
+            ) : (
+              <div className={`flex items-center gap-1 text-[11px] font-bold tabular-nums ${margenColor}`}>
+                {margen >= (receta.margenObjetivo ?? 70)
+                  ? <TrendingUp size={11} />
+                  : <TrendingDown size={11} />
+                }
+                {margen.toFixed(0)}% margen
+              </div>
+            )
           )}
         </div>
 

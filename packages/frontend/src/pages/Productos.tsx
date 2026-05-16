@@ -13,6 +13,9 @@ import type { ExportConfig } from '../lib/exportUtils';
 import { todayStr } from '../lib/exportUtils';
 import { Plus, Pencil, Trash2, Search, BarChart2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useToast } from '../context/ToastContext';
+import { SkeletonList } from '../components/ui/Skeleton';
+import { useStickyState } from '../hooks/useStickyState';
 
 const RUBROS = [
   'Verduras', 'Frutas', 'Carnes', 'Pescados', 'Lácteos', 'Fiambres',
@@ -55,8 +58,8 @@ export default function Productos() {
   const [productos, setProductos] = useState<any[]>([]);
   const [depositos, setDepositos] = useState<any[]>([]);
   const [buscar, setBuscar] = useState('');
-  const [filtroRubro, setFiltroRubro] = useState('');
-  const [filtroSubrubro, setFiltroSubrubro] = useState('');
+  const [filtroRubro, setFiltroRubro] = useStickyState('prod.rubro', '');
+  const [filtroSubrubro, setFiltroSubrubro] = useStickyState('prod.subrubro', '');
   const [subrubrosDisponibles, setSubrubrosDisponibles] = useState<string[]>([]);
   // Subrubros para autocompletado en el form (según rubro seleccionado)
   const [subrubrosForm, setSubrubrosForm] = useState<string[]>([]);
@@ -64,6 +67,9 @@ export default function Productos() {
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState('');
+  const [cargandoLista, setCargandoLista] = useState(true);
+  const [guardando, setGuardando] = useState(false);
+  const { addToast } = useToast();
   // Último costo de compra por productoId — se carga junto con la lista.
   // Permite mostrar la columna "Último precio" sin un endpoint extra dedicado.
   const [costosMap, setCostosMap] = useState<Record<number, { costoUnitario: number; fecha: string }>>({});
@@ -92,7 +98,10 @@ export default function Productos() {
             .catch(() => {});
         }
       })
-      .catch(console.error);
+      .catch(console.error)
+      .finally(() => {
+        if (myToken === fetchTokenRef.current) setCargandoLista(false);
+      });
   };
 
   // Cuando cambia el filtro de rubro, recargar los subrubros disponibles
@@ -172,15 +181,23 @@ export default function Productos() {
         depositoDefectoId: form.depositoDefectoId || null,
         codigoBarras: form.codigoBarras || null,
       };
+      setGuardando(true);
       if (editId) {
         await api.updateProducto(editId, data);
       } else {
         await api.createProducto(data);
       }
       setModalOpen(false);
+      addToast(
+        editId ? `"${form.nombre}" actualizado` : `"${form.nombre}" creado`,
+        'success',
+      );
       cargar();
     } catch (e: any) {
       setError(e.message);
+      addToast('No se pudo guardar el producto', 'error');
+    } finally {
+      setGuardando(false);
     }
   };
 
@@ -292,10 +309,17 @@ export default function Productos() {
         )}
       </div>
 
+      {/* Skeleton mientras carga la primera vez */}
+      {cargandoLista && productos.length === 0 && (
+        <SkeletonList rows={8} />
+      )}
+
       {/* Empty state compartido entre mobile/desktop */}
-      {productos.length === 0 && (
+      {!cargandoLista && productos.length === 0 && (
         <div className="bg-surface rounded-xl border border-border p-10 text-center text-on-surface-variant font-medium">
-          No se encontraron productos
+          {buscar || filtroRubro || filtroSubrubro
+            ? 'No se encontraron productos con esos filtros'
+            : 'Todavía no cargaste productos. Tocá "Nuevo producto" para empezar.'}
         </div>
       )}
 
@@ -633,10 +657,15 @@ export default function Productos() {
           {error && <p className="text-sm text-destructive font-semibold">{error}</p>}
 
           <div className="flex gap-2 pt-2">
-            <Button onClick={guardar} className="flex-1">
+            <Button
+              onClick={guardar}
+              className="flex-1"
+              loading={guardando}
+              loadingText="Guardando…"
+            >
               {editId ? 'Guardar cambios' : 'Crear producto'}
             </Button>
-            <Button variant="secondary" onClick={() => setModalOpen(false)}>
+            <Button variant="secondary" onClick={() => setModalOpen(false)} disabled={guardando}>
               Cancelar
             </Button>
           </div>

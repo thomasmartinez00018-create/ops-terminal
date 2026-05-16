@@ -7,6 +7,8 @@ import ExportMenu from '../components/ui/ExportMenu';
 import type { ExportConfig } from '../lib/exportUtils';
 import { todayStr } from '../lib/exportUtils';
 import { useToast } from '../context/ToastContext';
+import { useStickyState } from '../hooks/useStickyState';
+import { SkeletonList } from '../components/ui/Skeleton';
 
 const RUBROS_STOCK = [
   'Verduras', 'Frutas', 'Carnes', 'Pescados', 'Lácteos', 'Fiambres',
@@ -18,11 +20,15 @@ export default function Stock() {
   const { addToast } = useToast();
   const [stock, setStock] = useState<any[]>([]);
   const [depositos, setDepositos] = useState<any[]>([]);
-  const [filtroDeposito, setFiltroDeposito] = useState('');
-  const [filtroRubro, setFiltroRubro] = useState('');
-  const [filtroSubrubro, setFiltroSubrubro] = useState('');
+  // Filtros persistentes: si el usuario filtra por depósito, entra a otra
+  // pantalla y vuelve, el filtro sigue puesto (sessionStorage). Antes se
+  // perdía y había que re-filtrar todo de cero — objeción típica del
+  // operador que entra/sale 50 veces por turno.
+  const [filtroDeposito, setFiltroDeposito] = useStickyState('stock.dep', '');
+  const [filtroRubro, setFiltroRubro] = useStickyState('stock.rubro', '');
+  const [filtroSubrubro, setFiltroSubrubro] = useStickyState('stock.subrubro', '');
   const [subrubrosDisponibles, setSubrubrosDisponibles] = useState<string[]>([]);
-  const [filtroBajoMinimo, setFiltroBajoMinimo] = useState(false);
+  const [filtroBajoMinimo, setFiltroBajoMinimo] = useStickyState('stock.bajomin', false);
   const [busqueda, setBusqueda] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -191,14 +197,7 @@ export default function Stock() {
       </div>
 
       {/* Loading shared */}
-      {loading && (
-        <div className="bg-surface rounded-xl border border-border p-10 text-center">
-          <div className="flex items-center justify-center gap-2 text-on-surface-variant">
-            <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-            <span className="text-sm font-medium">Cargando stock...</span>
-          </div>
-        </div>
-      )}
+      {loading && <SkeletonList rows={8} />}
 
       {/* Empty state cuando no hay resultados */}
       {!loading && filtrado.length === 0 && (

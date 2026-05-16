@@ -1,19 +1,30 @@
 import { cn } from '../../lib/utils';
-import type { ButtonHTMLAttributes } from 'react';
+import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { Loader2 } from 'lucide-react';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'destructive' | 'ghost' | 'outline';
   size?: 'sm' | 'md' | 'lg';
+  /** Cuando true: muestra spinner, deshabilita el botón y evita doble-submit. */
+  loading?: boolean;
+  /** Texto opcional a mostrar mientras loading (default: mantiene children). */
+  loadingText?: ReactNode;
 }
 
 export default function Button({
   variant = 'primary',
   size = 'md',
   className,
+  loading = false,
+  loadingText,
+  children,
+  disabled,
   ...props
 }: ButtonProps) {
   return (
     <button
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
       className={cn(
         'inline-flex items-center justify-center gap-2 rounded-lg font-bold transition-all disabled:opacity-50 disabled:pointer-events-none active:scale-[0.98]',
         {
@@ -31,6 +42,9 @@ export default function Button({
         className
       )}
       {...props}
-    />
+    >
+      {loading && <Loader2 size={14} className="animate-spin" />}
+      {loading && loadingText ? loadingText : children}
+    </button>
   );
 }
