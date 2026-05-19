@@ -85,6 +85,14 @@ export default function ComparadorPrecios() {
   const [editingCatValue, setEditingCatValue] = useState('');
   const [categoriaOverrides, setCategoriaOverrides] = useState<Record<string, string>>({});
   const [savingCat, setSavingCat] = useState(false);
+  // Edición inline del RUBRO del proveedor (clic en la cabecera de su
+  // columna). El proveedor ya tiene Proveedor.rubro en el modelo; acá lo
+  // asignamos sin ir a la página Proveedores. Override local para no
+  // esperar el round-trip del getComparativa.
+  const [editingProvId, setEditingProvId] = useState<number | null>(null);
+  const [editingProvRubro, setEditingProvRubro] = useState('');
+  const [provRubroOverrides, setProvRubroOverrides] = useState<Record<number, string>>({});
+  const [savingProv, setSavingProv] = useState(false);
 
   useEffect(() => { cargar(); }, []);
 
@@ -232,6 +240,32 @@ export default function ComparadorPrecios() {
   // Obtener la categoría visible (override local > categoría del dato).
   const getCategoria = (codigo: string, fallback: string) =>
     categoriaOverrides[codigo] ?? fallback;
+
+  // ── Edición inline del RUBRO del proveedor ───────────────────────────────
+  const iniciarEditProv = (provId: number, valorActual: string) => {
+    setEditingProvId(provId);
+    setEditingProvRubro(valorActual || '');
+  };
+  const cancelarEditProv = () => {
+    setEditingProvId(null);
+    setEditingProvRubro('');
+  };
+  const guardarEditProv = async (provId: number) => {
+    const nuevo = editingProvRubro.trim();
+    if (savingProv) return;
+    setSavingProv(true);
+    try {
+      await api.updateProveedor(provId, { rubro: nuevo || null });
+      setProvRubroOverrides(prev => ({ ...prev, [provId]: nuevo }));
+      cancelarEditProv();
+    } catch (e) {
+      console.error('[comparador] updateProveedor', e);
+    }
+    setSavingProv(false);
+  };
+  // Rubro visible del proveedor (override local > el del proveedor).
+  const getProvRubro = (prov: any): string =>
+    provRubroOverrides[prov.id] ?? prov.rubro ?? '';
 
   // Expand / collapse de fila. Si la misma fila se clickea, toggle.
   const toggleExpand = (codigo: string) => {
@@ -407,9 +441,15 @@ export default function ComparadorPrecios() {
       {/* TAB: Ultima */}
       {!loading && tab === 'ultima' && (
         <div className="bg-zinc-900 rounded-lg border border-zinc-800 overflow-auto">
+          {/* Datalist compartido para autocompletar el rubro del proveedor */}
+          <datalist id="prov-rubros">
+            {Array.from(new Set([...RUBROS_SUGERIDOS, ...categorias])).map(r => (
+              <option key={r} value={r} />
+            ))}
+          </datalist>
           {/* Hint discreto sobre interactividad */}
           <p className="px-4 pt-3 pb-1 text-[11px] text-zinc-500 flex items-center gap-1.5">
-            <Info size={11} /> Tocá una fila para ver el detalle · clic en la categoría para corregirla
+            <Info size={11} /> Tocá una fila para ver el detalle · clic en la categoría del producto o en el rubro del proveedor para corregirlos
           </p>
           <table className="w-full text-sm">
             <thead>
@@ -417,9 +457,65 @@ export default function ComparadorPrecios() {
                 <th className="px-2 py-3 w-6"></th>
                 <th className="px-4 py-3 text-left">Producto</th>
                 <th className="px-4 py-3 text-left">Categoria</th>
-                {proveedoresEnData.map(p => (
-                  <th key={p.id} className="px-3 py-3 text-right text-xs">{p.nombre}</th>
-                ))}
+                {proveedoresEnData.map(p => {
+                  const editandoProv = editingProvId === p.id;
+                  const rubroProv = getProvRubro(p);
+                  return (
+                    <th key={p.id} className="px-3 py-3 text-right text-xs align-top">
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="font-bold text-white leading-tight">{p.nombre}</span>
+                        {editandoProv ? (
+                          <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                            <input
+                              list="prov-rubros"
+                              value={editingProvRubro}
+                              onChange={e => setEditingProvRubro(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') { e.preventDefault(); guardarEditProv(p.id); }
+                                if (e.key === 'Escape') cancelarEditProv();
+                              }}
+                              autoFocus
+                              className="w-28 px-2 py-1 rounded bg-zinc-800 border border-primary/50 text-white text-[11px] text-left focus:outline-none focus:ring-1 focus:ring-primary"
+                              placeholder="Rubro…"
+                            />
+                            <button
+                              onClick={() => guardarEditProv(p.id)}
+                              disabled={savingProv}
+                              className="p-1 rounded bg-primary/20 hover:bg-primary/30 text-primary disabled:opacity-50"
+                              title="Guardar"
+                            >
+                              <Check size={11} />
+                            </button>
+                            <button
+                              onClick={cancelarEditProv}
+                              className="p-1 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-300"
+                              title="Cancelar"
+                            >
+                              <XIcon size={11} />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => iniciarEditProv(p.id, rubroProv)}
+                            className="group inline-flex items-center gap-1 text-[10px] font-medium"
+                            title="Clic para asignar el rubro de este proveedor"
+                          >
+                            {rubroProv ? (
+                              <span className="px-1.5 py-0.5 rounded bg-primary/15 text-primary uppercase tracking-wide">
+                                {rubroProv}
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.5 rounded bg-zinc-700/60 text-zinc-400">
+                                sin rubro
+                              </span>
+                            )}
+                            <Pencil size={9} className="opacity-0 group-hover:opacity-100 text-zinc-400 transition-opacity" />
+                          </button>
+                        )}
+                      </div>
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
