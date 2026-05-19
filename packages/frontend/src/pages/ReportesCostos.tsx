@@ -125,7 +125,7 @@ export default function ReportesCostos() {
       {/* TAB: COGS */}
       {tab === 'cogs' && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row items-end gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-end gap-3">
             <div>
               <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider block mb-1">Desde</label>
               <input

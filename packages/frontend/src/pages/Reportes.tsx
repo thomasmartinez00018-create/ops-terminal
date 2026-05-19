@@ -210,7 +210,7 @@ export default function Reportes() {
       {tab === 'movimientos' && (
         <div className="space-y-4">
           <div className="glass rounded-xl p-5">
-            <div className="flex flex-col sm:flex-row items-end gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-end gap-3">
               <Input
                 label="Desde"
                 id="movDesde"
@@ -295,7 +295,7 @@ export default function Reportes() {
       {tab === 'mermas' && (
         <div className="space-y-4">
           <div className="glass rounded-xl p-5">
-            <div className="flex flex-col sm:flex-row items-end gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-end gap-3">
               <Input
                 label="Desde"
                 id="mermaDesde"
@@ -558,7 +558,7 @@ export default function Reportes() {
       {tab === 'historial' && (
         <div className="space-y-4">
           <div className="glass rounded-xl p-5">
-            <div className="flex flex-col sm:flex-row items-end gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-end gap-3">
               <Select
                 label="Producto"
                 id="histProducto"
