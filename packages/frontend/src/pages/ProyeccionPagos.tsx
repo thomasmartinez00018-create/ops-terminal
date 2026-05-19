@@ -31,6 +31,8 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import ExportMenu from '../components/ui/ExportMenu';
+import type { ExportConfig } from '../lib/exportUtils';
 
 // ============================================================================
 // Tipos derivados de la respuesta del backend
@@ -180,6 +182,41 @@ export default function ProyeccionPagos() {
         proveedores={proveedores}
         filtroProveedor={filtroProveedor}
         onFiltroProveedor={setFiltroProveedor}
+        exportSlot={
+          <ExportMenu
+            size="sm"
+            disabled={!data || data.facturas.length === 0}
+            getConfig={(): ExportConfig => {
+              const facturas = [...data.facturas].sort((a, b) =>
+                a.fechaPago.localeCompare(b.fechaPago));
+              const totalSaldo = facturas.reduce((s, f) => s + f.saldo, 0);
+              return {
+                title: 'Proyección de pagos',
+                subtitle: `${NOMBRES_MES[month - 1]} ${year} · ${data.facturas.length} facturas pendientes`,
+                filename: `proyeccion-pagos-${mes}`,
+                headers: ['Vence', 'Proveedor', 'Comprobante', 'Estado', 'Total', 'Pagado', 'Saldo', 'Días venc.'],
+                rows: facturas.map(f => [
+                  f.fechaPago + (f.fechaPagoInferida ? ' (est.)' : ''),
+                  f.proveedorNombre,
+                  `${f.tipoComprobante} ${f.numero}`,
+                  f.estado,
+                  f.total,
+                  f.pagado,
+                  f.saldo,
+                  f.diasVencido > 0 ? `${f.diasVencido} vencido` : '—',
+                ]),
+                totalRow: ['', '', '', 'TOTAL', '', '', totalSaldo, ''],
+                summary: [
+                  { label: 'A pagar (mes)', value: `$${data.resumen.totalMes.toLocaleString('es-AR')}` },
+                  { label: 'Vencido', value: `$${data.resumen.totalVencido.toLocaleString('es-AR')}` },
+                  { label: 'Facturas', value: data.facturas.length },
+                  { label: 'Días con pagos', value: data.resumen.diasConPagos },
+                ],
+                currencyColumns: [4, 5, 6],
+              };
+            }}
+          />
+        }
       />
 
       {/* Stats hero */}
@@ -387,11 +424,12 @@ export default function ProyeccionPagos() {
 // ============================================================================
 function Header({
   nombreMes, ano, onPrev, onNext, onHoy,
-  proveedores, filtroProveedor, onFiltroProveedor,
+  proveedores, filtroProveedor, onFiltroProveedor, exportSlot,
 }: {
   mes?: string; nombreMes: string; ano: number;
   onPrev: () => void; onNext: () => void; onHoy: () => void;
   proveedores: any[]; filtroProveedor: string; onFiltroProveedor: (v: string) => void;
+  exportSlot?: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-4">
@@ -418,6 +456,7 @@ function Header({
             </select>
           </div>
         )}
+        {exportSlot}
         <button
           onClick={() => window.print()}
           className="px-3 py-1.5 text-xs rounded-lg bg-surface border border-border/60 hover:border-primary/60 flex items-center gap-1.5"

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Download, FileText, FileSpreadsheet, File } from 'lucide-react';
+import { Download, FileText, FileSpreadsheet, File, Loader2 } from 'lucide-react';
 import type { ExportConfig } from '../../lib/exportUtils';
 import { exportData } from '../../lib/exportUtils';
 
@@ -10,13 +10,14 @@ interface ExportMenuProps {
 }
 
 const FORMATS = [
-  { key: 'pdf' as const, label: 'PDF', desc: 'Con formato y branding', icon: FileText, color: 'text-red-400' },
-  { key: 'xlsx' as const, label: 'Excel', desc: 'Hoja de calculo editable', icon: FileSpreadsheet, color: 'text-green-400' },
+  { key: 'pdf' as const, label: 'PDF', desc: 'Listo para imprimir / contador', icon: FileText, color: 'text-red-400' },
+  { key: 'xlsx' as const, label: 'Excel', desc: 'Con formato, filtros y totales', icon: FileSpreadsheet, color: 'text-green-400' },
   { key: 'csv' as const, label: 'CSV', desc: 'Texto plano universal', icon: File, color: 'text-blue-400' },
 ];
 
 export default function ExportMenu({ getConfig, disabled, size = 'md' }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
+  const [exportando, setExportando] = useState<null | 'csv' | 'xlsx' | 'pdf'>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -27,10 +28,17 @@ export default function ExportMenu({ getConfig, disabled, size = 'md' }: ExportM
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const handleExport = (format: 'csv' | 'xlsx' | 'pdf') => {
+  const handleExport = async (format: 'csv' | 'xlsx' | 'pdf') => {
     setOpen(false);
-    const config = getConfig();
-    exportData(config, format);
+    setExportando(format);
+    try {
+      const config = getConfig();
+      await exportData(config, format);
+    } catch (e) {
+      console.error('[export] error', e);
+    } finally {
+      setExportando(null);
+    }
   };
 
   const btnClass = size === 'sm'
@@ -41,11 +49,13 @@ export default function ExportMenu({ getConfig, disabled, size = 'md' }: ExportM
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(!open)}
-        disabled={disabled}
+        disabled={disabled || exportando !== null}
         className={`inline-flex items-center font-bold rounded-lg border border-border bg-surface hover:bg-surface-high text-foreground transition-colors disabled:opacity-40 ${btnClass}`}
       >
-        <Download size={size === 'sm' ? 14 : 16} />
-        Exportar
+        {exportando
+          ? <Loader2 size={size === 'sm' ? 14 : 16} className="animate-spin" />
+          : <Download size={size === 'sm' ? 14 : 16} />}
+        {exportando ? 'Generando…' : 'Exportar'}
       </button>
 
       {open && (

@@ -11,6 +11,9 @@ import { Link } from 'react-router-dom';
 import { Wallet, Package, Clock, CheckCircle, ShoppingBag, ChevronRight } from 'lucide-react';
 import { api } from '../lib/api';
 import { useToast } from '../context/ToastContext';
+import ExportMenu from '../components/ui/ExportMenu';
+import type { ExportConfig } from '../lib/exportUtils';
+import { todayStr } from '../lib/exportUtils';
 
 type SesionLista = {
   id: number;
@@ -93,6 +96,33 @@ export default function Sesiones() {
     };
   }, [sesiones]);
 
+  const getExportConfig = (): ExportConfig => ({
+    title: 'Sesiones de venta',
+    subtitle: `Punto de Venta · generado ${new Date().toLocaleDateString('es-AR')}`,
+    filename: `sesiones-${todayStr()}`,
+    headers: ['#', 'Punto', 'Operador', 'Estado', 'Abierta', 'Cerrada', 'Items', 'Total ventas', 'Total cobros'],
+    rows: sesiones.map(s => [
+      s.id,
+      s.deposito.nombre,
+      s.operador.nombre,
+      s.estado === 'abierta' ? 'Abierta' : 'Cerrada',
+      new Date(s.abiertaAt).toLocaleString('es-AR'),
+      s.cerradaAt ? new Date(s.cerradaAt).toLocaleString('es-AR') : '—',
+      s._count.ventas,
+      s.totalVentas ?? 0,
+      s.totalCobros ?? 0,
+    ]),
+    totalRow: ['', '', '', '', '', 'TOTAL', stats.items, stats.totalVentas, ''],
+    summary: [
+      { label: 'Sesiones', value: stats.total },
+      { label: 'Cerradas', value: stats.cerradas },
+      { label: 'Total vendido', value: `$${stats.totalVentas.toLocaleString('es-AR')}` },
+      { label: 'Items vendidos', value: stats.items },
+    ],
+    numberColumns: [6],
+    currencyColumns: [7, 8],
+  });
+
   return (
     <div className="p-4 sm:p-6">
       <div className="flex items-center justify-between mb-4">
@@ -102,12 +132,15 @@ export default function Sesiones() {
             Historial de carritos, barras y puntos móviles.
           </p>
         </div>
-        <Link
-          to="/punto-venta"
-          className="px-4 py-2 rounded-lg bg-primary text-on-primary text-sm font-bold flex items-center gap-2"
-        >
-          <ShoppingBag size={16} /> Abrir punto de venta
-        </Link>
+        <div className="flex items-center gap-2">
+          <ExportMenu getConfig={getExportConfig} disabled={sesiones.length === 0} size="sm" />
+          <Link
+            to="/punto-venta"
+            className="px-4 py-2 rounded-lg bg-primary text-on-primary text-sm font-bold flex items-center gap-2"
+          >
+            <ShoppingBag size={16} /> Abrir punto de venta
+          </Link>
+        </div>
       </div>
 
       {/* Stats bar */}
