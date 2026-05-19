@@ -236,6 +236,249 @@ router.post('/csv', async (req: Request, res: Response) => {
           resultados.errores.push(`Error: ${e.message?.slice(0, 100)}`);
         }
       }
+    } else if (tipo === 'recetas-maxirest') {
+      // ════════════════════════════════════════════════════════════════════
+      // RECETAS MAXIREST — formato real con ESCANDALLO completo.
+      // Maxirest exporta 1 fila POR INGREDIENTE de cada plato. Columnas
+      // típicas (toleramos variantes/cortes en el nombre):
+      //   COD_ART / CODIGO  → código del plato
+      //   ARTICULO          → nombre del plato
+      //   PORCIONES         → porciones del plato
+      //   RUBROART          → rubro del plato (→ categoría)
+      //   COD_INS           → código del insumo
+      //   INSUMO            → nombre del insumo
+      //   RUBROINS          → rubro del insumo
+      //   CANTIDAD          → cantidad del insumo en la receta
+      //   UNIDAD_MET        → unidad (KILO, LITRO, UNIDAD…)
+      //   PUNIT             → precio unitario del insumo (costo de referencia)
+      //   MARG              → margen objetivo (%)
+      //
+      // Acciones:
+      //   - Agrupa por código de plato
+      //   - Crea/actualiza la Receta (cabecera) — salidaACarta=true
+      //   - Por cada insumo: lo busca como Producto (por código o nombre);
+      //     si no existe lo CREA (rubro, unidad, precioReferencia)
+      //   - Crea los RecetaIngrediente. Si la receta ya tenía ingredientes,
+      //     los REEMPLAZA (re-import idempotente). El productoResultadoId y
+      //     el precioVenta NO se tocan si ya existían.
+      // ════════════════════════════════════════════════════════════════════
+      const col = (row: any, ...cands: string[]): string => {
+        // Busca el primer header que matchee (normalizado: sin espacios,
+        // sin acentos, uppercase, ignora sufijos cortados).
+        const norm = (s: string) =>
+          s.normalize('NFD').replace(/[\u0300-\u036f]/g, '')            .toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const keys = Object.keys(row);
+        for (const cand of cands) {
+          const c = norm(cand);
+          const hit = keys.find(k => {
+            const nk = norm(k);
+            return nk === c || nk.startsWith(c) || c.startsWith(nk);
+          });
+          if (hit && row[hit] !== undefined && row[hit] !== '') {
+            return String(row[hit]).trim();
+          }
+        }
+        return '';
+      };
+      const num = (v: string) => {
+        const n = parseFloat(String(v).replace(/\./g, '').replace(',', '.'));
+        return Number.isFinite(n) ? n : 0;
+      };
+      // num que respeta el punto decimal real (cantidades tipo 0,05)
+      const numDec = (v: string) => {
+        const n = parseFloat(String(v).replace(',', '.'));
+        return Number.isFinite(n) ? n : 0;
+      };
+
+      // 1. Agrupar por código de plato
+      const grupos = new Map<string, any[]>();
+      for (const row of datos) {
+        const codPlato = col(row, 'COD_ART', 'CODIGO', 'CODART', 'CODARTICULO');
+        if (!codPlato) continue;
+        if (!grupos.has(codPlato)) grupos.set(codPlato, []);
+        grupos.get(codPlato)!.push(row);
+      }
+
+      for (const [codPlato, filas] of grupos) {
+        try {
+          const primera = filas[0];
+          const nombrePlato = col(primera, 'ARTICULO', 'NOMBRE', 'DESCRIPCION', 'PLATO');
+          if (!nombrePlato) {
+            resultados.errores.push(`Plato ${codPlato} sin nombre — salteado`);
+            continue;
+          }
+          const porciones = Math.max(1, parseInt(col(primera, 'PORCIONES', 'PORC')) || 1);
+          const margRaw = col(primera, 'MARG', 'MARGEN');
+          const margenObjetivo = margRaw ? numDec(margRaw) : 70;
+
+          const rubroArt = col(primera, 'RUBROART', 'RUBRO', 'NOMRUB').toLowerCase();
+          let categoria: string | null = null;
+          if (/entrada|aperitiv/.test(rubroArt)) categoria = 'entrada';
+          else if (/postre|dulce/.test(rubroArt)) categoria = 'postre';
+          else if (/bebid|trago|vino|cerveza|gaseo|copa/.test(rubroArt)) categoria = 'bebida';
+          else if (/guarn|acomp/.test(rubroArt)) categoria = 'guarnicion';
+          else if (rubroArt) categoria = 'plato';
+
+          // Cabecera de receta (crear o actualizar no destructivo)
+          let receta = await prisma.receta.findFirst({ where: { codigo: codPlato } });
+          if (!receta) {
+            receta = await prisma.receta.findFirst({ where: { nombre: nombrePlato } });
+          }
+          if (receta) {
+            receta = await prisma.receta.update({
+              where: { id: receta.id },
+              data: {
+                nombre: nombrePlato,
+                codigo: codPlato,
+                porciones,
+                categoria: categoria ?? receta.categoria,
+                margenObjetivo: margenObjetivo || receta.margenObjetivo,
+                salidaACarta: true,
+              },
+            });
+            resultados.actualizados++;
+          } else {
+            receta = await prisma.receta.create({
+              data: {
+                nombre: nombrePlato,
+                codigo: codPlato,
+                porciones,
+                categoria,
+                margenObjetivo,
+                salidaACarta: true,
+              },
+            });
+            resultados.insertados++;
+          }
+
+          // Re-import idempotente: limpiar ingredientes previos de ESTA receta
+          await prisma.recetaIngrediente.deleteMany({ where: { recetaId: receta.id } });
+
+          // Ingredientes
+          for (const f of filas) {
+            const codIns = col(f, 'COD_INS', 'CODINS', 'CODINSUMO');
+            const nombreIns = col(f, 'INSUMO', 'NOMINS', 'NOMBREINSUMO');
+            if (!nombreIns && !codIns) continue;
+            const cantidad = numDec(col(f, 'CANTIDAD', 'CANT'));
+            if (cantidad <= 0) continue;
+            const unidadRaw = col(f, 'UNIDAD_MET', 'UNIDAD', 'UNIDADMET', 'UM') || 'unidad';
+            const unidad = unidadRaw.toLowerCase()
+              .replace(/^kilos?$/, 'kg').replace(/^litros?$/, 'lt')
+              .replace(/^unidades?$/, 'unidad').replace(/^gramos?$/, 'gr');
+            const punit = numDec(col(f, 'PUNIT', 'PRECIOUNIT', 'PUNITARIO'));
+            const rubroIns = col(f, 'RUBROINS', 'RUBROINSUMO') || 'Otros';
+
+            // Buscar producto por código o nombre; crear si no existe
+            let prod = codIns
+              ? await prisma.producto.findFirst({ where: { codigo: codIns } })
+              : null;
+            if (!prod && nombreIns) {
+              prod = await prisma.producto.findFirst({ where: { nombre: nombreIns } });
+            }
+            if (!prod) {
+              prod = await prisma.producto.create({
+                data: {
+                  codigo: codIns || `MX-INS-${Date.now()}-${Math.floor(Math.random() * 999)}`,
+                  nombre: nombreIns || `Insumo ${codIns}`,
+                  rubro: rubroIns.slice(0, 40),
+                  tipo: 'insumo',
+                  unidadCompra: unidad,
+                  unidadUso: unidad,
+                  factorConversion: 1,
+                  precioReferencia: punit > 0 ? punit : null,
+                },
+              });
+            } else if (punit > 0 && (prod.precioReferencia == null || prod.precioReferencia === 0)) {
+              // Backfill suave del precio de referencia si estaba vacío
+              await prisma.producto.update({
+                where: { id: prod.id },
+                data: { precioReferencia: punit },
+              });
+            }
+
+            await prisma.recetaIngrediente.create({
+              data: {
+                recetaId: receta.id,
+                productoId: prod.id,
+                cantidad,
+                unidad,
+              },
+            });
+          }
+        } catch (e: any) {
+          resultados.errores.push(`Plato ${codPlato}: ${e.message?.slice(0, 120)}`);
+        }
+      }
+    } else if (tipo === 'ventas-maxirest') {
+      // ════════════════════════════════════════════════════════════════════
+      // VENTAS MAXIREST — resumen acumulado (sin fecha por transacción).
+      // Columnas: CODIGO / NOMBRE / UNIDADES / PRECIO / VENTA
+      //   CODIGO   → código del plato (= Receta.codigo)
+      //   UNIDADES → cantidad vendida (acumulada del período)
+      // Descuenta stock: por cada plato vendido, consume sus ingredientes
+      //   × UNIDADES × factor de merma. Genera Movimiento consumo_interno.
+      // La fecha se toma de body.fecha (el período del reporte) o hoy.
+      // ════════════════════════════════════════════════════════════════════
+      const col = (row: any, ...cands: string[]): string => {
+        const norm = (s: string) =>
+          s.normalize('NFD').replace(/[\u0300-\u036f]/g, '')            .toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const keys = Object.keys(row);
+        for (const cand of cands) {
+          const c = norm(cand);
+          const hit = keys.find(k => {
+            const nk = norm(k);
+            return nk === c || nk.startsWith(c) || c.startsWith(nk);
+          });
+          if (hit && row[hit] !== undefined && row[hit] !== '') return String(row[hit]).trim();
+        }
+        return '';
+      };
+      const fechaVenta = (req.body?.fecha as string) || new Date().toISOString().split('T')[0];
+      const horaVenta = '23:59';
+
+      for (const row of datos) {
+        try {
+          const codPlato = col(row, 'CODIGO', 'COD_ART', 'CODART', 'RECETACODIGO');
+          const unidades = parseFloat(
+            String(col(row, 'UNIDADES', 'CANTIDAD', 'CANT')).replace(',', '.'),
+          );
+          if (!codPlato || !Number.isFinite(unidades) || unidades <= 0) continue;
+
+          const receta = await prisma.receta.findFirst({
+            where: { codigo: codPlato },
+            include: { ingredientes: true },
+          });
+          if (!receta) {
+            resultados.errores.push(`Receta no encontrada para venta: ${codPlato} (${col(row, 'NOMBRE')})`);
+            continue;
+          }
+          if (receta.ingredientes.length === 0) {
+            resultados.errores.push(`"${receta.nombre}" sin ingredientes cargados — no descuenta stock`);
+            continue;
+          }
+
+          for (const ing of receta.ingredientes) {
+            const mermaSafe = Math.min(Math.max(Number(ing.mermaEsperada) || 0, 0), 99);
+            const factor = mermaSafe > 0 ? 1 / (1 - mermaSafe / 100) : 1;
+            await prisma.movimiento.create({
+              data: {
+                tipo: 'consumo_interno',
+                productoId: ing.productoId,
+                cantidad: ing.cantidad * unidades * factor,
+                unidad: ing.unidad,
+                fecha: fechaVenta,
+                hora: horaVenta,
+                usuarioId: req.body?.usuarioId || 1,
+                depositoOrigenId: req.body?.depositoOrigenId ? parseInt(req.body.depositoOrigenId) : null,
+                observacion: `Venta Maxirest: ${receta.nombre} x${unidades}`,
+              },
+            });
+          }
+          resultados.insertados += receta.ingredientes.length;
+        } catch (e: any) {
+          resultados.errores.push(`Venta: ${e.message?.slice(0, 120)}`);
+        }
+      }
     } else {
       res.status(400).json({ error: `Tipo de importación no soportado: ${tipo}` });
       return;

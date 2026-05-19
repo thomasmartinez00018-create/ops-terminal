@@ -8,12 +8,14 @@ import Badge from '../components/ui/Badge';
 import { Upload, FileSpreadsheet, Check, AlertTriangle, Download, Zap } from 'lucide-react';
 
 const TIPOS_IMPORT = [
+  { value: 'maxirest_recetas_full', label: 'Maxirest — Recetas con ingredientes ★', desc: 'El export REAL de Maxirest: cada fila es un ingrediente de un plato (ARTICULO, INSUMO, CANTIDAD, UNIDAD, PUNIT…). Crea las recetas COMPLETAS con su escandallo y da de alta los insumos que falten. Es el que tenés que usar para migrar la cocina.' },
+  { value: 'maxirest_ventas_full', label: 'Maxirest — Ventas (resumen) ★', desc: 'El export real de ventas de Maxirest (CODIGO, NOMBRE, UNIDADES, VENTA). Descuenta stock por receta según lo vendido. No necesita fecha por línea — usa el período del reporte.' },
   { value: 'maxirest_insumos', label: 'Maxirest — Insumos', desc: 'Importar insumos desde el archivo INSUMO.XLSX exportado por Maxirest. Las columnas se mapean automáticamente.' },
-  { value: 'maxirest_carta', label: 'Maxirest — Carta / Platos', desc: 'Importar la carta del restaurante (platos con precio de venta) desde el export de Maxirest. Crea recetas vacías para que el chef complete los ingredientes después.' },
+  { value: 'maxirest_carta', label: 'Maxirest — Carta / Platos (sin ingredientes)', desc: 'Solo cabecera de platos (precio + categoría), sin escandallo. Usá "Recetas con ingredientes" si tu export trae los insumos.' },
   { value: 'productos', label: 'Productos (CSV)', desc: 'Importar maestro de productos con código, nombre, rubro, unidad y stock mínimo.' },
   { value: 'recetas', label: 'Recetas (CSV)', desc: 'Importar lista de platos/recetas con nombre, precio y categoría. Útil si exportás la carta de otro sistema.' },
   { value: 'proveedores', label: 'Proveedores (CSV)', desc: 'Importar proveedores con razón social, CUIT, contacto y condiciones.' },
-  { value: 'ventas', label: 'Ventas (Maxirest)', desc: 'Importar ventas exportadas desde Maxirest para descontar stock automáticamente.' },
+  { value: 'ventas', label: 'Ventas (CSV simple)', desc: 'Ventas con recetaCodigo, cantidad, fecha, hora. Para Maxirest usá "Ventas (resumen)".' },
 ];
 
 // Normaliza las unidades de Maxirest al formato interno
@@ -241,6 +243,24 @@ export default function Importar() {
       return;
     }
 
+    // Formato real de Maxirest — el backend normaliza los nombres de columna
+    // solo (función col()), así que el mapeo es identidad. Mostramos las
+    // columnas esperadas para que el usuario confirme que su export las trae.
+    if (value === 'maxirest_recetas_full') {
+      setPlantilla({
+        columnas: ['COD_ART', 'ARTICULO', 'PORCIONES', 'RUBROART', 'COD_INS', 'INSUMO', 'RUBROINS', 'CANTIDAD', 'UNIDAD_MET', 'PUNIT', 'MARG'],
+        ejemplo: { COD_ART: '110', ARTICULO: 'SELECCION DE CARNES', PORCIONES: '1', RUBROART: 'ENTRADAS', COD_INS: '718', INSUMO: 'LANGOSTINO', RUBROINS: 'PESCADOS', CANTIDAD: '0,05', UNIDAD_MET: 'KILO', PUNIT: '13500', MARG: '88,46' },
+      });
+      return;
+    }
+    if (value === 'maxirest_ventas_full') {
+      setPlantilla({
+        columnas: ['CODIGO', 'NOMBRE', 'UNIDADES', 'PRECIO', 'VENTA'],
+        ejemplo: { CODIGO: '36', NOMBRE: 'RED BULL', UNIDADES: '1', PRECIO: '0', VENTA: '9500' },
+      });
+      return;
+    }
+
     try {
       const data = await api.getPlantilla(value);
       setPlantilla(data);
@@ -302,7 +322,14 @@ export default function Importar() {
             }
             setParsedHeaders(headers);
             setParsedRows(rows);
-            if (plantilla) {
+            if (tipo === 'maxirest_recetas_full' || tipo === 'maxirest_ventas_full') {
+              // El backend normaliza los nombres de columna por su cuenta
+              // (función col()). Pasamos TODO con mapeo identidad — así no
+              // se pierde ninguna columna por un nombre que no matchee exacto.
+              const idMap: Record<string, string> = {};
+              headers.forEach(h => { idMap[h] = h; });
+              setMapping(idMap);
+            } else if (plantilla) {
               const autoMap: Record<string, string> = {};
               headers.forEach(h => {
                 const normalized = h.toLowerCase().trim();
@@ -364,6 +391,8 @@ export default function Importar() {
       const tipoBackend =
         tipo === 'maxirest_insumos' ? 'productos' :
         tipo === 'maxirest_carta' ? 'recetas' :
+        tipo === 'maxirest_recetas_full' ? 'recetas-maxirest' :
+        tipo === 'maxirest_ventas_full' ? 'ventas-maxirest' :
         tipo;
       const res = await api.importarCSV({ tipo: tipoBackend, datos: mappedRows, mapeo: mapping });
       setResults(res);

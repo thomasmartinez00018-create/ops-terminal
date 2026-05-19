@@ -199,16 +199,55 @@ export default function Stock() {
       {/* Loading shared */}
       {loading && <SkeletonList rows={8} />}
 
-      {/* Empty state cuando no hay resultados */}
+      {/* Empty state cuando no hay resultados — con próximo paso claro */}
       {!loading && filtrado.length === 0 && (
-        <div className="bg-surface rounded-xl border border-border p-10 text-center text-on-surface-variant font-medium">
-          {busqueda
-            ? `Sin resultados para "${busqueda}"`
-            : filtroBajoMinimo
-              ? 'Todos los productos están por encima del stock mínimo ✓'
-              : filtroRubro
-                ? `No hay productos con stock en el rubro "${filtroRubro}"${filtroDeposito ? ' para el depósito seleccionado' : ''}.`
-                : 'Sin datos de stock. Registrá movimientos para ver el stock.'}
+        <div className="bg-surface rounded-xl border border-border p-8 sm:p-10 text-center">
+          <Package size={32} className="mx-auto mb-3 text-on-surface-variant/40" />
+          {busqueda ? (
+            <p className="text-on-surface-variant font-medium">Sin resultados para "{busqueda}"</p>
+          ) : filtroBajoMinimo ? (
+            <p className="text-success font-medium">Todos los productos están por encima del stock mínimo ✓</p>
+          ) : (filtroRubro || filtroSubrubro || filtroDeposito) ? (
+            <>
+              <p className="text-foreground font-bold mb-1">
+                No hay stock cargado{filtroRubro ? ` de "${filtroRubro}"` : ''}
+                {filtroSubrubro ? ` / "${filtroSubrubro}"` : ''}
+                {filtroDeposito ? ' en este depósito' : ''}
+              </p>
+              <p className="text-sm text-on-surface-variant mb-4">
+                El filtro está bien — todavía no hay movimientos de ingreso para ese stock.
+                Si recién migrás de Maxirest, primero importá recetas y movimientos.
+              </p>
+              <div className="flex items-center justify-center gap-2 flex-wrap">
+                <button
+                  onClick={() => { setFiltroRubro(''); setFiltroSubrubro(''); setFiltroDeposito(''); }}
+                  className="px-3 py-2 text-xs font-bold rounded-lg bg-surface-high border border-border hover:border-primary/40"
+                >
+                  Quitar filtros
+                </button>
+                <a
+                  href="/importar"
+                  className="px-3 py-2 text-xs font-bold rounded-lg bg-primary text-primary-foreground"
+                >
+                  Ir a Importar
+                </a>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-foreground font-bold mb-1">Todavía no hay stock</p>
+              <p className="text-sm text-on-surface-variant mb-4">
+                El stock se calcula a partir de los movimientos. Cargá ingresos
+                o importá tus datos de Maxirest para empezar.
+              </p>
+              <a
+                href="/importar"
+                className="inline-block px-3 py-2 text-xs font-bold rounded-lg bg-primary text-primary-foreground"
+              >
+                Ir a Importar
+              </a>
+            </>
+          )}
         </div>
       )}
 
