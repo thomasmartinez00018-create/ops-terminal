@@ -168,13 +168,20 @@ export default function DashboardPro() {
     `actualizado hace ${Math.floor(segundos / 3600)} h`;
 
   return (
-    <div className="dp2 -mx-4 sm:-mx-6 -my-4 lg:-my-6 px-4 sm:px-6 py-4 lg:py-6 min-h-screen">
+    <div
+      className={`dp2 dp2-state-${estado} -mx-4 sm:-mx-6 -my-4 lg:-my-6 px-4 sm:px-6 py-4 lg:py-6 min-h-screen relative overflow-hidden`}
+    >
+      {/* Aurora reactiva al estado — verde si todo bien, ámbar si atención,
+          rojo si crítico. No es decorativa: comunica salud del negocio. */}
+      <div className="dp2-aurora" aria-hidden="true" />
+      <div className="dp2-grain" aria-hidden="true" />
+
       {/* Header sobrio */}
-      <div className="flex items-start justify-between gap-3 mb-5">
+      <div className="relative z-10 flex items-start justify-between gap-3 mb-5 dp2-anim-header">
         <div>
           <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-primary/70">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary" />
-            <span className="px-1.5 py-0.5 rounded bg-primary/10 border border-primary/30 text-[9px]">
+            <span className="dp2-live-dot inline-block w-1.5 h-1.5 rounded-full bg-primary" />
+            <span className="px-1.5 py-0.5 rounded bg-primary/10 border border-primary/30 text-[9px] dp2-badge-shine">
               NUEVA
             </span>
             Panel del dueño · v2
@@ -192,7 +199,7 @@ export default function DashboardPro() {
           <button
             onClick={() => cargar(false)}
             disabled={refreshing}
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] bg-surface border border-border/60 hover:border-primary/40 transition disabled:opacity-50"
+            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] bg-surface/80 backdrop-blur border border-border/60 hover:border-primary/40 hover:bg-surface transition disabled:opacity-50"
             title={frescuraTxt}
           >
             <RefreshCw size={11} className={refreshing ? 'animate-spin' : ''} />
@@ -200,7 +207,7 @@ export default function DashboardPro() {
           </button>
           <Link
             to="/"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] bg-surface border border-border/60 hover:border-primary/40 transition"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] bg-surface/80 backdrop-blur border border-border/60 hover:border-primary/40 hover:bg-surface transition"
           >
             <ArrowLeft size={11} /> Vista clásica
           </Link>
@@ -209,7 +216,7 @@ export default function DashboardPro() {
 
       {/* Banner de incoherencias (siempre arriba si las hay) */}
       {incoherencias.length > 0 && (
-        <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/5 p-3">
+        <div className="relative z-10 mb-4 rounded-xl border border-amber-500/40 bg-amber-500/5 p-3 dp2-anim-alert">
           <div className="flex items-start gap-2">
             <AlertTriangle size={14} className="text-amber-500 shrink-0 mt-0.5" />
             <div className="text-xs">
@@ -226,7 +233,7 @@ export default function DashboardPro() {
 
       {/* Insights (Next Best Actions) */}
       {data.insights.length > 0 && (
-        <div className="mb-4 space-y-1.5">
+        <div className="relative z-10 mb-4 space-y-1.5">
           {data.insights.slice(0, 3).map((ins, i) => (
             <InsightRow key={i} insight={ins} delay={i * 80} />
           ))}
@@ -234,14 +241,16 @@ export default function DashboardPro() {
       )}
 
       {/* HERO — ingresos con sparkline real */}
-      <HeroIngresos
-        valor={ingresosMes}
-        valorAnt={ingresosMesAnt}
-        serie={serie}
-      />
+      <div className="relative z-10 dp2-anim-hero">
+        <HeroIngresos
+          valor={ingresosMes}
+          valorAnt={ingresosMesAnt}
+          serie={serie}
+        />
+      </div>
 
       {/* STAT TRIO con deltas contextuales y clickeable */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+      <div className="relative z-10 grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3 dp2-anim-stack">
         <MetricCard
           to="/reportes?tab=mermas"
           icon={<TrendingDown size={14} />}
@@ -277,7 +286,7 @@ export default function DashboardPro() {
       </div>
 
       {/* Actividad + Para revisar */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-3">
+      <div className="relative z-10 grid grid-cols-1 lg:grid-cols-3 gap-3 mt-3 dp2-anim-section">
         <FeedActividad movimientos={ultimosMov} />
         <PanelRevisar
           alertasPrecio={alertasPrecio}
@@ -287,7 +296,7 @@ export default function DashboardPro() {
       </div>
 
       {/* Accesos rápidos */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-3">
+      <div className="relative z-10 grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-3 dp2-anim-tiles">
         <QuickAction to="/punto-venta"      icon={<Store size={16} />}    label="Vender" />
         <QuickAction to="/movimientos"      icon={<Package size={16} />}  label="Cargar mov." />
         <QuickAction to="/carta"            icon={<ChefHat size={16} />}  label="Carta" />
@@ -406,9 +415,30 @@ function SparklineReal({
             stroke="rgb(160, 160, 165)" strokeWidth="0.6" strokeDasharray="3 3" opacity="0.5" />
         )}
         {/* Área */}
-        <path d={`${path} L ${w},${h} L 0,${h} Z`} fill="url(#dp2-spark)" />
-        {/* Línea */}
-        <path d={path} fill="none" stroke="rgb(212, 175, 55)" strokeWidth="1.6" strokeLinecap="round" />
+        <path d={`${path} L ${w},${h} L 0,${h} Z`} fill="url(#dp2-spark)" className="dp2-spark-area" />
+        {/* Línea — se dibuja con stroke-dasharray al cargar (evento real:
+            dato llegó por primera vez) */}
+        <path d={path} fill="none" stroke="rgb(212, 175, 55)" strokeWidth="1.6" strokeLinecap="round" className="dp2-spark-line" />
+        {/* Punto final pulsante — "estás acá ahora" */}
+        {points.length > 0 && (
+          <>
+            <circle
+              cx={points[points.length - 1].x}
+              cy={points[points.length - 1].y}
+              r="2.5"
+              fill="rgb(212, 175, 55)"
+              className="dp2-spark-tip"
+            />
+            <circle
+              cx={points[points.length - 1].x}
+              cy={points[points.length - 1].y}
+              r="5"
+              fill="rgb(212, 175, 55)"
+              fillOpacity="0.3"
+              className="dp2-spark-pulse"
+            />
+          </>
+        )}
         {/* Puntos invisibles para hover */}
         {points.map((p, i) => (
           <rect
@@ -742,15 +772,188 @@ function LoadingScreen() {
 const styles = `
 .dp2 { background: #0A0A0A; }
 
-/* Fade-in para los insights que llegan (un evento real: dato nuevo) */
-.dp2-fade-in {
-  opacity: 0;
-  transform: translateY(4px);
-  animation: dp2Fade .4s cubic-bezier(.2,.7,.2,1) both;
+/* ════════════════════════════════════════════════════════════════════════
+   AURORA REACTIVA AL ESTADO DEL NEGOCIO
+   - Verde si todo bien (normal)
+   - Ámbar si hay atención
+   - Rojo si crítico
+   No es decorativa: el COLOR comunica salud. Subtle pero presente.
+   ════════════════════════════════════════════════════════════════════════ */
+.dp2-aurora {
+  position: absolute; inset: -20%; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(ellipse 50% 40% at 75% 15%, var(--dp2-aurora-c1, rgba(212,175,55,0.10)), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 20% 90%, var(--dp2-aurora-c2, rgba(212,175,55,0.07)), transparent 60%),
+    radial-gradient(ellipse 80% 50% at 50% 50%, var(--dp2-aurora-c3, rgba(212,175,55,0.04)), transparent 70%);
+  filter: blur(50px);
+  animation: dp2AuroraDrift 18s ease-in-out infinite alternate;
+  transition: background 1.2s ease-out;
 }
-@keyframes dp2Fade { to { opacity: 1; transform: translateY(0); } }
+.dp2-state-normal {
+  --dp2-aurora-c1: rgba(52, 211, 153, 0.08);
+  --dp2-aurora-c2: rgba(212, 175, 55, 0.10);
+  --dp2-aurora-c3: rgba(56, 189, 248, 0.04);
+}
+.dp2-state-atencion {
+  --dp2-aurora-c1: rgba(251, 191, 36, 0.14);
+  --dp2-aurora-c2: rgba(212, 175, 55, 0.08);
+  --dp2-aurora-c3: rgba(244, 114, 114, 0.05);
+}
+.dp2-state-critico {
+  --dp2-aurora-c1: rgba(244, 114, 114, 0.16);
+  --dp2-aurora-c2: rgba(251, 191, 36, 0.10);
+  --dp2-aurora-c3: rgba(244, 114, 114, 0.06);
+}
+@keyframes dp2AuroraDrift {
+  0%   { transform: translate(0, 0) scale(1)   rotate(0); }
+  50%  { transform: translate(-1%, 1%) scale(1.04) rotate(1deg); }
+  100% { transform: translate(1%, -1%) scale(1.02) rotate(-1deg); }
+}
 
-/* Skeleton sobrio */
+/* Grain sutil */
+.dp2-grain {
+  position: absolute; inset: 0; z-index: 1; pointer-events: none; opacity: .035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+  mix-blend-mode: overlay;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   ENTRANCE CHOREOGRAPHY (evento: dashboard cargó por primera vez)
+   Cascada en orden de lectura. Una sola vez.
+   ════════════════════════════════════════════════════════════════════════ */
+.dp2-anim-header {
+  opacity: 0; transform: translateY(-6px) translateZ(0);
+  animation: dp2EnterDown .6s cubic-bezier(.2,.7,.2,1) .05s both;
+}
+.dp2-anim-alert {
+  opacity: 0; transform: translateX(-8px) translateZ(0);
+  animation: dp2EnterRight .55s cubic-bezier(.2,.7,.2,1) .15s both;
+}
+.dp2-fade-in {
+  opacity: 0; transform: translateY(6px) translateZ(0);
+  animation: dp2EnterUp .5s cubic-bezier(.2,.7,.2,1) both;
+}
+.dp2-anim-hero {
+  opacity: 0; transform: translateY(12px) scale(.985) translateZ(0);
+  animation: dp2EnterHero 1s cubic-bezier(.2,.7,.2,1) .25s both;
+}
+.dp2-anim-stack > * {
+  opacity: 0; transform: translateY(10px) translateZ(0);
+  animation: dp2EnterUp .55s cubic-bezier(.2,.7,.2,1) both;
+}
+.dp2-anim-stack > *:nth-child(1) { animation-delay: .50s; }
+.dp2-anim-stack > *:nth-child(2) { animation-delay: .58s; }
+.dp2-anim-stack > *:nth-child(3) { animation-delay: .66s; }
+.dp2-anim-section > * {
+  opacity: 0; transform: translateY(10px) translateZ(0);
+  animation: dp2EnterUp .55s cubic-bezier(.2,.7,.2,1) both;
+}
+.dp2-anim-section > *:nth-child(1) { animation-delay: .78s; }
+.dp2-anim-section > *:nth-child(2) { animation-delay: .86s; }
+.dp2-anim-tiles > * {
+  opacity: 0; transform: translateY(8px) translateZ(0);
+  animation: dp2EnterUp .5s cubic-bezier(.2,.7,.2,1) both;
+}
+.dp2-anim-tiles > *:nth-child(1) { animation-delay: 1.00s; }
+.dp2-anim-tiles > *:nth-child(2) { animation-delay: 1.06s; }
+.dp2-anim-tiles > *:nth-child(3) { animation-delay: 1.12s; }
+.dp2-anim-tiles > *:nth-child(4) { animation-delay: 1.18s; }
+
+@keyframes dp2EnterDown  { to { opacity: 1; transform: translateY(0) translateZ(0); } }
+@keyframes dp2EnterUp    { to { opacity: 1; transform: translateY(0) translateZ(0); } }
+@keyframes dp2EnterRight { to { opacity: 1; transform: translateX(0) translateZ(0); } }
+@keyframes dp2EnterHero {
+  60%  { box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.25), 0 20px 60px -30px rgba(212, 175, 55, 0.4); }
+  100% { opacity: 1; transform: translateY(0) scale(1) translateZ(0); box-shadow: 0 0 0 1px transparent, 0 0 0 transparent; }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   SPARKLINE — se DIBUJA al cargar (evento: dato real llegó)
+   ════════════════════════════════════════════════════════════════════════ */
+.dp2-spark-line {
+  stroke-dasharray: 1200;
+  stroke-dashoffset: 1200;
+  animation: dp2SparkDraw 1.6s cubic-bezier(.2,.7,.2,1) .6s forwards;
+  filter: drop-shadow(0 1px 2px rgba(212, 175, 55, 0.25));
+}
+.dp2-spark-area {
+  opacity: 0;
+  animation: dp2SparkFade 1.2s ease-out 1.4s forwards;
+}
+.dp2-spark-tip {
+  transform-origin: center;
+  transform: scale(0);
+  animation: dp2SparkTip .5s cubic-bezier(.2,1.4,.2,1) 1.9s forwards;
+}
+.dp2-spark-pulse {
+  transform-origin: center;
+  opacity: 0;
+  animation: dp2SparkRipple 2s ease-out 2.1s infinite;
+}
+@keyframes dp2SparkDraw   { to { stroke-dashoffset: 0; } }
+@keyframes dp2SparkFade   { to { opacity: 1; } }
+@keyframes dp2SparkTip    { to { transform: scale(1); } }
+@keyframes dp2SparkRipple {
+  0%   { transform: scale(1); opacity: .7; }
+  100% { transform: scale(3.5); opacity: 0; }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   LIVE DOT — punto verde que late SOLO cuando hay polling activo.
+   Evento: liveness real (no decorativo, indica conexión sana).
+   ════════════════════════════════════════════════════════════════════════ */
+.dp2-live-dot {
+  position: relative;
+  box-shadow: 0 0 0 0 rgba(212, 175, 55, 0.6);
+  animation: dp2LivePulse 2.4s ease-out infinite;
+}
+@keyframes dp2LivePulse {
+  0%   { box-shadow: 0 0 0 0   rgba(212, 175, 55, 0.55); }
+  70%  { box-shadow: 0 0 0 8px rgba(212, 175, 55, 0); }
+  100% { box-shadow: 0 0 0 0   rgba(212, 175, 55, 0); }
+}
+
+/* Badge "NUEVA" con shine ocasional — sutil, una vez cada 9s */
+.dp2-badge-shine {
+  position: relative;
+  overflow: hidden;
+}
+.dp2-badge-shine::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.4) 50%, transparent 70%);
+  background-size: 300% 100%;
+  animation: dp2Shine 9s ease-in-out infinite;
+}
+@keyframes dp2Shine {
+  0%, 70%, 100% { background-position: 200% 0; }
+  85%           { background-position: -100% 0; }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   HOVER INTENT — el usuario insinúa "voy a hacer algo"
+   Tilt 3D muy sutil (2-3deg) + lift, no fairground.
+   ════════════════════════════════════════════════════════════════════════ */
+.dp2 a[class*="rounded-xl"],
+.dp2 a[class*="rounded-2xl"] {
+  transition: transform .25s cubic-bezier(.2,.7,.2,1), border-color .2s, background-color .2s, box-shadow .25s;
+}
+.dp2 a[class*="rounded-xl"]:hover,
+.dp2 a[class*="rounded-2xl"]:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px -16px rgba(212, 175, 55, 0.35),
+              0 0 0 1px rgba(212, 175, 55, 0.18) inset;
+}
+
+/* Hero card hover: levanta sutil + glow ámbar */
+.dp2-anim-hero > div:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 30px 70px -30px rgba(212, 175, 55, 0.18);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Skeleton sobrio (loading)
+   ════════════════════════════════════════════════════════════════════════ */
 .dp2-skel {
   position: relative;
   background: linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.03) 100%);
@@ -759,7 +962,22 @@ const styles = `
 }
 @keyframes dp2Skel { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
+/* ════════════════════════════════════════════════════════════════════════
+   prefers-reduced-motion — respetar accesibilidad
+   Las animaciones de loading/skel se acortan a casi 0.
+   La aurora y el live-pulse pasan a estático.
+   ════════════════════════════════════════════════════════════════════════ */
 @media (prefers-reduced-motion: reduce) {
-  .dp2-fade-in, .dp2-skel { animation-duration: .01ms !important; }
+  .dp2-aurora { animation: none !important; }
+  .dp2-live-dot, .dp2-spark-pulse, .dp2-badge-shine::after { animation: none !important; }
+  .dp2-anim-header, .dp2-anim-alert, .dp2-anim-hero,
+  .dp2-anim-stack > *, .dp2-anim-section > *, .dp2-anim-tiles > *,
+  .dp2-fade-in, .dp2-skel,
+  .dp2-spark-line, .dp2-spark-area, .dp2-spark-tip {
+    animation-duration: .01ms !important;
+    animation-delay: 0s !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
 }
 `;
