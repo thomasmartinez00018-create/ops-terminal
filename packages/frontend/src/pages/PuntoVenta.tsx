@@ -344,16 +344,47 @@ function Venta({
   }, [filtrados]);
 
   // Quick-add por scan: si el input matchea exactamente un código de barras, agregar 1
-  function onScanSubmit(e: React.FormEvent) {
+  async function onScanSubmit(e: React.FormEvent) {
     e.preventDefault();
     const q = scanInput.trim();
     if (!q) return;
-    const match = productos.find(p => p.codigoBarras === q || p.codigo === q);
-    if (match) {
-      onAgregar(match, 1);
+    // 1. Primero intentamos resolver contra la tabla multi-pack del backend.
+    //    Esto detecta cajas / packs / botellas y trae el FACTOR (cuántas
+    //    unidades suma cada escaneo). Sin esto, escanear una caja x6 sumaba 1.
+    try {
+      const r = await api.scanCodigoBarras(q);
+      const match = productos.find(p => p.id === r.producto.id);
+      if (match) {
+        onAgregar(match, r.factor);
+        setScanInput('');
+        return;
+      }
+      // Producto resuelto pero no está en el catálogo vendible del depósito
+      onAgregar(
+        {
+          id: r.producto.id,
+          codigo: r.producto.codigo,
+          nombre: r.producto.nombre,
+          rubro: r.producto.rubro,
+          subrubro: r.producto.subrubro,
+          unidadUso: r.producto.unidadUso,
+          codigoBarras: q,
+          precioVenta: r.producto.precioVenta,
+          stockDeposito: null,
+        } as ProductoVendible,
+        r.factor,
+      );
       setScanInput('');
-    } else {
-      setBusqueda(q);
+      return;
+    } catch {
+      // 404 / error → caemos al match local por código tipeado
+      const match = productos.find(p => p.codigoBarras === q || p.codigo === q);
+      if (match) {
+        onAgregar(match, 1);
+      } else {
+        // No hay match: usamos el input como búsqueda normal
+        setBusqueda(q);
+      }
       setScanInput('');
     }
   }

@@ -101,6 +101,7 @@ model Organizacion {
   ordenesReposicion  OrdenReposicion[]
   alertasPrecio      AlertaPrecio[]
   sesionesVenta      SesionVenta[]
+  productoCodigosBarras ProductoCodigoBarras[]
   suscripcion        Suscripcion?
 
   @@map("organizaciones")
@@ -192,10 +193,52 @@ model Producto {
   alertasPrecio       AlertaPrecio[]
   ventaItems          VentaItem[]
   conteosCierre       ConteoCierre[]
+  // Multi-pack: cada producto puede tener N códigos de barras
+  // (botella individual, caja x6, caja x12, etc.) con un factor que
+  // multiplica las unidades al escanear. Ver ProductoCodigoBarras.
+  codigosBarras       ProductoCodigoBarras[]
 
   @@unique([organizacionId, codigo])
   @@index([organizacionId])
   @@map("productos")
+}
+
+// ==========================================
+// CÓDIGOS DE BARRAS MULTI-PACK (vinos, cervezas, gaseosas, lácteos…)
+// ==========================================
+// El producto físico "Vino Malbec" puede venir con 3 códigos distintos:
+//   - Botella individual    → factor 1
+//   - Caja x6               → factor 6
+//   - Pack x12              → factor 12
+//
+// Cuando el operador escanea con la pistola, el sistema resuelve qué
+// código es y multiplica las unidades por el factor. Así:
+//   - El operador escanea 1 caja x6 e indica "5" → suma 30 unidades
+//   - El stock se cuenta en unidades, no en packs (lo importante es la
+//     botella, no la caja de cartón).
+//
+// Generalizado para cualquier producto con multi-empaque. El campo
+// `Producto.codigoBarras` se mantiene como compat (código "principal");
+// las nuevas búsquedas pasan por esta tabla.
+// ==========================================
+model ProductoCodigoBarras {
+  id             Int     @id @default(autoincrement())
+  organizacionId Int     @default(0) @map("organizacion_id")
+  productoId     Int     @map("producto_id")
+  codigo         String  // el código que se escanea (EAN13, QR, etc.)
+  factor         Float   @default(1) // cuántas unidades del producto representa
+  descripcion    String? // "Botella", "Caja x6", "Caja x12", "Pack x24"…
+  activo         Boolean @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organizacion Organizacion @relation(fields: [organizacionId], references: [id])
+  producto     Producto     @relation(fields: [productoId], references: [id], onDelete: Cascade)
+
+  // Un código pertenece a UN solo producto dentro de una org. Si dos
+  // productos comparten el mismo código → error explícito al crear.
+  @@unique([organizacionId, codigo])
+  @@index([productoId])
+  @@map("producto_codigos_barras")
 }
 
 // ==========================================

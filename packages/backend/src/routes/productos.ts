@@ -461,4 +461,232 @@ router.get('/subrubros/lista', async (req: Request, res: Response) => {
   }
 });
 
+// ============================================================================
+// MULTI-PACK BARCODES — un producto puede tener N códigos (botella, caja x6…)
+// ============================================================================
+
+// GET /api/productos/:id/codigos-barras — lista los códigos de un producto
+router.get('/:id/codigos-barras', async (req: Request, res: Response) => {
+  try {
+    const productoId = parseInt(String(req.params.id));
+    if (!Number.isInteger(productoId) || productoId <= 0) {
+      return res.status(400).json({ error: 'id de producto inválido' });
+    }
+    const codigos = await prisma.productoCodigoBarras.findMany({
+      where: { productoId },
+      orderBy: [{ activo: 'desc' }, { factor: 'asc' }, { id: 'asc' }],
+    });
+    res.json(codigos);
+  } catch (e: any) {
+    console.error('[productos/codigos-barras] GET', e);
+    res.status(500).json({ error: e?.message || 'Error' });
+  }
+});
+
+// POST /api/productos/:id/codigos-barras — agregar un código nuevo
+// Body: { codigo, factor?=1, descripcion? }
+router.post('/:id/codigos-barras', async (req: Request, res: Response) => {
+  try {
+    const productoId = parseInt(String(req.params.id));
+    if (!Number.isInteger(productoId) || productoId <= 0) {
+      return res.status(400).json({ error: 'id de producto inválido' });
+    }
+    const { codigo, factor, descripcion } = req.body || {};
+    const codigoClean = String(codigo || '').trim();
+    if (!codigoClean) return res.status(400).json({ error: 'codigo requerido' });
+    const factorNum = Number(factor);
+    const factorClean = Number.isFinite(factorNum) && factorNum > 0 ? factorNum : 1;
+    // Si el producto no existe, falla (foreign key)
+    try {
+      const out = await prisma.productoCodigoBarras.create({
+        data: {
+          productoId,
+          codigo: codigoClean,
+          factor: factorClean,
+          descripcion: descripcion ? String(descripcion).slice(0, 60) : null,
+          activo: true,
+        },
+      });
+      res.status(201).json(out);
+    } catch (err: any) {
+      if (err.code === 'P2002') {
+        // Conflicto: ese código ya existe en la org (en este o en otro producto)
+        const existente = await prisma.productoCodigoBarras.findFirst({
+          where: { codigo: codigoClean },
+          include: { producto: { select: { id: true, nombre: true } } },
+        });
+        return res.status(409).json({
+          error: existente
+            ? `Ese código ya está en uso por "${existente.producto.nombre}"`
+            : 'Ese código ya existe',
+          conflictoCon: existente?.producto || null,
+        });
+      }
+      throw err;
+    }
+  } catch (e: any) {
+    console.error('[productos/codigos-barras] POST', e);
+    res.status(500).json({ error: e?.message || 'Error' });
+  }
+});
+
+// PATCH /api/productos/codigos-barras/:id — editar (factor, descripcion, activo)
+router.patch('/codigos-barras/:id', async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(String(req.params.id));
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
+    const { factor, descripcion, activo, codigo } = req.body || {};
+    const data: any = {};
+    if (factor !== undefined) {
+      const f = Number(factor);
+      if (!Number.isFinite(f) || f <= 0) return res.status(400).json({ error: 'factor debe ser > 0' });
+      data.factor = f;
+    }
+    if (descripcion !== undefined) data.descripcion = descripcion ? String(descripcion).slice(0, 60) : null;
+    if (activo !== undefined) data.activo = Boolean(activo);
+    if (codigo !== undefined) {
+      const c = String(codigo).trim();
+      if (!c) return res.status(400).json({ error: 'codigo no puede estar vacío' });
+      data.codigo = c;
+    }
+    if (Object.keys(data).length === 0) return res.status(400).json({ error: 'Sin cambios' });
+    const out = await prisma.productoCodigoBarras.update({ where: { id }, data });
+    res.json(out);
+  } catch (e: any) {
+    if (e.code === 'P2002') {
+      return res.status(409).json({ error: 'Ese código ya existe' });
+    }
+    if (e.code === 'P2025') {
+      return res.status(404).json({ error: 'Código no encontrado' });
+    }
+    console.error('[productos/codigos-barras] PATCH', e);
+    res.status(500).json({ error: e?.message || 'Error' });
+  }
+});
+
+// DELETE /api/productos/codigos-barras/:id
+router.delete('/codigos-barras/:id', async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(String(req.params.id));
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
+    await prisma.productoCodigoBarras.delete({ where: { id } });
+    res.json({ ok: true });
+  } catch (e: any) {
+    if (e.code === 'P2025') return res.status(404).json({ error: 'Código no encontrado' });
+    console.error('[productos/codigos-barras] DELETE', e);
+    res.status(500).json({ error: e?.message || 'Error' });
+  }
+});
+
+// GET /api/productos/codigos-barras/scan/:codigo — EL ENDPOINT CLAVE
+// Resuelve un código escaneado → producto + factor + descripción.
+// Lo usan: Movimientos, Punto de Venta, Inventarios, Control Scanner.
+// Fallback: si el código no está en la tabla nueva, busca en
+// Producto.codigoBarras (compat con el campo legacy) con factor=1.
+router.get('/codigos-barras/scan/:codigo', async (req: Request, res: Response) => {
+  try {
+    const codigo = String(req.params.codigo || '').trim();
+    if (!codigo) return res.status(400).json({ error: 'código vacío' });
+
+    // 1. Tabla nueva (multi-pack)
+    const match = await prisma.productoCodigoBarras.findFirst({
+      where: { codigo, activo: true },
+      include: {
+        producto: {
+          select: {
+            id: true, codigo: true, nombre: true, rubro: true, subrubro: true,
+            unidadUso: true, unidadCompra: true, precioVenta: true, precioReferencia: true,
+            vendibleDirecto: true,
+          },
+        },
+      },
+    });
+    if (match) {
+      return res.json({
+        producto: match.producto,
+        factor: match.factor,
+        descripcion: match.descripcion || (match.factor === 1 ? 'Unidad' : `× ${match.factor}`),
+        codigoBarrasId: match.id,
+        fuente: 'multipack',
+      });
+    }
+
+    // 2. Compat: campo legacy Producto.codigoBarras
+    const legacy = await prisma.producto.findFirst({
+      where: { codigoBarras: codigo, activo: true },
+      select: {
+        id: true, codigo: true, nombre: true, rubro: true, subrubro: true,
+        unidadUso: true, unidadCompra: true, precioVenta: true, precioReferencia: true,
+        vendibleDirecto: true,
+      },
+    });
+    if (legacy) {
+      return res.json({
+        producto: legacy,
+        factor: 1,
+        descripcion: 'Unidad',
+        codigoBarrasId: null,
+        fuente: 'legacy',
+      });
+    }
+
+    res.status(404).json({ error: 'Código no encontrado', codigo });
+  } catch (e: any) {
+    console.error('[productos/codigos-barras/scan]', e);
+    res.status(500).json({ error: e?.message || 'Error' });
+  }
+});
+
+// POST /api/productos/codigos-barras/bulk — importar masivo
+// Body: { items: [{ codigoProducto, codigo, factor?, descripcion? }] }
+// Para que el cliente cargue de un saque la lista de packs de las bodegas.
+router.post('/codigos-barras/bulk', async (req: Request, res: Response) => {
+  try {
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    const result = { insertados: 0, actualizados: 0, errores: [] as string[] };
+    for (const it of items) {
+      try {
+        const codProd = String(it?.codigoProducto || '').trim();
+        const codigo = String(it?.codigo || '').trim();
+        if (!codProd || !codigo) {
+          result.errores.push(`Fila sin códigoProducto o código: ${JSON.stringify(it).slice(0, 80)}`);
+          continue;
+        }
+        const prod = await prisma.producto.findFirst({ where: { codigo: codProd } });
+        if (!prod) {
+          result.errores.push(`Producto "${codProd}" no encontrado`);
+          continue;
+        }
+        const factorNum = Number(it.factor);
+        const factor = Number.isFinite(factorNum) && factorNum > 0 ? factorNum : 1;
+        const descripcion = it.descripcion ? String(it.descripcion).slice(0, 60) : null;
+
+        const existente = await prisma.productoCodigoBarras.findFirst({ where: { codigo } });
+        if (existente) {
+          if (existente.productoId !== prod.id) {
+            result.errores.push(`Código "${codigo}" ya está asignado a otro producto`);
+            continue;
+          }
+          await prisma.productoCodigoBarras.update({
+            where: { id: existente.id },
+            data: { factor, descripcion, activo: true },
+          });
+          result.actualizados++;
+        } else {
+          await prisma.productoCodigoBarras.create({
+            data: { productoId: prod.id, codigo, factor, descripcion, activo: true },
+          });
+          result.insertados++;
+        }
+      } catch (err: any) {
+        result.errores.push(err?.message?.slice(0, 120) || 'Error desconocido');
+      }
+    }
+    res.json(result);
+  } catch (e: any) {
+    console.error('[productos/codigos-barras/bulk]', e);
+    res.status(500).json({ error: e?.message || 'Error' });
+  }
+});
+
 export default router;

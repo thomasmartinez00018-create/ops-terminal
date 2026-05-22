@@ -51,6 +51,8 @@ const TENANT_MODELS = new Set([
   // Sesiones de venta del módulo Punto de Venta (kiosco/carrito/barra/evento).
   // VentaItem, Cobro y ConteoCierre se escopean vía parent (sesionId).
   'SesionVenta',
+  // Multi-pack: códigos de barras alternativos del producto (caja x6, etc.)
+  'ProductoCodigoBarras',
 ]);
 
 const READ_OPS = new Set([

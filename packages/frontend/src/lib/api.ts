@@ -800,6 +800,35 @@ export const api = {
   patchProductoPrecioVenta: (id: number, data: { precioVenta?: number | null; vendibleDirecto?: boolean }) =>
     request<any>(`/productos/${id}/precio-venta`, { method: 'PATCH', body: JSON.stringify(data) }),
 
+  // ── Multi-pack barcodes (botella / caja x6 / caja x12…) ─────────────────
+  getCodigosBarras: (productoId: number) =>
+    request<Array<{ id: number; codigo: string; factor: number; descripcion: string | null; activo: boolean }>>(
+      `/productos/${productoId}/codigos-barras`,
+    ),
+  addCodigoBarras: (productoId: number, data: { codigo: string; factor?: number; descripcion?: string }) =>
+    request<any>(`/productos/${productoId}/codigos-barras`, { method: 'POST', body: JSON.stringify(data) }),
+  updateCodigoBarras: (id: number, data: { codigo?: string; factor?: number; descripcion?: string | null; activo?: boolean }) =>
+    request<any>(`/productos/codigos-barras/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteCodigoBarras: (id: number) =>
+    request<{ ok: boolean }>(`/productos/codigos-barras/${id}`, { method: 'DELETE' }),
+  // EL ENDPOINT CLAVE: resuelve un código escaneado → producto + factor + descripción.
+  // Lo usan Movimientos, Punto de Venta, Inventarios.
+  scanCodigoBarras: (codigo: string) =>
+    request<{
+      producto: { id: number; codigo: string; nombre: string; rubro: string; subrubro: string | null;
+        unidadUso: string; unidadCompra: string; precioVenta: number | null;
+        precioReferencia: number | null; vendibleDirecto: boolean };
+      factor: number;
+      descripcion: string;
+      codigoBarrasId: number | null;
+      fuente: 'multipack' | 'legacy';
+    }>(`/productos/codigos-barras/scan/${encodeURIComponent(codigo)}`),
+  bulkCodigosBarras: (items: Array<{ codigoProducto: string; codigo: string; factor?: number; descripcion?: string }>) =>
+    request<{ insertados: number; actualizados: number; errores: string[] }>(
+      `/productos/codigos-barras/bulk`,
+      { method: 'POST', body: JSON.stringify({ items }) },
+    ),
+
   // ── Sesiones de venta (kiosco/carrito/barra/evento) ─────────────────────
   getSesiones: (params?: Record<string, string>) => request<any[]>(`/sesiones${qs(params)}`),
   getSesion: (id: number) => request<any>(`/sesiones/${id}`),

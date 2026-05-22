@@ -16,6 +16,7 @@ import { useNavigate } from 'react-router-dom';
 import { useToast } from '../context/ToastContext';
 import { SkeletonList } from '../components/ui/Skeleton';
 import { useStickyState } from '../hooks/useStickyState';
+import CodigosBarrasManager from '../components/CodigosBarrasManager';
 
 const RUBROS = [
   'Verduras', 'Frutas', 'Carnes', 'Pescados', 'Lácteos', 'Fiambres',
@@ -653,6 +654,18 @@ export default function Productos() {
               </div>
             )}
           </div>
+
+          {/* Multi-pack barcodes — solo en edición (necesita productoId). En
+              creación el usuario primero crea el producto y al editarlo
+              puede empezar a cargar los códigos de caja/pack/botella. */}
+          {editId && (
+            <CodigosBarrasManager
+              productoId={editId}
+              productoNombre={form.nombre}
+              codigoBarrasLegacy={form.codigoBarras || null}
+              unidadUso={form.unidadUso}
+            />
+          )}
 
           {error && <p className="text-sm text-destructive font-semibold">{error}</p>}
 
