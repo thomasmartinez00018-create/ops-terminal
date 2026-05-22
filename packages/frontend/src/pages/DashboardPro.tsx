@@ -1,111 +1,75 @@
 /**
- * DashboardPro v2 — rediseño aplicando las 20 correcciones identificadas:
+ * DashboardPro v3 — "Historia primero".
  *
- *  1. Hero con auto-diagnóstico (detecta números absurdos)
- *  2. Delta contextual con voz semántica (cap. deltaContextual.ts)
- *  3. Sistema de coherencia: detecta y muestra inconsistencias
- *  4. Anomaly detection visible (endpoint /insights)
- *  5. Sparkline REAL del mes con tooltips por día
- *  6. Polling con feedback "actualizado hace Xs"
- *  7. Barras de progreso con stack semántico, no decorativas
- *  8. Time-ago + agrupación por día en el feed
- *  9. Frescura del dato visible
- * 10. Sin aurora: sobriedad ganadora
- * 11. Jerarquía corregida: número manda, delta acompaña, anillo desaparece
- * 12. Animaciones solo cuando comunican un evento
- * 13. useCountUpMemo: no se repite en cada render
- * 14. Modos según estado del negocio (normal/atención/crítico)
- * 15. Design tokens semánticos (good/warn/alert/neutral)
- * 16. Coherente con sidebar (sobrio, no glow)
- * 17. Etiqueta "Nueva" (no "experimental")
- * 18. Saludo dinámico + insight del día
- * 19. Cada métrica clickeable, NBA arriba
- * 20. Mobile-first
+ * Filosofía: un nene de 5 años entiende qué pasa en el negocio en 3 segundos.
+ *
+ * Cambios sustanciales vs v2:
+ *   1. Backend genera la NARRATIVA del día (1 endpoint /narrativa).
+ *   2. Switch HOY / MES bien separado, no todo mezclado.
+ *   3. Ventas REALES del PoS (no compras como antes).
+ *   4. Margen bruto estimado calculado con costo de mercadería vendida.
+ *   5. Ticket promedio, cant. tickets, top 3 productos del día.
+ *   6. Drill-down IN-SITU: cada métrica se expande con detalle + acción.
+ *   7. Comparativas siempre presentes (vs ayer / vs mismo día sem pas).
+ *   8. Bajo mínimo con NOMBRE de producto (no número aislado).
+ *   9. Lenguaje natural en cada texto.
+ *  10. Animaciones con criterio: entrance + draw + live.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  TrendingUp, TrendingDown, AlertTriangle, Package, DollarSign,
-  ArrowUpRight, Sparkles, ArrowLeft, ChefHat, Store, RefreshCw,
-  Calendar, ChevronRight, CheckCircle2, Info,
+  TrendingUp, TrendingDown, AlertTriangle, Package,
+  ArrowUpRight, Sparkles, ArrowLeft, Store, RefreshCw,
+  Calendar, ChevronRight, ChevronDown, CheckCircle2, Receipt,
+  ShoppingCart, Target, Coins, AlertCircle, Smile, Meh, Frown,
+  Flame,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
-import { calcularDelta, esAnomalia } from '../lib/deltaContextual';
-import { tiempoRelativo, grupoFecha, saludo } from '../lib/tiempoRelativo';
 import { useCountUpMemo } from '../hooks/useCountUpMemo';
+import { saludo } from '../lib/tiempoRelativo';
 
 // ============================================================================
-// Formatos
+// Tipos
+// ============================================================================
+type Narrativa = Awaited<ReturnType<typeof api.getDashboardNarrativa>>;
+type Periodo = 'hoy' | 'mes';
+
+// ============================================================================
+// Formato
 // ============================================================================
 const fmt$ = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
-const fmtNum = (n: number) => Math.round(n).toLocaleString('es-AR');
-/** Formato compacto $1.2M / $356k para hero number cuando es grande */
 const fmtCompact = (n: number): string => {
   const abs = Math.abs(n);
   if (abs >= 1_000_000) return `$${(n / 1_000_000).toFixed(abs >= 10_000_000 ? 1 : 2)}M`;
   if (abs >= 1_000) return `$${(n / 1_000).toFixed(abs >= 10_000 ? 0 : 1)}k`;
   return fmt$(n);
 };
-
-// ============================================================================
-// Tipos
-// ============================================================================
-type Insight = {
-  severidad: 'info' | 'atencion' | 'critico';
-  tipo: string;
-  titulo: string;
-  detalle: string;
-  cta?: { label: string; to: string };
-};
-
-type DataState = {
-  stats: any | null;
-  cxp: any | null;
-  alertasPrecio: { pendientes: number; altaPendientes: number } | null;
-  discrepancias: any[];
-  serieDiaria: Awaited<ReturnType<typeof api.getSerieDiariaIngresos>> | null;
-  insights: Insight[];
-  evaluadoAt: string | null;
-  loaded: boolean;
-};
+const fmtNum = (n: number) => Math.round(n).toLocaleString('es-AR');
+const fmtPct = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(0)}%`;
 
 // ============================================================================
 // Componente principal
 // ============================================================================
 export default function DashboardPro() {
   const { user } = useAuth();
-  const [data, setData] = useState<DataState>({
-    stats: null, cxp: null, alertasPrecio: null, discrepancias: [],
-    serieDiaria: null, insights: [], evaluadoAt: null, loaded: false,
-  });
-  const [ultimoFetch, setUltimoFetch] = useState<Date | null>(null);
+  const [data, setData] = useState<Narrativa | null>(null);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [tickHora, setTickHora] = useState(new Date());
+  const [periodo, setPeriodo] = useState<Periodo>('hoy');
+  const [tick, setTick] = useState(new Date());
+  const [ultimoFetch, setUltimoFetch] = useState<Date | null>(null);
 
-  // Polling soft: cada 60s actualiza solo si la tab está visible
   const cargar = useCallback(async (silencioso = false) => {
     if (!silencioso) setRefreshing(true);
     try {
-      const [s, c, ap, d, sd, ins] = await Promise.all([
-        api.getDashboardStats().catch(() => null),
-        api.getCuentasPorPagar().catch(() => null),
-        api.getAlertasPrecioCount().catch(() => null),
-        api.getDiscrepancias().catch(() => []),
-        api.getSerieDiariaIngresos().catch(() => null),
-        api.getInsights().catch(() => ({ insights: [], meta: { evaluadoAt: new Date().toISOString() } })),
-      ]);
-      setData({
-        stats: s,
-        cxp: c,
-        alertasPrecio: ap,
-        discrepancias: d || [],
-        serieDiaria: sd,
-        insights: ins.insights,
-        evaluadoAt: ins.meta?.evaluadoAt ?? new Date().toISOString(),
-        loaded: true,
-      });
+      const d = await api.getDashboardNarrativa();
+      setData(d);
       setUltimoFetch(new Date());
+      setLoading(false);
+    } catch (e) {
+      console.error('[dp3]', e);
+      setLoading(false);
     } finally {
       setRefreshing(false);
     }
@@ -118,88 +82,49 @@ export default function DashboardPro() {
     }, 60_000);
     return () => clearInterval(id);
   }, [cargar]);
-  // Tick para "hace X seg" cada 5s
   useEffect(() => {
-    const id = setInterval(() => setTickHora(new Date()), 5000);
+    const id = setInterval(() => setTick(new Date()), 5000);
     return () => clearInterval(id);
   }, []);
 
-  if (!data.loaded) return <LoadingScreen />;
+  if (loading || !data) return <LoadingScreen />;
 
-  // ── Extracciones ──────────────────────────────────────────────────────
-  const ingresosMes = data.stats?.ingresosDelMes ?? 0;
-  const ingresosMesAnt = data.stats?.ingresosMesAnt ?? 0;
-  const mermasMes = data.stats?.mermasDelMes ?? 0;
-  const mermasMesAnt = data.stats?.mermasMesAnt ?? 0;
-  const bajosMin = data.stats?.bajosDeMinimo ?? 0;
-  const totalProductos = data.stats?.totalProductos ?? 0;
-  const totalAdeudado = data.cxp?.totales?.totalAdeudado ?? 0;
-  const totalFacturas = data.cxp?.totales?.totalFacturas ?? 0;
-  const alertasPrecio = data.alertasPrecio?.pendientes ?? 0;
-  const discGraves = data.discrepancias.filter((d: any) => d.color === 'rojo').length;
-  const ultimosMov = data.stats?.ultimosMovimientos ?? [];
-  const serie = data.serieDiaria;
-
-  // Coherencia: 1 bajo mínimo si hay 0 activos = inconsistencia
-  const incoherencias: string[] = [];
-  if (bajosMin > totalProductos) {
-    incoherencias.push(
-      `Tenés ${bajosMin} productos bajo mínimo pero solo ${totalProductos} activos. Probablemente hay productos inactivos con stock — revisalos.`
-    );
-  }
-  // Deuda absurda vs ingresos del mes
-  if (totalAdeudado > 0 && ingresosMes > 0 && totalAdeudado / ingresosMes > 100) {
-    incoherencias.push(
-      `La deuda es ${Math.round(totalAdeudado / ingresosMes)}× los ingresos del mes. ¿Estás cargando todos los movimientos?`
-    );
-  }
-
-  // Estado del negocio: critico si hay insights críticos o vencidos
-  const criticos = data.insights.filter(i => i.severidad === 'critico').length;
-  const atencion = data.insights.filter(i => i.severidad === 'atencion').length;
-  const estado: 'normal' | 'atencion' | 'critico' =
-    criticos > 0 ? 'critico' : atencion > 0 ? 'atencion' : 'normal';
-
-  // Frescura del dato
-  const segundos = ultimoFetch ? Math.floor((tickHora.getTime() - ultimoFetch.getTime()) / 1000) : null;
-  const frescuraTxt = segundos == null ? '' :
-    segundos < 60 ? `actualizado hace ${segundos}s` :
-    segundos < 3600 ? `actualizado hace ${Math.floor(segundos / 60)} min` :
-    `actualizado hace ${Math.floor(segundos / 3600)} h`;
+  const estado = computarEstado(data);
+  const frescuraTxt = ultimoFetch
+    ? formatoFrescura(Math.floor((tick.getTime() - ultimoFetch.getTime()) / 1000))
+    : '';
 
   return (
     <div
-      className={`dp2 dp2-state-${estado} -mx-4 sm:-mx-6 -my-4 lg:-my-6 px-4 sm:px-6 py-4 lg:py-6 min-h-screen relative overflow-hidden`}
+      className={`dp3 dp3-state-${estado} relative -mx-4 sm:-mx-6 -my-4 lg:-my-6 px-4 sm:px-6 py-4 lg:py-6 min-h-screen overflow-hidden`}
     >
-      {/* Aurora reactiva al estado — verde si todo bien, ámbar si atención,
-          rojo si crítico. No es decorativa: comunica salud del negocio. */}
-      <div className="dp2-aurora" aria-hidden="true" />
-      <div className="dp2-grain" aria-hidden="true" />
+      <div className="dp3-aurora" aria-hidden />
+      <div className="dp3-grain" aria-hidden />
 
-      {/* Header sobrio */}
-      <div className="relative z-10 flex items-start justify-between gap-3 mb-5 dp2-anim-header">
+      {/* HEADER · saludo + frescura */}
+      <header className="relative z-10 flex items-start justify-between gap-3 mb-4 dp3-anim-header">
         <div>
           <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-primary/70">
-            <span className="dp2-live-dot inline-block w-1.5 h-1.5 rounded-full bg-primary" />
-            <span className="px-1.5 py-0.5 rounded bg-primary/10 border border-primary/30 text-[9px] dp2-badge-shine">
+            <span className="dp3-live-dot inline-block w-1.5 h-1.5 rounded-full bg-primary" />
+            <span className="px-1.5 py-0.5 rounded bg-primary/10 border border-primary/30 text-[9px] dp3-badge-shine">
               NUEVA
             </span>
-            Panel del dueño · v2
+            Panel del dueño
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold mt-1 text-foreground">
             {saludo()}, {user?.nombre || 'Andy'}
           </h1>
-          <InsightDelDia
-            insights={data.insights}
-            estado={estado}
-            fallbackTxt={fallbackInsight({ ingresosMes, mermasMes, bajosMin, totalAdeudado })}
-          />
+          {/* ── La historia en una oración ───────────────────────────── */}
+          <p className="text-sm text-on-surface-variant mt-1.5 max-w-3xl leading-relaxed">
+            <Sparkles size={12} className="inline -mt-0.5 mr-1 text-primary" />
+            {data.tituloHistoria}
+          </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={() => cargar(false)}
             disabled={refreshing}
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] bg-surface/80 backdrop-blur border border-border/60 hover:border-primary/40 hover:bg-surface transition disabled:opacity-50"
+            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] bg-surface/80 backdrop-blur border border-border/60 hover:border-primary/40 transition disabled:opacity-50"
             title={frescuraTxt}
           >
             <RefreshCw size={11} className={refreshing ? 'animate-spin' : ''} />
@@ -207,100 +132,34 @@ export default function DashboardPro() {
           </button>
           <Link
             to="/"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] bg-surface/80 backdrop-blur border border-border/60 hover:border-primary/40 hover:bg-surface transition"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] bg-surface/80 backdrop-blur border border-border/60 hover:border-primary/40 transition"
           >
             <ArrowLeft size={11} /> Vista clásica
           </Link>
         </div>
+      </header>
+
+      {/* SWITCH HOY / MES — decisión central */}
+      <div className="relative z-10 inline-flex items-center bg-surface/70 backdrop-blur border border-border/60 rounded-full p-1 mb-4 dp3-anim-switch">
+        <PeriodoBtn periodo={periodo} setPeriodo={setPeriodo} value="hoy" label="Hoy" />
+        <PeriodoBtn periodo={periodo} setPeriodo={setPeriodo} value="mes" label="Este mes" />
       </div>
 
-      {/* Banner de incoherencias (siempre arriba si las hay) */}
-      {incoherencias.length > 0 && (
-        <div className="relative z-10 mb-4 rounded-xl border border-amber-500/40 bg-amber-500/5 p-3 dp2-anim-alert">
-          <div className="flex items-start gap-2">
-            <AlertTriangle size={14} className="text-amber-500 shrink-0 mt-0.5" />
-            <div className="text-xs">
-              <div className="font-bold text-amber-500 mb-1">
-                {incoherencias.length === 1 ? 'Detecté algo raro en tus datos' : 'Detecté inconsistencias'}
-              </div>
-              <ul className="space-y-0.5 text-on-surface-variant">
-                {incoherencias.map((t, i) => <li key={i}>• {t}</li>)}
-              </ul>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* PANTALLA HOY */}
+      {periodo === 'hoy' && <PanelHoy data={data} />}
 
-      {/* Insights (Next Best Actions) */}
-      {data.insights.length > 0 && (
-        <div className="relative z-10 mb-4 space-y-1.5">
-          {data.insights.slice(0, 3).map((ins, i) => (
-            <InsightRow key={i} insight={ins} delay={i * 80} />
-          ))}
-        </div>
-      )}
+      {/* PANTALLA MES */}
+      {periodo === 'mes' && <PanelMes data={data} />}
 
-      {/* HERO — ingresos con sparkline real */}
-      <div className="relative z-10 dp2-anim-hero">
-        <HeroIngresos
-          valor={ingresosMes}
-          valorAnt={ingresosMesAnt}
-          serie={serie}
-        />
-      </div>
+      {/* ALERTAS — siempre visibles abajo, accionables */}
+      <PanelAlertas data={data} />
 
-      {/* STAT TRIO con deltas contextuales y clickeable */}
-      <div className="relative z-10 grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3 dp2-anim-stack">
-        <MetricCard
-          to="/reportes?tab=mermas"
-          icon={<TrendingDown size={14} />}
-          label="Mermas del mes"
-          value={mermasMes}
-          format="money"
-          color="rose"
-          polaridad="menos_es_mejor"
-          actual={mermasMes}
-          anterior={mermasMesAnt}
-          memoKey="metric.mermas"
-        />
-        <MetricCard
-          to="/stock?bajos=1"
-          icon={<Package size={14} />}
-          label="Bajo mínimo"
-          value={bajosMin}
-          format="num"
-          color={bajosMin > 0 ? 'amber' : 'emerald'}
-          subtitle={`de ${fmtNum(totalProductos)} productos activos`}
-          memoKey="metric.bajosmin"
-        />
-        <MetricCard
-          to="/cuentas-por-pagar"
-          icon={<DollarSign size={14} />}
-          label="Total adeudado"
-          value={totalAdeudado}
-          format="money"
-          color="violet"
-          subtitle={`${totalFacturas} factura${totalFacturas === 1 ? '' : 's'}`}
-          memoKey="metric.deuda"
-        />
-      </div>
-
-      {/* Actividad + Para revisar */}
-      <div className="relative z-10 grid grid-cols-1 lg:grid-cols-3 gap-3 mt-3 dp2-anim-section">
-        <FeedActividad movimientos={ultimosMov} />
-        <PanelRevisar
-          alertasPrecio={alertasPrecio}
-          discGraves={discGraves}
-          bajosMin={bajosMin}
-        />
-      </div>
-
-      {/* Accesos rápidos */}
-      <div className="relative z-10 grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-3 dp2-anim-tiles">
-        <QuickAction to="/punto-venta"      icon={<Store size={16} />}    label="Vender" />
-        <QuickAction to="/movimientos"      icon={<Package size={16} />}  label="Cargar mov." />
-        <QuickAction to="/carta"            icon={<ChefHat size={16} />}  label="Carta" />
-        <QuickAction to="/proyeccion-pagos" icon={<Calendar size={16} />} label="Pagos" />
+      {/* ATAJOS rápidos */}
+      <div className="relative z-10 grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-4 dp3-anim-tiles">
+        <Atajo to="/punto-venta"      icon={<Store size={16} />}         label="Vender ahora" />
+        <Atajo to="/movimientos"      icon={<Package size={16} />}       label="Cargar ingreso" />
+        <Atajo to="/carta"            icon={<Receipt size={16} />}       label="Ver carta" />
+        <Atajo to="/proyeccion-pagos" icon={<Calendar size={16} />}      label="Pagos por venir" />
       </div>
 
       <style>{styles}</style>
@@ -309,149 +168,561 @@ export default function DashboardPro() {
 }
 
 // ============================================================================
-// HeroIngresos — número grande + delta contextual + sparkline REAL
+// PanelHoy — qué pasó/pasa HOY (lo más importante para el dueño operativo)
 // ============================================================================
-function HeroIngresos({
-  valor, valorAnt, serie,
-}: {
-  valor: number;
-  valorAnt: number;
-  serie: Awaited<ReturnType<typeof api.getSerieDiariaIngresos>> | null;
-}) {
-  const display = useCountUpMemo('hero.ingresos', valor, 1100);
-  const delta = useMemo(() => calcularDelta(valor, valorAnt, 'mas_es_mejor'), [valor, valorAnt]);
-  // ¿Anomalía? Si el valor es muy bajo vs lo que esperaríamos, alerta
-  const sospechoso = valor > 0 && valorAnt > 0 && esAnomalia(valor, valorAnt, 0.3);
-  const usaCompact = valor >= 1_000_000;
-
-  const dias = serie?.dias ?? [];
-  const promedio = serie?.resumen.promedioDiario ?? 0;
+function PanelHoy({ data }: { data: Narrativa }) {
+  const h = data.hoy;
+  const c = h.comparativa;
+  const cara = caraEmoticon(h.margen);
 
   return (
-    <div className="rounded-2xl border border-border/40 bg-surface/60 p-5 sm:p-6">
-      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-5 items-center">
-        <div>
-          <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-on-surface-variant">
-            Ingresos del mes
-          </div>
-          <div className="mt-2 flex items-baseline gap-3 flex-wrap">
-            <div className="text-4xl sm:text-5xl font-extrabold tabular-nums text-foreground">
-              {usaCompact ? fmtCompact(display) : fmt$(display)}
+    <div className="relative z-10 space-y-3">
+      {/* HERO — ventas del día con cara */}
+      <div className="rounded-2xl border border-border/40 bg-surface/60 backdrop-blur p-5 sm:p-6 dp3-anim-hero">
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-5 items-center">
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-on-surface-variant flex items-center gap-1.5">
+              <Coins size={11} /> Lo que vendiste hoy
             </div>
-            <DeltaChip delta={delta} />
+            <div className="mt-2 flex items-baseline gap-3 flex-wrap">
+              <span className="text-4xl sm:text-5xl font-extrabold tabular-nums dp3-hero-num">
+                {h.ventas >= 1_000_000 ? fmtCompact(h.ventas) : fmt$(h.ventas)}
+              </span>
+              <ComparativaChip delta={c.ayer.deltaPct} label="vs ayer" />
+            </div>
+            <div className="text-[12px] text-on-surface-variant mt-2 leading-relaxed">
+              {h.tickets > 0 ? (
+                <>
+                  <strong className="text-foreground">{h.tickets}</strong> ticket{h.tickets === 1 ? '' : 's'} ·
+                  ticket promedio <strong className="text-foreground">{fmt$(h.ticketPromedio)}</strong>
+                  {h.itemsVendidos > 0 && (
+                    <> · {fmtNum(h.itemsVendidos)} item{h.itemsVendidos === 1 ? '' : 's'}</>
+                  )}
+                </>
+              ) : (
+                <>Todavía no registraste ventas. {c.ayer.tickets > 0 && <>Ayer cerraste con <strong>{c.ayer.tickets}</strong> ticket{c.ayer.tickets === 1 ? '' : 's'}.</>}</>
+              )}
+            </div>
           </div>
-          <div className="text-[11px] text-on-surface-variant mt-1.5 font-mono flex items-center gap-3 flex-wrap">
-            <span>Mes anterior: {fmt$(valorAnt)}</span>
-            {promedio > 0 && (
-              <span>· Promedio diario: {fmt$(promedio)}</span>
-            )}
-            {sospechoso && (
-              <span className="text-amber-500 font-bold">⚠ Bajo vs lo esperado</span>
-            )}
-          </div>
+          {h.ventas > 0 && (
+            <div className="flex items-center gap-3 sm:flex-col sm:items-end">
+              <div className={`text-5xl sm:text-6xl ${cara.color}`} title={`Margen ${h.margen.toFixed(0)}%`}>
+                {cara.icon}
+              </div>
+              <div className="text-right">
+                <div className={`text-2xl font-extrabold tabular-nums ${cara.color}`}>
+                  {h.margen.toFixed(0)}%
+                </div>
+                <div className="text-[9px] uppercase tracking-wider text-on-surface-variant">
+                  margen estimado
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Sparkline real con tooltip por día */}
-      {dias.length > 0 && (
-        <SparklineReal dias={dias} promedio={promedio} />
+      {/* TRIO operativo del día */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 dp3-anim-stack">
+        <CardConDrillDown
+          icon={<Receipt size={14} />}
+          label="Tickets"
+          valor={h.tickets}
+          formato="num"
+          color="sky"
+          subtitle={c.ayer.tickets > 0 ? `Ayer: ${c.ayer.tickets}` : undefined}
+          deltaPct={c.ayer.deltaPct}
+        />
+        <CardConDrillDown
+          icon={<ShoppingCart size={14} />}
+          label="Ticket promedio"
+          valor={h.ticketPromedio}
+          formato="money"
+          color="emerald"
+          subtitle={c.ayer.tickets > 0
+            ? `Ayer: ${fmt$(c.ayer.ventas / c.ayer.tickets)}`
+            : 'Sin referencia'}
+        />
+        <CardConDrillDown
+          icon={<Target size={14} />}
+          label="Costo de venta"
+          valor={h.costoMercaderia}
+          formato="money"
+          color="violet"
+          subtitle={`Margen: ${h.margen.toFixed(0)}%`}
+        />
+      </div>
+
+      {/* Top productos del día — accionable */}
+      {h.topProductos.length > 0 && (
+        <DrillDown
+          titulo="🔥 Lo que más se vendió hoy"
+          items={h.topProductos.map(p => ({
+            key: String(p.id),
+            label: p.nombre,
+            valor: `${fmtNum(p.cantidad)} u.`,
+            extra: fmt$(p.importe),
+          }))}
+        />
+      )}
+
+      {/* Vs misma semana pasada */}
+      <Comparativa
+        actual={h.ventas}
+        anterior={c.mismaSemPasada.ventas}
+        actualLabel="Hoy"
+        anteriorLabel="Mismo día semana pasada"
+      />
+    </div>
+  );
+}
+
+// ============================================================================
+// PanelMes — la vista financiera (mes acumulado + proyección)
+// ============================================================================
+function PanelMes({ data }: { data: Narrativa }) {
+  const m = data.mes;
+  const cara = caraEmoticon(m.margen);
+  const ahora = new Date();
+  const diaMes = ahora.getDate();
+  const ultDia = new Date(ahora.getFullYear(), ahora.getMonth() + 1, 0).getDate();
+  const pctMes = (diaMes / ultDia) * 100;
+
+  return (
+    <div className="relative z-10 space-y-3">
+      {/* HERO MES — ventas + proyección */}
+      <div className="rounded-2xl border border-border/40 bg-surface/60 backdrop-blur p-5 sm:p-6 dp3-anim-hero">
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-5 items-center">
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-on-surface-variant flex items-center gap-1.5">
+              <Coins size={11} /> Facturación del mes
+            </div>
+            <div className="mt-2 flex items-baseline gap-3 flex-wrap">
+              <span className="text-4xl sm:text-5xl font-extrabold tabular-nums dp3-hero-num">
+                {fmtCompact(m.ventas)}
+              </span>
+              <ComparativaChip delta={m.deltaProyVsMesPasado} label="proyección vs mes pasado" />
+            </div>
+            <div className="text-[12px] text-on-surface-variant mt-2 leading-relaxed">
+              <strong className="text-foreground">{m.tickets}</strong> tickets ·
+              ticket promedio <strong className="text-foreground">{fmt$(m.ticketPromedio)}</strong>
+              {m.proyeccionMes > 0 && (
+                <> · <span className="text-primary">Si seguís así, cerrás en {fmtCompact(m.proyeccionMes)}</span></>
+              )}
+            </div>
+            <ProgresoMes pct={pctMes} />
+          </div>
+          {m.ventas > 0 && (
+            <div className="flex items-center gap-3 sm:flex-col sm:items-end">
+              <div className={`text-5xl sm:text-6xl ${cara.color}`} title={`Margen ${m.margen.toFixed(0)}%`}>
+                {cara.icon}
+              </div>
+              <div className="text-right">
+                <div className={`text-2xl font-extrabold tabular-nums ${cara.color}`}>
+                  {m.margen.toFixed(0)}%
+                </div>
+                <div className="text-[9px] uppercase tracking-wider text-on-surface-variant">
+                  margen
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Sparkline 30 días */}
+        {m.sparkline.length > 0 && <SparklineVentas serie={m.sparkline} />}
+      </div>
+
+      {/* Trio del mes */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 dp3-anim-stack">
+        <CardConDrillDown
+          icon={<Receipt size={14} />}
+          label="Tickets del mes"
+          valor={m.tickets}
+          formato="num"
+          color="sky"
+          subtitle={m.mesPasado.tickets > 0 ? `Mes pasado: ${m.mesPasado.tickets}` : undefined}
+        />
+        <CardConDrillDown
+          icon={<ShoppingCart size={14} />}
+          label="Costo mercadería"
+          valor={m.costoMercaderia}
+          formato="money"
+          color="violet"
+          subtitle={`de ${fmtCompact(m.ventas)} vendidos`}
+        />
+        <CardConDrillDown
+          icon={<Flame size={14} />}
+          label="Mermas del mes"
+          valor={data.drilldowns.mermasMes}
+          formato="money"
+          color="rose"
+          subtitle={data.drilldowns.topMermas[0]
+            ? `Mayor: ${data.drilldowns.topMermas[0].nombre}`
+            : 'Sin mermas ✓'}
+        />
+      </div>
+
+      {/* Drill-downs del mes */}
+      {m.topProductos.length > 0 && (
+        <DrillDown
+          titulo="📈 Top vendidos del mes"
+          items={m.topProductos.map(p => ({
+            key: String(p.id),
+            label: p.nombre,
+            valor: `${fmtNum(p.cantidad)} u.`,
+            extra: fmt$(p.importe),
+          }))}
+        />
+      )}
+
+      {data.drilldowns.topAcreedores.length > 0 && (
+        <DrillDown
+          titulo="💰 A quién le debo más"
+          items={data.drilldowns.topAcreedores.map(a => ({
+            key: String(a.proveedorId),
+            label: a.nombre,
+            valor: fmt$(a.saldo),
+            extra: '',
+          }))}
+          to="/cuentas-por-pagar"
+        />
+      )}
+
+      {data.drilldowns.topMermas.length > 0 && (
+        <DrillDown
+          titulo="🗑 Mermas: qué se está perdiendo"
+          items={data.drilldowns.topMermas.map(m => ({
+            key: String(m.productoId),
+            label: m.nombre,
+            valor: fmt$(m.importe),
+            extra: '',
+          }))}
+        />
       )}
     </div>
   );
 }
 
 // ============================================================================
-// DeltaChip — el chip de variación, sin gritos
+// PanelAlertas — siempre al pie, accionable
 // ============================================================================
-function DeltaChip({ delta }: { delta: ReturnType<typeof calcularDelta> }) {
-  if (!delta.flecha && delta.tono === 'neutral') {
-    return <span className="text-xs text-on-surface-variant">{delta.mensaje}</span>;
+function PanelAlertas({ data }: { data: Narrativa }) {
+  const a = data.alertas;
+  const total = a.vencidas.count + a.vencenPronto.count + a.bajosDeMinimo.length;
+  if (total === 0) {
+    return (
+      <div className="relative z-10 mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 dp3-anim-section">
+        <div className="flex items-center gap-2 text-sm text-emerald-400 font-bold">
+          <CheckCircle2 size={16} /> Todo en orden — nada urgente por revisar
+        </div>
+      </div>
+    );
   }
-  const color = delta.tono === 'good' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30'
-              : delta.tono === 'bad'  ? 'text-rose-400  bg-rose-500/10 border-rose-500/30'
-              : 'text-on-surface-variant bg-surface-high border-border/60';
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border ${color}`}>
-      {delta.flecha === 'up' ? <TrendingUp size={11} /> : delta.flecha === 'down' ? <TrendingDown size={11} /> : null}
-      {delta.mensaje}
-    </span>
+    <div className="relative z-10 mt-4 rounded-2xl border border-border/40 bg-surface/60 backdrop-blur overflow-hidden dp3-anim-section">
+      <div className="px-4 py-3 border-b border-border/40 flex items-center justify-between">
+        <div className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+          <AlertTriangle size={11} /> Cosas para revisar
+        </div>
+        <span className="text-[10px] tabular-nums font-bold text-amber-400">
+          {total}
+        </span>
+      </div>
+      <div className="divide-y divide-border/30">
+        {a.vencidas.count > 0 && (
+          <AlertaFila
+            color="rose"
+            titulo={`${a.vencidas.count} factura${a.vencidas.count === 1 ? '' : 's'} vencida${a.vencidas.count === 1 ? '' : 's'}`}
+            detalle={`${fmt$(a.vencidas.total)} en total — pagar urgente`}
+            to="/proyeccion-pagos"
+          />
+        )}
+        {a.vencenPronto.count > 0 && (
+          <AlertaFila
+            color="amber"
+            titulo={`${a.vencenPronto.count} vencen en 7 días`}
+            detalle={`${fmt$(a.vencenPronto.total)} a programar`}
+            to="/proyeccion-pagos"
+          />
+        )}
+        {a.bajosDeMinimo.length > 0 && (
+          <AlertaBajosDeMinimo items={a.bajosDeMinimo} />
+        )}
+      </div>
+    </div>
   );
 }
 
 // ============================================================================
-// SparklineReal — datos reales del mes con hover por día
+// COMPONENTES AUXILIARES
 // ============================================================================
-function SparklineReal({
-  dias, promedio,
-}: { dias: Array<{ fecha: string; total: number; cantidad: number }>; promedio: number }) {
+
+function PeriodoBtn({
+  periodo, setPeriodo, value, label,
+}: { periodo: Periodo; setPeriodo: (p: Periodo) => void; value: Periodo; label: string }) {
+  const active = periodo === value;
+  return (
+    <button
+      onClick={() => setPeriodo(value)}
+      className={`px-4 py-1.5 rounded-full text-xs font-bold transition ${
+        active
+          ? 'bg-primary text-on-primary shadow-[0_4px_12px_-4px_rgba(212,175,55,0.5)]'
+          : 'text-on-surface-variant hover:text-foreground'
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+function ComparativaChip({ delta, label }: { delta: number | null; label: string }) {
+  if (delta === null) return null;
+  const sube = delta > 0;
+  const color = sube
+    ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30'
+    : delta < 0
+      ? 'text-rose-400 bg-rose-500/10 border-rose-500/30'
+      : 'text-on-surface-variant bg-surface-high border-border/60';
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border ${color}`}>
+      {sube ? <TrendingUp size={11} /> : delta < 0 ? <TrendingDown size={11} /> : null}
+      {fmtPct(delta)}
+      <span className="font-medium opacity-70 ml-0.5">{label}</span>
+    </span>
+  );
+}
+
+function CardConDrillDown({
+  icon, label, valor, formato, color, subtitle, deltaPct,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  valor: number;
+  formato: 'money' | 'num';
+  color: 'rose' | 'amber' | 'emerald' | 'violet' | 'sky';
+  subtitle?: string;
+  deltaPct?: number | null;
+}) {
+  const display = useCountUpMemo(`dp3.${label}`, valor, 900);
+  const colorClass = {
+    rose: 'text-rose-400',
+    amber: 'text-amber-400',
+    emerald: 'text-emerald-400',
+    violet: 'text-violet-400',
+    sky: 'text-sky-400',
+  }[color];
+  return (
+    <div className="rounded-xl border border-border/40 bg-surface/60 backdrop-blur p-4">
+      <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-on-surface-variant mb-2">
+        <span className={colorClass}>{icon}</span>
+        {label}
+      </div>
+      <div className={`text-2xl sm:text-3xl font-extrabold tabular-nums ${colorClass}`}>
+        {formato === 'money' ? fmt$(display) : fmtNum(display)}
+      </div>
+      <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+        {subtitle && <span className="text-[11px] text-on-surface-variant">{subtitle}</span>}
+        {deltaPct != null && <ComparativaChip delta={deltaPct} label="" />}
+      </div>
+    </div>
+  );
+}
+
+function DrillDown({
+  titulo, items, to,
+}: {
+  titulo: string;
+  items: Array<{ key: string; label: string; valor: string; extra: string }>;
+  to?: string;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  if (items.length === 0) return null;
+  return (
+    <div className="rounded-xl border border-border/40 bg-surface/60 backdrop-blur overflow-hidden">
+      <button
+        onClick={() => setAbierto(v => !v)}
+        className="w-full px-4 py-3 flex items-center justify-between hover:bg-surface-high/30 transition"
+      >
+        <span className="text-sm font-bold text-foreground">{titulo}</span>
+        <ChevronDown size={14} className={`text-on-surface-variant transition-transform ${abierto ? 'rotate-180' : ''}`} />
+      </button>
+      {abierto && (
+        <div className="px-4 pb-3 dp3-anim-content">
+          <div className="space-y-1">
+            {items.map((it, i) => (
+              <div key={it.key} className="flex items-center gap-3 text-[12px] py-1.5">
+                <span className="w-5 text-on-surface-variant/60 tabular-nums">#{i + 1}</span>
+                <span className="flex-1 text-foreground truncate">{it.label}</span>
+                <span className="font-bold text-primary tabular-nums">{it.valor}</span>
+                {it.extra && <span className="text-on-surface-variant tabular-nums">{it.extra}</span>}
+              </div>
+            ))}
+          </div>
+          {to && (
+            <Link
+              to={to}
+              className="mt-2 inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline"
+            >
+              ver detalle completo <ArrowUpRight size={11} />
+            </Link>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Comparativa({
+  actual, anterior, actualLabel, anteriorLabel,
+}: { actual: number; anterior: number; actualLabel: string; anteriorLabel: string }) {
+  if (actual === 0 && anterior === 0) return null;
+  const max = Math.max(actual, anterior) || 1;
+  return (
+    <div className="rounded-xl border border-border/40 bg-surface/60 backdrop-blur p-4">
+      <div className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant mb-3">
+        Comparación
+      </div>
+      <div className="space-y-2">
+        {[
+          { label: actualLabel, val: actual, color: 'primary' },
+          { label: anteriorLabel, val: anterior, color: 'on-surface-variant' },
+        ].map(b => (
+          <div key={b.label}>
+            <div className="flex items-center justify-between text-[11px] mb-1">
+              <span className="text-on-surface-variant">{b.label}</span>
+              <span className="tabular-nums font-bold text-foreground">{fmt$(b.val)}</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-surface-high overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-700 bg-${b.color}`}
+                style={{ width: `${(b.val / max) * 100}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AlertaFila({
+  color, titulo, detalle, to,
+}: { color: 'rose' | 'amber' | 'sky'; titulo: string; detalle: string; to: string }) {
+  return (
+    <Link to={to} className="flex items-center gap-3 px-4 py-3 hover:bg-surface-high/30 transition group">
+      <span className={`p-1.5 rounded-lg bg-${color}-500/15 text-${color}-400 shrink-0`}>
+        <AlertCircle size={14} />
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-bold text-foreground truncate">{titulo}</div>
+        <div className="text-[11px] text-on-surface-variant truncate">{detalle}</div>
+      </div>
+      <ChevronRight size={12} className="text-on-surface-variant/40 group-hover:text-primary group-hover:translate-x-0.5 transition" />
+    </Link>
+  );
+}
+
+function AlertaBajosDeMinimo({
+  items,
+}: { items: Narrativa['alertas']['bajosDeMinimo'] }) {
+  const [abierto, setAbierto] = useState(false);
+  return (
+    <div>
+      <button
+        onClick={() => setAbierto(v => !v)}
+        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface-high/30 transition"
+      >
+        <span className="p-1.5 rounded-lg bg-violet-500/15 text-violet-400 shrink-0">
+          <Package size={14} />
+        </span>
+        <div className="flex-1 text-left min-w-0">
+          <div className="text-sm font-bold text-foreground">
+            {items.length} producto{items.length === 1 ? '' : 's'} bajo mínimo
+          </div>
+          <div className="text-[11px] text-on-surface-variant truncate">
+            {items.slice(0, 2).map(i => i.nombre).join(' · ')}
+            {items.length > 2 && ` y ${items.length - 2} más`}
+          </div>
+        </div>
+        <ChevronDown size={12} className={`text-on-surface-variant transition-transform ${abierto ? 'rotate-180' : ''}`} />
+      </button>
+      {abierto && (
+        <div className="px-4 pb-3 dp3-anim-content">
+          <div className="space-y-1.5">
+            {items.map(p => (
+              <Link
+                key={p.id}
+                to={`/stock?productoId=${p.id}`}
+                className="flex items-center gap-3 text-[12px] py-1.5 hover:text-primary group"
+              >
+                <span className="flex-1 truncate">{p.nombre}</span>
+                <span className="text-rose-400 tabular-nums">
+                  {fmtNum(p.stock)} / {fmtNum(p.minimo)} {p.unidad}
+                </span>
+                <span className="text-[10px] font-bold text-violet-400 tabular-nums">
+                  faltan {fmtNum(p.falta)}
+                </span>
+              </Link>
+            ))}
+          </div>
+          <Link
+            to="/ordenes-compra"
+            className="mt-2 inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline"
+          >
+            generar orden de compra <ArrowUpRight size={11} />
+          </Link>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProgresoMes({ pct }: { pct: number }) {
+  return (
+    <div className="mt-3">
+      <div className="flex items-center justify-between text-[10px] text-on-surface-variant mb-1">
+        <span>Día {Math.round(pct / 100 * 30) || 1} de 30 del mes</span>
+        <span className="tabular-nums">{pct.toFixed(0)}% del mes</span>
+      </div>
+      <div className="h-1 rounded-full bg-surface-high overflow-hidden">
+        <div className="h-full rounded-full bg-primary transition-all duration-700" style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function SparklineVentas({
+  serie,
+}: { serie: Narrativa['mes']['sparkline'] }) {
   const w = 600, h = 60;
-  const max = Math.max(...dias.map(d => d.total), 1);
-  const points = dias.map((d, i) => {
-    const x = (i / (dias.length - 1)) * w;
-    const y = h - (d.total / max) * (h - 6) - 3;
-    return { x, y, dia: d };
-  });
+  const max = Math.max(...serie.map(s => s.total), 1);
+  const points = serie.map((s, i) => ({
+    x: (i / Math.max(serie.length - 1, 1)) * w,
+    y: h - (s.total / max) * (h - 6) - 3,
+    dia: s,
+  }));
   const [hover, setHover] = useState<number | null>(null);
   const path = points.map((p, i) => (i === 0 ? `M ${p.x},${p.y}` : `L ${p.x},${p.y}`)).join(' ');
-  const promY = h - (promedio / max) * (h - 6) - 3;
 
   return (
-    <div className="mt-4 -mx-1 relative">
-      <svg
-        viewBox={`0 0 ${w} ${h}`}
-        className="w-full h-12 sm:h-14"
-        preserveAspectRatio="none"
-        onMouseLeave={() => setHover(null)}
-      >
+    <div className="mt-5 -mx-1 relative">
+      <div className="text-[9px] uppercase tracking-wider text-on-surface-variant mb-1">
+        Últimos 30 días — pasá el mouse para ver cada día
+      </div>
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-12 sm:h-14" preserveAspectRatio="none"
+        onMouseLeave={() => setHover(null)}>
         <defs>
-          <linearGradient id="dp2-spark" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="rgb(212, 175, 55)" stopOpacity="0.25" />
+          <linearGradient id="dp3-spk" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="rgb(212, 175, 55)" stopOpacity="0.3" />
             <stop offset="100%" stopColor="rgb(212, 175, 55)" stopOpacity="0" />
           </linearGradient>
         </defs>
-        {/* Línea de promedio */}
-        {promedio > 0 && (
-          <line x1="0" x2={w} y1={promY} y2={promY}
-            stroke="rgb(160, 160, 165)" strokeWidth="0.6" strokeDasharray="3 3" opacity="0.5" />
-        )}
-        {/* Área */}
-        <path d={`${path} L ${w},${h} L 0,${h} Z`} fill="url(#dp2-spark)" className="dp2-spark-area" />
-        {/* Línea — se dibuja con stroke-dasharray al cargar (evento real:
-            dato llegó por primera vez) */}
-        <path d={path} fill="none" stroke="rgb(212, 175, 55)" strokeWidth="1.6" strokeLinecap="round" className="dp2-spark-line" />
-        {/* Punto final pulsante — "estás acá ahora" */}
-        {points.length > 0 && (
-          <>
-            <circle
-              cx={points[points.length - 1].x}
-              cy={points[points.length - 1].y}
-              r="2.5"
-              fill="rgb(212, 175, 55)"
-              className="dp2-spark-tip"
-            />
-            <circle
-              cx={points[points.length - 1].x}
-              cy={points[points.length - 1].y}
-              r="5"
-              fill="rgb(212, 175, 55)"
-              fillOpacity="0.3"
-              className="dp2-spark-pulse"
-            />
-          </>
-        )}
-        {/* Puntos invisibles para hover */}
+        <path d={`${path} L ${w},${h} L 0,${h} Z`} fill="url(#dp3-spk)" className="dp3-spk-area" />
+        <path d={path} fill="none" stroke="rgb(212, 175, 55)" strokeWidth="1.6" strokeLinecap="round" className="dp3-spk-line" />
         {points.map((p, i) => (
-          <rect
-            key={i}
-            x={p.x - 8}
-            y={0}
-            width={16}
-            height={h}
-            fill="transparent"
-            onMouseEnter={() => setHover(i)}
-            onClick={() => setHover(i)}
-            className="cursor-crosshair"
-          />
+          <rect key={i} x={p.x - 8} y={0} width={16} height={h} fill="transparent"
+            onMouseEnter={() => setHover(i)} className="cursor-crosshair" />
         ))}
         {hover !== null && (
           <>
@@ -462,16 +733,11 @@ function SparklineReal({
         )}
       </svg>
       {hover !== null && (
-        <div
-          className="absolute -top-12 px-2 py-1 rounded bg-surface-high border border-primary/40 text-[10px] pointer-events-none whitespace-nowrap"
-          style={{
-            left: `calc(${(points[hover].x / w) * 100}% - 60px)`,
-            transform: 'translateY(-100%)',
-          }}
-        >
+        <div className="absolute -top-12 px-2 py-1 rounded bg-surface-high border border-primary/40 text-[10px] pointer-events-none whitespace-nowrap"
+          style={{ left: `calc(${(points[hover].x / w) * 100}% - 60px)`, transform: 'translateY(-100%)' }}>
           <div className="font-bold text-foreground">{fmt$(points[hover].dia.total)}</div>
           <div className="text-on-surface-variant">
-            {points[hover].dia.fecha} · {points[hover].dia.cantidad} ingreso{points[hover].dia.cantidad === 1 ? '' : 's'}
+            {points[hover].dia.fecha} · {points[hover].dia.tickets} ticket{points[hover].dia.tickets === 1 ? '' : 's'}
           </div>
         </div>
       )}
@@ -479,287 +745,30 @@ function SparklineReal({
   );
 }
 
-// ============================================================================
-// MetricCard — card simple, clickeable, con delta contextual
-// ============================================================================
-function MetricCard({
-  to, icon, label, value, format, color, subtitle, polaridad, actual, anterior, memoKey,
-}: {
-  to: string;
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-  format: 'money' | 'num';
-  color: 'rose' | 'amber' | 'emerald' | 'violet' | 'sky';
-  subtitle?: string;
-  polaridad?: 'mas_es_mejor' | 'menos_es_mejor';
-  actual?: number;
-  anterior?: number;
-  memoKey: string;
-}) {
-  const display = useCountUpMemo(memoKey, value, 1000);
-  const colorMap = {
-    rose:    'text-rose-400',
-    amber:   'text-amber-400',
-    emerald: 'text-emerald-400',
-    violet:  'text-violet-400',
-    sky:     'text-sky-400',
-  } as const;
-  const delta = (polaridad && actual !== undefined && anterior !== undefined)
-    ? calcularDelta(actual, anterior, polaridad)
-    : null;
-
+function Atajo({ to, icon, label }: { to: string; icon: React.ReactNode; label: string }) {
   return (
-    <Link
-      to={to}
-      className="group rounded-xl border border-border/40 bg-surface/60 p-4 hover:border-primary/40 transition-colors"
-    >
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">
-          <span className={colorMap[color]}>{icon}</span>
-          {label}
-        </div>
-        <ChevronRight size={12} className="text-on-surface-variant/40 group-hover:text-primary group-hover:translate-x-0.5 transition" />
-      </div>
-      <div className={`text-2xl sm:text-3xl font-extrabold tabular-nums ${colorMap[color]}`}>
-        {format === 'money' ? fmt$(display) : fmtNum(display)}
-      </div>
-      <div className="mt-1.5 flex items-center gap-2 flex-wrap">
-        {subtitle && <span className="text-[11px] text-on-surface-variant">{subtitle}</span>}
-        {delta && <DeltaChip delta={delta} />}
-      </div>
-    </Link>
-  );
-}
-
-// ============================================================================
-// InsightDelDia — el primer insight crítico o un fallback
-// ============================================================================
-function InsightDelDia({
-  insights, estado, fallbackTxt,
-}: { insights: Insight[]; estado: 'normal' | 'atencion' | 'critico'; fallbackTxt: string }) {
-  const primero = insights[0];
-  if (!primero) {
-    return (
-      <p className="text-xs text-on-surface-variant mt-1.5 max-w-2xl">
-        <CheckCircle2 size={11} className="inline -mt-0.5 mr-1 text-emerald-400" />
-        {fallbackTxt}
-      </p>
-    );
-  }
-  const color = estado === 'critico' ? 'text-rose-400' : estado === 'atencion' ? 'text-amber-400' : 'text-on-surface-variant';
-  return (
-    <p className={`text-xs mt-1.5 max-w-2xl ${color}`}>
-      <Sparkles size={11} className="inline -mt-0.5 mr-1" />
-      <span className="font-bold">{primero.titulo}.</span>
-      <span className="text-on-surface-variant"> {primero.detalle}</span>
-    </p>
-  );
-}
-
-function fallbackInsight({
-  ingresosMes, mermasMes, bajosMin, totalAdeudado,
-}: { ingresosMes: number; mermasMes: number; bajosMin: number; totalAdeudado: number }): string {
-  if (ingresosMes === 0 && mermasMes === 0 && bajosMin === 0 && totalAdeudado === 0) {
-    return 'Tu día arranca limpio. Cargá un movimiento para que las métricas se llenen.';
-  }
-  if (mermasMes === 0 && bajosMin === 0) {
-    return 'Sin alertas operativas. Buen momento para revisar la carta y costos.';
-  }
-  return 'Mirá las métricas debajo y arrancá por las alertas.';
-}
-
-// ============================================================================
-// InsightRow — card de un insight con CTA accionable
-// ============================================================================
-function InsightRow({ insight, delay }: { insight: Insight; delay: number }) {
-  const cfg = {
-    critico:  { color: 'rose',    icon: <AlertTriangle size={13} /> },
-    atencion: { color: 'amber',   icon: <AlertTriangle size={13} /> },
-    info:     { color: 'sky',     icon: <Info size={13} /> },
-  } as const;
-  const { color, icon } = cfg[insight.severidad];
-
-  const Wrap: any = insight.cta ? Link : 'div';
-  const wrapProps: any = insight.cta ? { to: insight.cta.to } : {};
-
-  return (
-    <Wrap
-      {...wrapProps}
-      className={`dp2-fade-in flex items-center gap-2.5 rounded-lg px-3 py-2 border bg-${color}-500/5 border-${color}-500/30 hover:bg-${color}-500/10 transition group`}
-      style={{ animationDelay: `${delay}ms` }}
-    >
-      <span className={`text-${color}-400 shrink-0`}>{icon}</span>
-      <div className="flex-1 min-w-0">
-        <div className="text-xs font-bold text-foreground truncate">{insight.titulo}</div>
-        <div className="text-[11px] text-on-surface-variant truncate">{insight.detalle}</div>
-      </div>
-      {insight.cta && (
-        <span className={`text-[10px] font-bold text-${color}-400 shrink-0 hidden sm:flex items-center gap-1 opacity-70 group-hover:opacity-100`}>
-          {insight.cta.label}
-          <ArrowUpRight size={10} />
-        </span>
-      )}
-    </Wrap>
-  );
-}
-
-// ============================================================================
-// FeedActividad — agrupado por día con time-ago
-// ============================================================================
-function FeedActividad({ movimientos }: { movimientos: any[] }) {
-  const grupos = useMemo(() => {
-    const m = new Map<string, any[]>();
-    for (const mov of movimientos.slice(0, 12)) {
-      const fechaCompleta = (mov.fecha || '') + (mov.hora ? `T${mov.hora}` : 'T00:00');
-      const g = grupoFecha(fechaCompleta);
-      if (!m.has(g)) m.set(g, []);
-      m.get(g)!.push({ ...mov, _fechaCompleta: fechaCompleta });
-    }
-    return Array.from(m.entries());
-  }, [movimientos]);
-
-  return (
-    <div className="lg:col-span-2 rounded-xl border border-border/40 bg-surface/60 p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">
-          Actividad reciente
-        </div>
-        <Link to="/movimientos" className="text-[10px] font-bold text-primary hover:underline flex items-center gap-0.5">
-          ver todo <ArrowUpRight size={10} />
-        </Link>
-      </div>
-      {movimientos.length === 0 ? (
-        <div className="text-[11px] text-on-surface-variant py-6 text-center">
-          Sin movimientos recientes.
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {grupos.map(([g, items]) => (
-            <div key={g}>
-              <div className="text-[9px] font-bold uppercase tracking-wider text-on-surface-variant/60 mb-1">
-                {g}
-              </div>
-              <div className="space-y-1">
-                {items.map((m: any) => (
-                  <div key={m.id} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-surface-high/40 text-[11px]">
-                    <div className={`w-1 h-7 rounded-full ${
-                      m.tipo === 'ingreso' ? 'bg-emerald-400' :
-                      m.tipo === 'merma' || m.tipo === 'consumo_interno' ? 'bg-rose-400' :
-                      'bg-primary'
-                    }`} />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-bold truncate text-foreground">{m.producto?.nombre || `Producto #${m.productoId}`}</div>
-                      <div className="text-on-surface-variant text-[10px]">
-                        <span className="capitalize">{m.tipo.replace('_', ' ')}</span> · {m.cantidad} {m.unidad}
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <div className="text-[10px] text-on-surface-variant">
-                        {tiempoRelativo(m._fechaCompleta)}
-                      </div>
-                      {m.usuario?.nombre && (
-                        <div className="text-[9px] font-bold uppercase tracking-wider text-on-surface-variant/60">
-                          {m.usuario.nombre}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ============================================================================
-// PanelRevisar — alertas con stack bar semántico
-// ============================================================================
-function PanelRevisar({
-  alertasPrecio, discGraves, bajosMin,
-}: { alertasPrecio: number; discGraves: number; bajosMin: number }) {
-  const items = [
-    { label: 'Alertas de precio', val: alertasPrecio, color: 'amber',  to: '/alertas-precio' },
-    { label: 'Discrepancias',     val: discGraves,    color: 'rose',   to: '/discrepancias' },
-    { label: 'Bajo mínimo',       val: bajosMin,      color: 'violet', to: '/stock?bajos=1' },
-  ];
-  const total = items.reduce((s, x) => s + x.val, 0);
-
-  return (
-    <div className="rounded-xl border border-border/40 bg-surface/60 p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant flex items-center gap-1.5">
-          <AlertTriangle size={11} className="text-amber-400" /> Para revisar
-        </div>
-        <span className="text-[10px] font-bold tabular-nums">{total}</span>
-      </div>
-      {total === 0 ? (
-        <div className="text-[11px] text-emerald-400 py-2 flex items-center gap-1">
-          <CheckCircle2 size={11} /> Sin pendientes ✓
-        </div>
-      ) : (
-        <div className="space-y-2.5">
-          {items.map(it => (
-            <Link
-              key={it.label}
-              to={it.to}
-              className="block group"
-            >
-              <div className="flex items-center justify-between text-[11px] mb-1">
-                <span className="font-bold text-foreground group-hover:text-primary transition">
-                  {it.label}
-                </span>
-                <span className={`tabular-nums font-extrabold text-${it.color}-400`}>
-                  {it.val}
-                </span>
-              </div>
-              <div className="h-1 rounded-full bg-surface-high overflow-hidden">
-                <div
-                  className={`h-full rounded-full bg-${it.color}-400 transition-all duration-700`}
-                  style={{ width: total > 0 ? `${(it.val / total) * 100}%` : '0%' }}
-                />
-              </div>
-            </Link>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ============================================================================
-// QuickAction — tile sobrio (sin tilt 3D ni glow)
-// ============================================================================
-function QuickAction({ to, icon, label }: { to: string; icon: React.ReactNode; label: string }) {
-  return (
-    <Link
-      to={to}
-      className="group rounded-xl border border-border/40 bg-surface/60 p-3 hover:border-primary/40 hover:bg-primary/5 transition flex items-center justify-between"
-    >
+    <Link to={to}
+      className="group rounded-xl border border-border/40 bg-surface/60 backdrop-blur p-3 hover:border-primary/40 hover:bg-primary/5 transition flex items-center justify-between">
       <div className="flex items-center gap-2">
         <span className="p-1.5 rounded-lg bg-primary/10 text-primary">{icon}</span>
         <span className="text-xs font-bold">{label}</span>
       </div>
-      <ArrowUpRight size={12} className="text-on-surface-variant/40 group-hover:text-primary group-hover:-translate-y-0.5 group-hover:translate-x-0.5 transition" />
+      <ArrowUpRight size={12}
+        className="text-on-surface-variant/40 group-hover:text-primary group-hover:-translate-y-0.5 group-hover:translate-x-0.5 transition" />
     </Link>
   );
 }
 
-// ============================================================================
-// LoadingScreen
-// ============================================================================
 function LoadingScreen() {
   return (
-    <div className="dp2 -mx-4 sm:-mx-6 -my-4 lg:-my-6 px-4 sm:px-6 py-4 lg:py-6 min-h-screen space-y-3">
-      <div className="h-10 w-2/3 rounded-lg dp2-skel" />
-      <div className="h-32 w-full rounded-2xl dp2-skel" />
+    <div className="dp3 relative -mx-4 sm:-mx-6 -my-4 lg:-my-6 px-4 sm:px-6 py-4 lg:py-6 min-h-screen space-y-3">
+      <div className="h-10 w-2/3 rounded-lg dp3-skel" />
+      <div className="h-5 w-1/2 rounded dp3-skel" />
+      <div className="h-32 rounded-2xl dp3-skel" />
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="h-24 rounded-xl dp2-skel" />
-        <div className="h-24 rounded-xl dp2-skel" />
-        <div className="h-24 rounded-xl dp2-skel" />
+        <div className="h-24 rounded-xl dp3-skel" />
+        <div className="h-24 rounded-xl dp3-skel" />
+        <div className="h-24 rounded-xl dp3-skel" />
       </div>
       <style>{styles}</style>
     </div>
@@ -767,217 +776,136 @@ function LoadingScreen() {
 }
 
 // ============================================================================
-// CSS — austero. Solo animaciones que comunican.
+// Helpers
+// ============================================================================
+function caraEmoticon(margen: number): { icon: React.ReactNode; color: string } {
+  if (margen >= 60) return { icon: <Smile />, color: 'text-emerald-400' };
+  if (margen >= 40) return { icon: <Meh />,   color: 'text-amber-400' };
+  return { icon: <Frown />, color: 'text-rose-400' };
+}
+
+function computarEstado(d: Narrativa): 'normal' | 'atencion' | 'critico' {
+  if (d.alertas.vencidas.count > 0) return 'critico';
+  if (d.alertas.vencenPronto.count > 0 || d.alertas.bajosDeMinimo.length > 0) return 'atencion';
+  return 'normal';
+}
+
+function formatoFrescura(seg: number): string {
+  if (seg < 60) return `actualizado hace ${seg}s`;
+  if (seg < 3600) return `actualizado hace ${Math.floor(seg / 60)} min`;
+  return `actualizado hace ${Math.floor(seg / 3600)} h`;
+}
+
+// ============================================================================
+// CSS
 // ============================================================================
 const styles = `
-.dp2 { background: #0A0A0A; }
+.dp3 { background: #0A0A0A; }
 
-/* ════════════════════════════════════════════════════════════════════════
-   AURORA REACTIVA AL ESTADO DEL NEGOCIO
-   - Verde si todo bien (normal)
-   - Ámbar si hay atención
-   - Rojo si crítico
-   No es decorativa: el COLOR comunica salud. Subtle pero presente.
-   ════════════════════════════════════════════════════════════════════════ */
-.dp2-aurora {
+.dp3-aurora {
   position: absolute; inset: -20%; z-index: 0; pointer-events: none;
   background:
-    radial-gradient(ellipse 50% 40% at 75% 15%, var(--dp2-aurora-c1, rgba(212,175,55,0.10)), transparent 60%),
-    radial-gradient(ellipse 60% 50% at 20% 90%, var(--dp2-aurora-c2, rgba(212,175,55,0.07)), transparent 60%),
-    radial-gradient(ellipse 80% 50% at 50% 50%, var(--dp2-aurora-c3, rgba(212,175,55,0.04)), transparent 70%);
+    radial-gradient(ellipse 50% 40% at 75% 15%, var(--dp3-c1), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 20% 90%, var(--dp3-c2), transparent 60%),
+    radial-gradient(ellipse 80% 50% at 50% 50%, var(--dp3-c3), transparent 70%);
   filter: blur(50px);
-  animation: dp2AuroraDrift 18s ease-in-out infinite alternate;
+  animation: dp3AuroraDrift 18s ease-in-out infinite alternate;
   transition: background 1.2s ease-out;
 }
-.dp2-state-normal {
-  --dp2-aurora-c1: rgba(52, 211, 153, 0.08);
-  --dp2-aurora-c2: rgba(212, 175, 55, 0.10);
-  --dp2-aurora-c3: rgba(56, 189, 248, 0.04);
-}
-.dp2-state-atencion {
-  --dp2-aurora-c1: rgba(251, 191, 36, 0.14);
-  --dp2-aurora-c2: rgba(212, 175, 55, 0.08);
-  --dp2-aurora-c3: rgba(244, 114, 114, 0.05);
-}
-.dp2-state-critico {
-  --dp2-aurora-c1: rgba(244, 114, 114, 0.16);
-  --dp2-aurora-c2: rgba(251, 191, 36, 0.10);
-  --dp2-aurora-c3: rgba(244, 114, 114, 0.06);
-}
-@keyframes dp2AuroraDrift {
-  0%   { transform: translate(0, 0) scale(1)   rotate(0); }
-  50%  { transform: translate(-1%, 1%) scale(1.04) rotate(1deg); }
-  100% { transform: translate(1%, -1%) scale(1.02) rotate(-1deg); }
+.dp3-state-normal   { --dp3-c1: rgba(52, 211, 153, 0.08); --dp3-c2: rgba(212, 175, 55, 0.10); --dp3-c3: rgba(56, 189, 248, 0.04); }
+.dp3-state-atencion { --dp3-c1: rgba(251, 191, 36, 0.14); --dp3-c2: rgba(212, 175, 55, 0.08); --dp3-c3: rgba(244, 114, 114, 0.05); }
+.dp3-state-critico  { --dp3-c1: rgba(244, 114, 114, 0.16); --dp3-c2: rgba(251, 191, 36, 0.10); --dp3-c3: rgba(244, 114, 114, 0.06); }
+@keyframes dp3AuroraDrift {
+  0%   { transform: translate(0,0) scale(1)    rotate(0); }
+  50%  { transform: translate(-1%,1%) scale(1.04) rotate(1deg); }
+  100% { transform: translate(1%,-1%) scale(1.02) rotate(-1deg); }
 }
 
-/* Grain sutil */
-.dp2-grain {
+.dp3-grain {
   position: absolute; inset: 0; z-index: 1; pointer-events: none; opacity: .035;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  background-size: 160px 160px;
   mix-blend-mode: overlay;
 }
 
-/* ════════════════════════════════════════════════════════════════════════
-   ENTRANCE CHOREOGRAPHY (evento: dashboard cargó por primera vez)
-   Cascada en orden de lectura. Una sola vez.
-   ════════════════════════════════════════════════════════════════════════ */
-.dp2-anim-header {
-  opacity: 0; transform: translateY(-6px) translateZ(0);
-  animation: dp2EnterDown .6s cubic-bezier(.2,.7,.2,1) .05s both;
-}
-.dp2-anim-alert {
-  opacity: 0; transform: translateX(-8px) translateZ(0);
-  animation: dp2EnterRight .55s cubic-bezier(.2,.7,.2,1) .15s both;
-}
-.dp2-fade-in {
-  opacity: 0; transform: translateY(6px) translateZ(0);
-  animation: dp2EnterUp .5s cubic-bezier(.2,.7,.2,1) both;
-}
-.dp2-anim-hero {
-  opacity: 0; transform: translateY(12px) scale(.985) translateZ(0);
-  animation: dp2EnterHero 1s cubic-bezier(.2,.7,.2,1) .25s both;
-}
-.dp2-anim-stack > * {
-  opacity: 0; transform: translateY(10px) translateZ(0);
-  animation: dp2EnterUp .55s cubic-bezier(.2,.7,.2,1) both;
-}
-.dp2-anim-stack > *:nth-child(1) { animation-delay: .50s; }
-.dp2-anim-stack > *:nth-child(2) { animation-delay: .58s; }
-.dp2-anim-stack > *:nth-child(3) { animation-delay: .66s; }
-.dp2-anim-section > * {
-  opacity: 0; transform: translateY(10px) translateZ(0);
-  animation: dp2EnterUp .55s cubic-bezier(.2,.7,.2,1) both;
-}
-.dp2-anim-section > *:nth-child(1) { animation-delay: .78s; }
-.dp2-anim-section > *:nth-child(2) { animation-delay: .86s; }
-.dp2-anim-tiles > * {
-  opacity: 0; transform: translateY(8px) translateZ(0);
-  animation: dp2EnterUp .5s cubic-bezier(.2,.7,.2,1) both;
-}
-.dp2-anim-tiles > *:nth-child(1) { animation-delay: 1.00s; }
-.dp2-anim-tiles > *:nth-child(2) { animation-delay: 1.06s; }
-.dp2-anim-tiles > *:nth-child(3) { animation-delay: 1.12s; }
-.dp2-anim-tiles > *:nth-child(4) { animation-delay: 1.18s; }
+.dp3-anim-header  { opacity: 0; transform: translateY(-6px); animation: dp3In .55s cubic-bezier(.2,.7,.2,1) .05s both; }
+.dp3-anim-switch  { opacity: 0; transform: translateY(4px);   animation: dp3In .45s cubic-bezier(.2,.7,.2,1) .25s both; }
+.dp3-anim-hero    { opacity: 0; transform: translateY(10px) scale(.99); animation: dp3InHero .8s cubic-bezier(.2,.7,.2,1) .35s both; }
+.dp3-anim-stack > *   { opacity: 0; transform: translateY(8px); animation: dp3In .5s cubic-bezier(.2,.7,.2,1) both; }
+.dp3-anim-stack > *:nth-child(1) { animation-delay: .55s; }
+.dp3-anim-stack > *:nth-child(2) { animation-delay: .62s; }
+.dp3-anim-stack > *:nth-child(3) { animation-delay: .69s; }
+.dp3-anim-section { opacity: 0; transform: translateY(8px); animation: dp3In .5s cubic-bezier(.2,.7,.2,1) .85s both; }
+.dp3-anim-tiles > *   { opacity: 0; transform: translateY(6px); animation: dp3In .45s cubic-bezier(.2,.7,.2,1) both; }
+.dp3-anim-tiles > *:nth-child(1) { animation-delay: 1.00s; }
+.dp3-anim-tiles > *:nth-child(2) { animation-delay: 1.06s; }
+.dp3-anim-tiles > *:nth-child(3) { animation-delay: 1.12s; }
+.dp3-anim-tiles > *:nth-child(4) { animation-delay: 1.18s; }
+.dp3-anim-content { opacity: 0; transform: translateY(-4px); animation: dp3In .3s ease both; }
 
-@keyframes dp2EnterDown  { to { opacity: 1; transform: translateY(0) translateZ(0); } }
-@keyframes dp2EnterUp    { to { opacity: 1; transform: translateY(0) translateZ(0); } }
-@keyframes dp2EnterRight { to { opacity: 1; transform: translateX(0) translateZ(0); } }
-@keyframes dp2EnterHero {
-  60%  { box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.25), 0 20px 60px -30px rgba(212, 175, 55, 0.4); }
-  100% { opacity: 1; transform: translateY(0) scale(1) translateZ(0); box-shadow: 0 0 0 1px transparent, 0 0 0 transparent; }
-}
+@keyframes dp3In     { to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes dp3InHero { to { opacity: 1; transform: translateY(0) scale(1); } }
 
-/* ════════════════════════════════════════════════════════════════════════
-   SPARKLINE — se DIBUJA al cargar (evento: dato real llegó)
-   ════════════════════════════════════════════════════════════════════════ */
-.dp2-spark-line {
-  stroke-dasharray: 1200;
-  stroke-dashoffset: 1200;
-  animation: dp2SparkDraw 1.6s cubic-bezier(.2,.7,.2,1) .6s forwards;
-  filter: drop-shadow(0 1px 2px rgba(212, 175, 55, 0.25));
-}
-.dp2-spark-area {
-  opacity: 0;
-  animation: dp2SparkFade 1.2s ease-out 1.4s forwards;
-}
-.dp2-spark-tip {
-  transform-origin: center;
-  transform: scale(0);
-  animation: dp2SparkTip .5s cubic-bezier(.2,1.4,.2,1) 1.9s forwards;
-}
-.dp2-spark-pulse {
-  transform-origin: center;
-  opacity: 0;
-  animation: dp2SparkRipple 2s ease-out 2.1s infinite;
-}
-@keyframes dp2SparkDraw   { to { stroke-dashoffset: 0; } }
-@keyframes dp2SparkFade   { to { opacity: 1; } }
-@keyframes dp2SparkTip    { to { transform: scale(1); } }
-@keyframes dp2SparkRipple {
-  0%   { transform: scale(1); opacity: .7; }
-  100% { transform: scale(3.5); opacity: 0; }
-}
-
-/* ════════════════════════════════════════════════════════════════════════
-   LIVE DOT — punto verde que late SOLO cuando hay polling activo.
-   Evento: liveness real (no decorativo, indica conexión sana).
-   ════════════════════════════════════════════════════════════════════════ */
-.dp2-live-dot {
-  position: relative;
+.dp3-live-dot {
   box-shadow: 0 0 0 0 rgba(212, 175, 55, 0.6);
-  animation: dp2LivePulse 2.4s ease-out infinite;
+  animation: dp3LivePulse 2.4s ease-out infinite;
 }
-@keyframes dp2LivePulse {
+@keyframes dp3LivePulse {
   0%   { box-shadow: 0 0 0 0   rgba(212, 175, 55, 0.55); }
   70%  { box-shadow: 0 0 0 8px rgba(212, 175, 55, 0); }
   100% { box-shadow: 0 0 0 0   rgba(212, 175, 55, 0); }
 }
 
-/* Badge "NUEVA" con shine ocasional — sutil, una vez cada 9s */
-.dp2-badge-shine {
-  position: relative;
-  overflow: hidden;
-}
-.dp2-badge-shine::after {
+.dp3-badge-shine { position: relative; overflow: hidden; }
+.dp3-badge-shine::after {
   content: ''; position: absolute; inset: 0;
   background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.4) 50%, transparent 70%);
   background-size: 300% 100%;
-  animation: dp2Shine 9s ease-in-out infinite;
+  animation: dp3Shine 9s ease-in-out infinite;
 }
-@keyframes dp2Shine {
-  0%, 70%, 100% { background-position: 200% 0; }
-  85%           { background-position: -100% 0; }
-}
+@keyframes dp3Shine { 0%,70%,100% { background-position: 200% 0; } 85% { background-position: -100% 0; } }
 
-/* ════════════════════════════════════════════════════════════════════════
-   HOVER INTENT — el usuario insinúa "voy a hacer algo"
-   Tilt 3D muy sutil (2-3deg) + lift, no fairground.
-   ════════════════════════════════════════════════════════════════════════ */
-.dp2 a[class*="rounded-xl"],
-.dp2 a[class*="rounded-2xl"] {
+.dp3-hero-num {
+  background: linear-gradient(135deg, #F4D77A 0%, #D4AF37 50%, #F4D77A 100%);
+  background-size: 200% 200%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: dp3Grad 7s ease-in-out infinite;
+}
+@keyframes dp3Grad { 0%,100% { background-position: 0 50%; } 50% { background-position: 100% 50%; } }
+
+/* Sparkline draw */
+.dp3-spk-line {
+  stroke-dasharray: 1200; stroke-dashoffset: 1200;
+  animation: dp3SpkDraw 1.6s cubic-bezier(.2,.7,.2,1) .7s forwards;
+}
+.dp3-spk-area { opacity: 0; animation: dp3SpkFade 1.2s ease-out 1.5s forwards; }
+@keyframes dp3SpkDraw { to { stroke-dashoffset: 0; } }
+@keyframes dp3SpkFade { to { opacity: 1; } }
+
+.dp3 a[class*="rounded-xl"],
+.dp3 a[class*="rounded-2xl"] {
   transition: transform .25s cubic-bezier(.2,.7,.2,1), border-color .2s, background-color .2s, box-shadow .25s;
 }
-.dp2 a[class*="rounded-xl"]:hover,
-.dp2 a[class*="rounded-2xl"]:hover {
+.dp3 a[class*="rounded-xl"]:hover,
+.dp3 a[class*="rounded-2xl"]:hover {
   transform: translateY(-2px);
-  box-shadow: 0 12px 28px -16px rgba(212, 175, 55, 0.35),
-              0 0 0 1px rgba(212, 175, 55, 0.18) inset;
+  box-shadow: 0 12px 28px -16px rgba(212, 175, 55, 0.35), 0 0 0 1px rgba(212, 175, 55, 0.18) inset;
 }
 
-/* Hero card hover: levanta sutil + glow ámbar */
-.dp2-anim-hero > div:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 30px 70px -30px rgba(212, 175, 55, 0.18);
-}
-
-/* ════════════════════════════════════════════════════════════════════════
-   Skeleton sobrio (loading)
-   ════════════════════════════════════════════════════════════════════════ */
-.dp2-skel {
+.dp3-skel {
   position: relative;
   background: linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.03) 100%);
   background-size: 200% 100%;
-  animation: dp2Skel 1.4s ease-in-out infinite;
+  animation: dp3Skel 1.4s ease-in-out infinite;
 }
-@keyframes dp2Skel { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@keyframes dp3Skel { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
-/* ════════════════════════════════════════════════════════════════════════
-   prefers-reduced-motion — respetar accesibilidad
-   Las animaciones de loading/skel se acortan a casi 0.
-   La aurora y el live-pulse pasan a estático.
-   ════════════════════════════════════════════════════════════════════════ */
 @media (prefers-reduced-motion: reduce) {
-  .dp2-aurora { animation: none !important; }
-  .dp2-live-dot, .dp2-spark-pulse, .dp2-badge-shine::after { animation: none !important; }
-  .dp2-anim-header, .dp2-anim-alert, .dp2-anim-hero,
-  .dp2-anim-stack > *, .dp2-anim-section > *, .dp2-anim-tiles > *,
-  .dp2-fade-in, .dp2-skel,
-  .dp2-spark-line, .dp2-spark-area, .dp2-spark-tip {
-    animation-duration: .01ms !important;
-    animation-delay: 0s !important;
-    opacity: 1 !important;
-    transform: none !important;
+  .dp3-aurora, .dp3-live-dot, .dp3-badge-shine::after, .dp3-hero-num { animation: none !important; }
+  .dp3-anim-header, .dp3-anim-switch, .dp3-anim-hero, .dp3-anim-stack > *,
+  .dp3-anim-section, .dp3-anim-tiles > *, .dp3-anim-content,
+  .dp3-spk-line, .dp3-spk-area, .dp3-skel {
+    animation-duration: .01ms !important; animation-delay: 0s !important;
+    opacity: 1 !important; transform: none !important;
   }
 }
 `;

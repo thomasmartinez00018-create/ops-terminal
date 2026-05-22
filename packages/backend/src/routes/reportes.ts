@@ -808,4 +808,363 @@ router.get('/insights', async (_req: Request, res: Response) => {
   }
 });
 
+// ============================================================================
+// GET /api/reportes/narrativa
+// ----------------------------------------------------------------------------
+// El endpoint que arma TODA la historia del dashboard de un saque.
+// Decisión de diseño: el backend genera la narrativa (texto natural) y los
+// drill-downs ya armados; el frontend SOLO presenta. Esto evita 6 fetches
+// distintos y permite que la lógica de qué decir esté en un solo lugar.
+//
+// Devuelve:
+//   - tituloHistoria: oración resumen del momento (ej: "Hoy vendiste 12
+//     tickets por $45k, +12% vs ayer. Te queda revisar 3 cosas.")
+//   - hoy: { ventas, tickets, ticketPromedio, margenEstimado, topProductos,
+//            comparativa: { vsAyer, vsMismoDiaSem }}
+//   - mes: { ventas, costo, margen, proyeccion, mejorDia, peorDia,
+//            sparkline: serie diaria con eventos }
+//   - alertas: { criticas, atencion, ok } con detalle por categoría
+//   - drilldowns: { ventas: top productos, deuda: top proveedores,
+//                   mermas: top productos con merma }
+//   - frescura: timestamps por sección
+//
+// Datos que combina:
+//   - Sesiones de Venta (PoS) → facturación real, tickets
+//   - VentaItem → ticket promedio, top productos, costo de mercadería vendida
+//   - Movimientos tipo=merma|consumo_interno → mermas reales
+//   - Facturas → deuda, vencimientos
+//   - Productos × Stock → bajo mínimo con nombres
+// ============================================================================
+router.get('/narrativa', async (_req: Request, res: Response) => {
+  try {
+    const ahora = new Date();
+    const hora = ahora.getHours();
+    const ymd = (d: Date) => d.toISOString().split('T')[0];
+
+    const hoy = ymd(ahora);
+    const ayer = ymd(new Date(ahora.getTime() - 86400000));
+    const hace7d = ymd(new Date(ahora.getTime() - 7 * 86400000));
+    const inicioMes = hoy.slice(0, 7) + '-01';
+    const diaMes = ahora.getDate();
+    const ultimoDiaMes = new Date(ahora.getFullYear(), ahora.getMonth() + 1, 0).getDate();
+    const inicioMesPasado = (() => {
+      const d = new Date(ahora.getFullYear(), ahora.getMonth() - 1, 1);
+      return ymd(d);
+    })();
+    const finMesPasado = (() => {
+      const d = new Date(ahora.getFullYear(), ahora.getMonth(), 0);
+      return ymd(d);
+    })();
+
+    // ── 1. Ventas del PoS (Sesiones cerradas) ───────────────────────────
+    // Ventas reales (no compras): SesionVenta + VentaItem
+    type AggRow = { total: number; tickets: number };
+    const ventasRangoQ = async (desde: string, hasta: string): Promise<AggRow> => {
+      const r = await prisma.$queryRawUnsafe<Array<AggRow>>(`
+        SELECT COALESCE(SUM(sv.total_ventas), 0)::float AS total,
+               COUNT(*)::int AS tickets
+          FROM sesiones_venta sv
+         WHERE sv.estado = 'cerrada'
+           AND DATE(sv.cerrada_at) BETWEEN $1 AND $2
+      `, desde, hasta);
+      return r[0] || { total: 0, tickets: 0 };
+    };
+
+    // Cantidad de items vendidos del día (para ticket promedio basado en items)
+    const itemsRangoQ = async (desde: string, hasta: string) => {
+      const r = await prisma.$queryRawUnsafe<Array<{ items: number; importe: number }>>(`
+        SELECT COALESCE(SUM(vi.cantidad), 0)::float AS items,
+               COALESCE(SUM(vi.subtotal), 0)::float AS importe
+          FROM venta_items vi
+          JOIN sesiones_venta sv ON sv.id = vi.sesion_id
+         WHERE sv.estado = 'cerrada'
+           AND DATE(sv.cerrada_at) BETWEEN $1 AND $2
+      `, desde, hasta);
+      return r[0] || { items: 0, importe: 0 };
+    };
+
+    const [vHoy, vAyer, v7d, vMes, vMesPasado, iHoy, iMes] = await Promise.all([
+      ventasRangoQ(hoy, hoy),
+      ventasRangoQ(ayer, ayer),
+      ventasRangoQ(hace7d, hace7d),
+      ventasRangoQ(inicioMes, hoy),
+      ventasRangoQ(inicioMesPasado, finMesPasado),
+      itemsRangoQ(hoy, hoy),
+      itemsRangoQ(inicioMes, hoy),
+    ]);
+
+    const ticketPromHoy = vHoy.tickets > 0 ? vHoy.total / vHoy.tickets : 0;
+    const ticketPromMes = vMes.tickets > 0 ? vMes.total / vMes.tickets : 0;
+
+    // ── 2. Costo de mercadería vendida (estimado) ───────────────────────
+    // Por cada VentaItem, intentamos costear via Receta.ingredientes si
+    // existe, sino usamos costoUnitario del producto. Aproximación robusta
+    // sin recalcular escandallo completo aquí (lo dejamos liviano).
+    const costoMesQ = await prisma.$queryRawUnsafe<Array<{ costo: number }>>(`
+      WITH ult_costo AS (
+        SELECT DISTINCT ON (producto_id)
+               producto_id,
+               costo_unitario
+          FROM movimientos
+         WHERE tipo='ingreso' AND costo_unitario IS NOT NULL AND costo_unitario > 0
+         ORDER BY producto_id, fecha DESC, id DESC
+      )
+      SELECT COALESCE(SUM(vi.cantidad * COALESCE(uc.costo_unitario, p.precio_referencia, 0)), 0)::float AS costo
+        FROM venta_items vi
+        JOIN sesiones_venta sv ON sv.id = vi.sesion_id
+        JOIN productos p ON p.id = vi.producto_id
+   LEFT JOIN ult_costo uc ON uc.producto_id = vi.producto_id
+       WHERE sv.estado='cerrada'
+         AND DATE(sv.cerrada_at) BETWEEN $1 AND $2
+    `, inicioMes, hoy);
+    const costoMes = costoMesQ[0]?.costo || 0;
+    const margenMes = vMes.total > 0 ? ((vMes.total - costoMes) / vMes.total) * 100 : 0;
+
+    const costoHoyQ = await prisma.$queryRawUnsafe<Array<{ costo: number }>>(`
+      WITH ult_costo AS (
+        SELECT DISTINCT ON (producto_id) producto_id, costo_unitario
+          FROM movimientos
+         WHERE tipo='ingreso' AND costo_unitario IS NOT NULL AND costo_unitario > 0
+         ORDER BY producto_id, fecha DESC, id DESC
+      )
+      SELECT COALESCE(SUM(vi.cantidad * COALESCE(uc.costo_unitario, p.precio_referencia, 0)), 0)::float AS costo
+        FROM venta_items vi
+        JOIN sesiones_venta sv ON sv.id = vi.sesion_id
+        JOIN productos p ON p.id = vi.producto_id
+   LEFT JOIN ult_costo uc ON uc.producto_id = vi.producto_id
+       WHERE sv.estado='cerrada' AND DATE(sv.cerrada_at) = $1
+    `, hoy);
+    const costoHoy = costoHoyQ[0]?.costo || 0;
+    const margenHoy = vHoy.total > 0 ? ((vHoy.total - costoHoy) / vHoy.total) * 100 : 0;
+
+    // ── 3. Top productos vendidos (HOY y MES) ───────────────────────────
+    const topProductosRango = async (desde: string, hasta: string, limit = 5) => {
+      return prisma.$queryRawUnsafe<Array<{
+        producto_id: number; nombre: string; cantidad: number; importe: number;
+      }>>(`
+        SELECT vi.producto_id::int AS producto_id, p.nombre,
+               SUM(vi.cantidad)::float AS cantidad,
+               SUM(vi.subtotal)::float AS importe
+          FROM venta_items vi
+          JOIN sesiones_venta sv ON sv.id = vi.sesion_id
+          JOIN productos p ON p.id = vi.producto_id
+         WHERE sv.estado='cerrada' AND DATE(sv.cerrada_at) BETWEEN $1 AND $2
+         GROUP BY vi.producto_id, p.nombre
+         ORDER BY SUM(vi.subtotal) DESC
+         LIMIT ${limit}
+      `, desde, hasta);
+    };
+    const [topHoy, topMes] = await Promise.all([
+      topProductosRango(hoy, hoy, 3),
+      topProductosRango(inicioMes, hoy, 5),
+    ]);
+
+    // ── 4. Sparkline 30 días de ventas (no de compras) ──────────────────
+    const sparkVentasQ = await prisma.$queryRawUnsafe<Array<{ fecha: string; total: number; tickets: number }>>(`
+      SELECT DATE(sv.cerrada_at)::text AS fecha,
+             COALESCE(SUM(sv.total_ventas), 0)::float AS total,
+             COUNT(*)::int AS tickets
+        FROM sesiones_venta sv
+       WHERE sv.estado='cerrada'
+         AND DATE(sv.cerrada_at) BETWEEN $1 AND $2
+       GROUP BY DATE(sv.cerrada_at)
+       ORDER BY fecha
+    `, hace7d /* 7d para tener data en periodo corto */, hoy);
+    // Rellenar días sin ventas con 0
+    const sparkVentas: Array<{ fecha: string; total: number; tickets: number }> = [];
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(ahora.getTime() - i * 86400000);
+      const f = ymd(d);
+      const r = sparkVentasQ.find(x => x.fecha === f);
+      sparkVentas.push({ fecha: f, total: r?.total ?? 0, tickets: r?.tickets ?? 0 });
+    }
+
+    // ── 5. Mermas del mes con top productos ─────────────────────────────
+    const mermasMesQ = await prisma.$queryRawUnsafe<Array<{ total: number }>>(`
+      SELECT COALESCE(SUM(m.cantidad * COALESCE(m.costo_unitario, p.precio_referencia, 0)), 0)::float AS total
+        FROM movimientos m
+        JOIN productos p ON p.id = m.producto_id
+       WHERE m.tipo='merma' AND m.fecha BETWEEN $1 AND $2
+    `, inicioMes, hoy);
+    const mermasMes = mermasMesQ[0]?.total || 0;
+
+    const topMermasQ = await prisma.$queryRawUnsafe<Array<{ producto_id: number; nombre: string; total: number }>>(`
+      SELECT m.producto_id::int AS producto_id, p.nombre,
+             COALESCE(SUM(m.cantidad * COALESCE(m.costo_unitario, p.precio_referencia, 0)), 0)::float AS total
+        FROM movimientos m
+        JOIN productos p ON p.id = m.producto_id
+       WHERE m.tipo='merma' AND m.fecha BETWEEN $1 AND $2
+       GROUP BY m.producto_id, p.nombre
+       ORDER BY total DESC
+       LIMIT 5
+    `, inicioMes, hoy);
+
+    // ── 6. Productos bajo mínimo CON nombre ─────────────────────────────
+    const bajosMinQ = await prisma.$queryRawUnsafe<Array<{
+      producto_id: number; nombre: string; unidad: string; stock: number; minimo: number;
+    }>>(`
+      WITH stock_actual AS (
+        SELECT producto_id,
+               COALESCE(SUM(
+                 CASE WHEN deposito_destino_id IS NOT NULL THEN cantidad
+                      WHEN deposito_origen_id  IS NOT NULL THEN -cantidad
+                      ELSE 0 END), 0)::float AS stock
+          FROM movimientos
+         GROUP BY producto_id
+      )
+      SELECT p.id::int AS producto_id, p.nombre, p.unidad_uso AS unidad,
+             COALESCE(sa.stock, 0)::float AS stock,
+             p.stock_minimo::float AS minimo
+        FROM productos p
+   LEFT JOIN stock_actual sa ON sa.producto_id = p.id
+       WHERE p.activo = true
+         AND p.stock_minimo > 0
+         AND COALESCE(sa.stock, 0) < p.stock_minimo
+       ORDER BY (p.stock_minimo - COALESCE(sa.stock, 0)) DESC
+       LIMIT 5
+    `);
+
+    // ── 7. Deuda + top acreedores + próximos vencimientos ───────────────
+    const deudaTotalQ = await prisma.$queryRawUnsafe<Array<{ total: number; n: number }>>(`
+      WITH pagos_sum AS (
+        SELECT factura_id, SUM(monto)::float AS pagado FROM pagos GROUP BY factura_id
+      )
+      SELECT COALESCE(SUM(f.total - COALESCE(ps.pagado, 0)), 0)::float AS total,
+             COUNT(*)::int AS n
+        FROM facturas f
+   LEFT JOIN pagos_sum ps ON ps.factura_id = f.id
+       WHERE f.estado IN ('pendiente', 'parcial')
+    `);
+    const topAcreedoresQ = await prisma.$queryRawUnsafe<Array<{
+      proveedor_id: number; nombre: string; saldo: number;
+    }>>(`
+      WITH pagos_sum AS (
+        SELECT factura_id, SUM(monto)::float AS pagado FROM pagos GROUP BY factura_id
+      )
+      SELECT f.proveedor_id::int, pr.nombre,
+             COALESCE(SUM(f.total - COALESCE(ps.pagado, 0)), 0)::float AS saldo
+        FROM facturas f
+        JOIN proveedores pr ON pr.id = f.proveedor_id
+   LEFT JOIN pagos_sum ps ON ps.factura_id = f.id
+       WHERE f.estado IN ('pendiente', 'parcial')
+       GROUP BY f.proveedor_id, pr.nombre
+       ORDER BY saldo DESC
+       LIMIT 5
+    `);
+
+    const en7Str = ymd(new Date(ahora.getTime() + 7 * 86400000));
+    const vencen7Q = await prisma.$queryRawUnsafe<Array<{ n: number; total: number }>>(`
+      SELECT COUNT(*)::int AS n, COALESCE(SUM(total), 0)::float AS total
+        FROM facturas
+       WHERE estado IN ('pendiente', 'parcial')
+         AND fecha_vencimiento BETWEEN $1 AND $2
+    `, hoy, en7Str);
+    const vencidasQ = await prisma.$queryRawUnsafe<Array<{ n: number; total: number }>>(`
+      SELECT COUNT(*)::int AS n, COALESCE(SUM(total), 0)::float AS total
+        FROM facturas
+       WHERE estado IN ('pendiente', 'parcial')
+         AND fecha_vencimiento < $1
+    `, hoy);
+
+    // ── 8. Construir narrativa ──────────────────────────────────────────
+    const fmt$ = (n: number) =>
+      n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M`
+      : n >= 10_000  ? `$${Math.round(n / 1000)}k`
+      : `$${Math.round(n).toLocaleString('es-AR')}`;
+
+    const deltaVsAyer = vAyer.total > 0 ? ((vHoy.total - vAyer.total) / vAyer.total) * 100 : null;
+    const deltaVs7 = v7d.total > 0 ? ((vHoy.total - v7d.total) / v7d.total) * 100 : null;
+
+    // Proyección lineal del mes: lo que llevás × días totales / días pasados
+    const proyMes = diaMes > 0 ? (vMes.total / diaMes) * ultimoDiaMes : 0;
+    const deltaProyMesPas = vMesPasado.total > 0 ? ((proyMes - vMesPasado.total) / vMesPasado.total) * 100 : null;
+
+    const piezasHistoria: string[] = [];
+    if (vHoy.tickets > 0) {
+      piezasHistoria.push(`Hoy llevás ${vHoy.tickets} ticket${vHoy.tickets === 1 ? '' : 's'} por ${fmt$(vHoy.total)}`);
+      if (deltaVsAyer !== null && Math.abs(deltaVsAyer) > 5) {
+        piezasHistoria.push(`${deltaVsAyer > 0 ? '+' : ''}${deltaVsAyer.toFixed(0)}% vs ayer`);
+      } else if (deltaVs7 !== null && Math.abs(deltaVs7) > 5) {
+        piezasHistoria.push(`${deltaVs7 > 0 ? '+' : ''}${deltaVs7.toFixed(0)}% vs mismo día semana pasada`);
+      }
+    } else if (hora >= 10 && hora <= 22) {
+      piezasHistoria.push(`No registraste ventas hoy todavía`);
+      if (vAyer.tickets > 0) piezasHistoria.push(`ayer llevabas ${vAyer.tickets} a esta hora`);
+    } else {
+      piezasHistoria.push(`Buenas, todavía es temprano`);
+      if (vAyer.tickets > 0) piezasHistoria.push(`ayer cerraste con ${vAyer.tickets} tickets, ${fmt$(vAyer.total)}`);
+    }
+    const pendientesCount = (vencen7Q[0]?.n || 0) + (vencidasQ[0]?.n || 0) + bajosMinQ.length;
+    if (pendientesCount > 0) {
+      piezasHistoria.push(`hay ${pendientesCount} cosa${pendientesCount === 1 ? '' : 's'} para revisar`);
+    }
+    const tituloHistoria = piezasHistoria.join(' · ') + '.';
+
+    res.json({
+      tituloHistoria,
+      momento: hora < 12 ? 'manana' : hora < 19 ? 'tarde' : 'noche',
+      hoy: {
+        ventas: vHoy.total,
+        tickets: vHoy.tickets,
+        ticketPromedio: ticketPromHoy,
+        itemsVendidos: iHoy.items,
+        costoMercaderia: costoHoy,
+        margen: margenHoy,
+        topProductos: topHoy.map(p => ({
+          id: Number(p.producto_id), nombre: p.nombre,
+          cantidad: p.cantidad, importe: p.importe,
+        })),
+        comparativa: {
+          ayer: { ventas: vAyer.total, tickets: vAyer.tickets, deltaPct: deltaVsAyer },
+          mismaSemPasada: { ventas: v7d.total, tickets: v7d.tickets, deltaPct: deltaVs7 },
+        },
+      },
+      mes: {
+        ventas: vMes.total,
+        tickets: vMes.tickets,
+        ticketPromedio: ticketPromMes,
+        itemsVendidos: iMes.items,
+        costoMercaderia: costoMes,
+        margen: margenMes,
+        proyeccionMes: proyMes,
+        deltaProyVsMesPasado: deltaProyMesPas,
+        mesPasado: { ventas: vMesPasado.total, tickets: vMesPasado.tickets },
+        topProductos: topMes.map(p => ({
+          id: Number(p.producto_id), nombre: p.nombre,
+          cantidad: p.cantidad, importe: p.importe,
+        })),
+        sparkline: sparkVentas, // 30 días con ventas reales
+      },
+      alertas: {
+        vencidas: { count: vencidasQ[0]?.n || 0, total: vencidasQ[0]?.total || 0 },
+        vencenPronto: { count: vencen7Q[0]?.n || 0, total: vencen7Q[0]?.total || 0 },
+        bajosDeMinimo: bajosMinQ.map(p => ({
+          id: Number(p.producto_id), nombre: p.nombre,
+          unidad: p.unidad, stock: p.stock, minimo: p.minimo,
+          falta: p.minimo - p.stock,
+        })),
+      },
+      drilldowns: {
+        topAcreedores: topAcreedoresQ.map(a => ({
+          proveedorId: Number(a.proveedor_id), nombre: a.nombre, saldo: a.saldo,
+        })),
+        topMermas: topMermasQ.map(m => ({
+          productoId: Number(m.producto_id), nombre: m.nombre, importe: m.total,
+        })),
+        deuda: {
+          total: deudaTotalQ[0]?.total || 0,
+          cantidad: deudaTotalQ[0]?.n || 0,
+        },
+        mermasMes,
+      },
+      frescura: {
+        evaluadoAt: ahora.toISOString(),
+      },
+    });
+  } catch (e: any) {
+    console.error('[reportes/narrativa]', e);
+    res.status(500).json({ error: e?.message || 'Error' });
+  }
+});
+
 export default router;

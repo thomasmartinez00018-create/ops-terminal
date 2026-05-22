@@ -853,6 +853,42 @@ export const api = {
       meta: { evaluadoAt: string; cantidad: number; criticos: number };
     }>('/reportes/insights'),
 
+  // Dashboard "Historia primero" — TODO en un solo fetch, narrativa generada
+  getDashboardNarrativa: () =>
+    request<{
+      tituloHistoria: string;
+      momento: 'manana' | 'tarde' | 'noche';
+      hoy: {
+        ventas: number; tickets: number; ticketPromedio: number;
+        itemsVendidos: number; costoMercaderia: number; margen: number;
+        topProductos: Array<{ id: number; nombre: string; cantidad: number; importe: number }>;
+        comparativa: {
+          ayer: { ventas: number; tickets: number; deltaPct: number | null };
+          mismaSemPasada: { ventas: number; tickets: number; deltaPct: number | null };
+        };
+      };
+      mes: {
+        ventas: number; tickets: number; ticketPromedio: number;
+        itemsVendidos: number; costoMercaderia: number; margen: number;
+        proyeccionMes: number; deltaProyVsMesPasado: number | null;
+        mesPasado: { ventas: number; tickets: number };
+        topProductos: Array<{ id: number; nombre: string; cantidad: number; importe: number }>;
+        sparkline: Array<{ fecha: string; total: number; tickets: number }>;
+      };
+      alertas: {
+        vencidas: { count: number; total: number };
+        vencenPronto: { count: number; total: number };
+        bajosDeMinimo: Array<{ id: number; nombre: string; unidad: string; stock: number; minimo: number; falta: number }>;
+      };
+      drilldowns: {
+        topAcreedores: Array<{ proveedorId: number; nombre: string; saldo: number }>;
+        topMermas: Array<{ productoId: number; nombre: string; importe: number }>;
+        deuda: { total: number; cantidad: number };
+        mermasMes: number;
+      };
+      frescura: { evaluadoAt: string };
+    }>('/reportes/narrativa'),
+
   // ── Sesiones de venta (kiosco/carrito/barra/evento) ─────────────────────
   getSesiones: (params?: Record<string, string>) => request<any[]>(`/sesiones${qs(params)}`),
   getSesion: (id: number) => request<any>(`/sesiones/${id}`),
