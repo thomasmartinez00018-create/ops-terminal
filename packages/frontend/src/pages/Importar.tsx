@@ -16,6 +16,7 @@ const TIPOS_IMPORT = [
   { value: 'recetas', label: 'Recetas (CSV)', desc: 'Importar lista de platos/recetas con nombre, precio y categoría. Útil si exportás la carta de otro sistema.' },
   { value: 'proveedores', label: 'Proveedores (CSV)', desc: 'Importar proveedores con razón social, CUIT, contacto y condiciones.' },
   { value: 'ventas', label: 'Ventas (CSV simple)', desc: 'Ventas con recetaCodigo, cantidad, fecha, hora. Para Maxirest usá "Ventas (resumen)".' },
+  { value: 'codigos_barras', label: 'Códigos de barras (multipack)', desc: 'Lista de packs por producto: cuando una bodega te manda el catálogo con "Caja x6 = código 7790…" cargás todo de un saque. Columnas: codigoProducto, codigo, factor, descripcion.' },
 ];
 
 // Normaliza las unidades de Maxirest al formato interno
@@ -261,6 +262,14 @@ export default function Importar() {
       return;
     }
 
+    if (value === 'codigos_barras') {
+      setPlantilla({
+        columnas: ['codigoProducto', 'codigo', 'factor', 'descripcion'],
+        ejemplo: { codigoProducto: 'MAX-1382', codigo: '7790000000018', factor: '6', descripcion: 'Caja x6' },
+      });
+      return;
+    }
+
     try {
       const data = await api.getPlantilla(value);
       setPlantilla(data);
@@ -384,6 +393,25 @@ export default function Importar() {
         });
         return obj;
       });
+
+      // Códigos de barras: usa endpoint dedicado en vez de /importar/csv
+      if (tipo === 'codigos_barras') {
+        const items = mappedRows
+          .filter(r => r.codigoProducto && r.codigo)
+          .map(r => ({
+            codigoProducto: String(r.codigoProducto).trim(),
+            codigo: String(r.codigo).trim(),
+            factor: r.factor ? Number(String(r.factor).replace(',', '.')) : 1,
+            descripcion: r.descripcion ? String(r.descripcion).trim() : undefined,
+          }));
+        const res = await api.bulkCodigosBarras(items);
+        setResults({
+          insertados: res.insertados,
+          actualizados: res.actualizados,
+          errores: res.errores,
+        });
+        return;
+      }
 
       // Mapear el tipo del wizard al tipo que entiende el backend.
       // maxirest_insumos → productos (carga insumos)

@@ -267,27 +267,47 @@ export default function Movimientos() {
     if (!barcode.trim()) return;
     setScanStatus('');
     try {
-      const producto = await api.scannerBuscarProducto(barcode.trim());
-      // Check if already in list → increment quantity
+      // 1. Primero la tabla multi-pack (botella / caja x6 / caja x12…)
+      //    → devuelve producto + factor. Si escaneo una caja x6, sumo 6
+      //    al stock, no 1. Productividad real al recibir mercadería.
+      let producto: any;
+      let factor = 1;
+      let descripcionPack = '';
+      try {
+        const r = await api.scanCodigoBarras(barcode.trim());
+        producto = r.producto;
+        factor = r.factor || 1;
+        descripcionPack = r.descripcion || '';
+      } catch {
+        // Fallback al escáner legacy (Producto.codigoBarras directo)
+        producto = await api.scannerBuscarProducto(barcode.trim());
+        factor = 1;
+      }
+
       const existingIdx = batchItems.findIndex(i => i.productoId === producto.id.toString());
       if (existingIdx >= 0) {
         setBatchItems(prev => prev.map((item, i) => {
           if (i !== existingIdx) return item;
-          return { ...item, cantidad: String((parseFloat(item.cantidad) || 0) + 1) };
+          return { ...item, cantidad: String((parseFloat(item.cantidad) || 0) + factor) };
         }));
-        setScanStatus(`+1 ${producto.nombre}`);
+        setScanStatus(factor > 1
+          ? `+${factor} ${producto.nombre} (${descripcionPack})`
+          : `+1 ${producto.nombre}`);
       } else {
-        // Add new row (replace empty first row or append)
         const emptyIdx = batchItems.findIndex(i => !i.productoId);
+        const nuevaFila = {
+          productoId: producto.id.toString(),
+          cantidad: String(factor),
+          unidad: producto.unidadUso || 'unidad',
+        };
         if (emptyIdx >= 0) {
-          setBatchItems(prev => prev.map((item, i) => {
-            if (i !== emptyIdx) return item;
-            return { productoId: producto.id.toString(), cantidad: '1', unidad: producto.unidadUso || 'unidad' };
-          }));
+          setBatchItems(prev => prev.map((item, i) => (i !== emptyIdx ? item : nuevaFila)));
         } else {
-          setBatchItems(prev => [...prev, { productoId: producto.id.toString(), cantidad: '1', unidad: producto.unidadUso || 'unidad' }]);
+          setBatchItems(prev => [...prev, nuevaFila]);
         }
-        setScanStatus(`✓ ${producto.nombre}`);
+        setScanStatus(factor > 1
+          ? `✓ ${producto.nombre} — ${descripcionPack} (×${factor})`
+          : `✓ ${producto.nombre}`);
       }
     } catch {
       setScanStatus(`✗ No encontrado: ${barcode}`);
