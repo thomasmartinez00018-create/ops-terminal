@@ -963,15 +963,28 @@ export default function Dashboard() {
 
   // Si el admin configuró un tipo de vista específico, usarlo
   const tipoOverride = user.configuracion?.tipo;
+  let view: React.ReactNode;
   if (tipoOverride && tipoOverride !== 'auto') {
-    if (tipoOverride === 'simple') return <DashboardSimple rol={user.rol} />;
-    if (tipoOverride === 'deposito') return <DashboardDeposito />;
-    if (tipoOverride === 'dueno') return <DashboardDueno />;
-    return <DashboardAdmin />;
-  }
+    if (tipoOverride === 'simple') view = <DashboardSimple rol={user.rol} />;
+    else if (tipoOverride === 'deposito') view = <DashboardDeposito />;
+    else if (tipoOverride === 'dueno') view = <DashboardDueno />;
+    else view = <DashboardAdmin />;
+  } else if (user.rol === 'cocina' || user.rol === 'barra') view = <DashboardSimple rol={user.rol} />;
+  else if (user.rol === 'deposito') view = <DashboardDeposito />;
+  else view = <DashboardAdmin />;
 
-  // Comportamiento por defecto según rol
-  if (user.rol === 'cocina' || user.rol === 'barra') return <DashboardSimple rol={user.rol} />;
-  if (user.rol === 'deposito') return <DashboardDeposito />;
-  return <DashboardAdmin />;
+  return (
+    <>
+      {view}
+      {/* Atajo a la vista experimental con animaciones (clon, no destructivo).
+          Solo se muestra en escritorio para no estorbar en mobile. */}
+      <a
+        href="/dashboard-pro"
+        className="hidden lg:flex fixed bottom-6 right-6 z-40 items-center gap-1.5 px-3 py-2 rounded-full bg-primary/15 border border-primary/40 backdrop-blur text-[11px] font-bold text-primary hover:bg-primary/25 transition shadow-lg"
+        title="Ver el clon con animaciones (datos reales)"
+      >
+        ✨ Probar versión animada
+      </a>
+    </>
+  );
 }
