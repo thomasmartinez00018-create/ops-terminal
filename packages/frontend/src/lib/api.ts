@@ -829,6 +829,30 @@ export const api = {
       { method: 'POST', body: JSON.stringify({ items }) },
     ),
 
+  // ── Dashboard Pro v2: serie diaria + insights ───────────────────────────
+  getSerieDiariaIngresos: (mes?: string) =>
+    request<{
+      dias: Array<{ fecha: string; total: number; cantidad: number }>;
+      mesAnterior: Array<{ fecha: string; total: number; cantidad: number }>;
+      resumen: {
+        totalMes: number; promedioDiario: number;
+        mejorDia: { fecha: string; total: number; cantidad: number };
+        peorDia: { fecha: string; total: number; cantidad: number } | null;
+        diasConIngresos: number;
+      };
+    }>(`/reportes/serie-diaria-ingresos${mes ? `?mes=${mes}` : ''}`),
+  getInsights: () =>
+    request<{
+      insights: Array<{
+        severidad: 'info' | 'atencion' | 'critico';
+        tipo: string;
+        titulo: string;
+        detalle: string;
+        cta?: { label: string; to: string };
+      }>;
+      meta: { evaluadoAt: string; cantidad: number; criticos: number };
+    }>('/reportes/insights'),
+
   // ── Sesiones de venta (kiosco/carrito/barra/evento) ─────────────────────
   getSesiones: (params?: Record<string, string>) => request<any[]>(`/sesiones${qs(params)}`),
   getSesion: (id: number) => request<any>(`/sesiones/${id}`),

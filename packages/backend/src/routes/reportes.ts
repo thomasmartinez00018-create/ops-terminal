@@ -558,4 +558,254 @@ router.get('/trazabilidad/:productoId/:depositoId', async (req: Request, res: Re
   }
 });
 
+// ============================================================================
+// GET /api/reportes/serie-diaria-ingresos?mes=YYYY-MM
+// ----------------------------------------------------------------------------
+// Serie diaria REAL de ingresos del mes (sin ruido sintético). Para el
+// sparkline del Dashboard Pro.
+//
+// Devuelve:
+//   - dias: [{ fecha, total, cantidad }] del mes solicitado
+//   - mesAnterior: [{ fecha, total }] del mismo mes ant. para overlay
+//   - resumen: { totalMes, promedioDiario, mejorDia, peorDia, diasConIngresos }
+//
+// "Ingreso" aquí = sumatoria de Movimiento.cantidad * costo_unitario
+// donde tipo='ingreso'. Si el cliente prefiere VENTAS en vez de ingresos
+// de mercadería, conmutar a SesionVenta.totalVentas — pero para el
+// negocio gastronómico, "ingreso" suele significar lo que ENTRA al stock.
+// Lo dejamos parametrizable para no atarnos a una sola interpretación.
+// ============================================================================
+router.get('/serie-diaria-ingresos', async (req: Request, res: Response) => {
+  try {
+    const mesParam = (req.query.mes as string) || (() => {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    })();
+    const [yStr, mStr] = mesParam.split('-');
+    const y = parseInt(yStr), m = parseInt(mStr);
+    if (!Number.isInteger(y) || !Number.isInteger(m) || m < 1 || m > 12) {
+      return res.status(400).json({ error: 'mes inválido (YYYY-MM)' });
+    }
+    const ultimoDia = new Date(y, m, 0).getDate();
+    const inicio = `${yStr}-${mStr}-01`;
+    const fin = `${yStr}-${mStr}-${String(ultimoDia).padStart(2, '0')}`;
+
+    // Mes anterior (para comparativa overlay)
+    const prevDate = new Date(y, m - 2, 1);
+    const yPrev = prevDate.getFullYear();
+    const mPrev = prevDate.getMonth() + 1;
+    const ultPrev = new Date(yPrev, mPrev, 0).getDate();
+    const inicioPrev = `${yPrev}-${String(mPrev).padStart(2, '0')}-01`;
+    const finPrev = `${yPrev}-${String(mPrev).padStart(2, '0')}-${String(ultPrev).padStart(2, '0')}`;
+
+    type Row = { fecha: string; total: number; cantidad: number };
+    const sql = `
+      SELECT fecha,
+             COALESCE(SUM(cantidad * COALESCE(costo_unitario, 0)), 0)::float AS total,
+             COUNT(*)::int AS cantidad
+        FROM movimientos
+       WHERE tipo = 'ingreso'
+         AND fecha BETWEEN $1 AND $2
+       GROUP BY fecha
+       ORDER BY fecha`;
+    const [actual, anterior] = await Promise.all([
+      prisma.$queryRawUnsafe<Row[]>(sql, inicio, fin),
+      prisma.$queryRawUnsafe<Row[]>(sql, inicioPrev, finPrev),
+    ]);
+
+    // Rellenar días sin ingresos con 0 (para que el sparkline no se corte)
+    const dias: Row[] = [];
+    for (let d = 1; d <= ultimoDia; d++) {
+      const fecha = `${yStr}-${mStr}-${String(d).padStart(2, '0')}`;
+      const r = actual.find(x => x.fecha === fecha);
+      dias.push({ fecha, total: r?.total ?? 0, cantidad: r?.cantidad ?? 0 });
+    }
+    const mesAnterior: Row[] = [];
+    for (let d = 1; d <= ultPrev; d++) {
+      const fecha = `${yPrev}-${String(mPrev).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const r = anterior.find(x => x.fecha === fecha);
+      mesAnterior.push({ fecha, total: r?.total ?? 0, cantidad: r?.cantidad ?? 0 });
+    }
+
+    const totalMes = dias.reduce((s, x) => s + x.total, 0);
+    const diasConIngresos = dias.filter(x => x.total > 0).length;
+    const promedioDiario = diasConIngresos > 0 ? totalMes / diasConIngresos : 0;
+    const mejorDia = dias.reduce((a, b) => (b.total > a.total ? b : a), { fecha: '', total: 0, cantidad: 0 });
+    const peorConIng = dias.filter(x => x.total > 0);
+    const peorDia = peorConIng.length > 0
+      ? peorConIng.reduce((a, b) => (b.total < a.total ? b : a))
+      : null;
+
+    res.json({
+      dias,
+      mesAnterior,
+      resumen: {
+        totalMes: +totalMes.toFixed(2),
+        promedioDiario: +promedioDiario.toFixed(2),
+        mejorDia,
+        peorDia,
+        diasConIngresos,
+      },
+    });
+  } catch (e: any) {
+    console.error('[reportes/serie-diaria-ingresos]', e);
+    res.status(500).json({ error: e?.message || 'Error' });
+  }
+});
+
+// ============================================================================
+// GET /api/reportes/insights
+// ----------------------------------------------------------------------------
+// El dashboard se sospecha a sí mismo: corre N reglas sobre los datos del
+// tenant y devuelve hallazgos accionables. Es el motor del "insight del día"
+// y del badge "atención" en el dashboard.
+//
+// Reglas implementadas:
+//   - DEUDA_DESPROPORCIONADA: cxp pendiente > 100× ingresos del mes
+//   - INGRESOS_BAJOS_ANOMALO: ingresos del mes < 30% del promedio últimos 3 meses
+//   - FACTURAS_VENCEN_PRONTO: hay facturas que vencen en <= 7 días
+//   - PRODUCTOS_INACTIVOS_CON_STOCK: productos con stock>0 pero activo=false
+//   - VENCIDAS_SIN_PAGAR: facturas con saldo y vencidas
+//   - MERMA_ALTA: mermas del mes > 20% del ingreso del mes (raro pero útil)
+// ============================================================================
+router.get('/insights', async (_req: Request, res: Response) => {
+  try {
+    const hoy = new Date();
+    const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+    const en7 = new Date(hoy); en7.setDate(en7.getDate() + 7);
+    const en7Str = `${en7.getFullYear()}-${String(en7.getMonth() + 1).padStart(2, '0')}-${String(en7.getDate()).padStart(2, '0')}`;
+
+    type Insight = {
+      severidad: 'info' | 'atencion' | 'critico';
+      tipo: string;
+      titulo: string;
+      detalle: string;
+      cta?: { label: string; to: string };
+    };
+    const insights: Insight[] = [];
+
+    // 1. Vencen pronto
+    const vencen = await prisma.$queryRawUnsafe<Array<{ n: number; total: number }>>(
+      `SELECT COUNT(*)::int n, COALESCE(SUM(total),0)::float total
+         FROM facturas
+        WHERE estado IN ('pendiente','parcial')
+          AND fecha_vencimiento BETWEEN $1 AND $2`,
+      hoyStr, en7Str,
+    );
+    if (vencen[0]?.n > 0) {
+      insights.push({
+        severidad: vencen[0].n >= 5 ? 'critico' : 'atencion',
+        tipo: 'FACTURAS_VENCEN_PRONTO',
+        titulo: `${vencen[0].n} factura${vencen[0].n === 1 ? '' : 's'} vence${vencen[0].n === 1 ? '' : 'n'} en los próximos 7 días`,
+        detalle: `Total a pagar: $${Math.round(vencen[0].total).toLocaleString('es-AR')}`,
+        cta: { label: 'Ver proyección', to: '/proyeccion-pagos' },
+      });
+    }
+
+    // 2. Vencidas sin pagar
+    const vencidas = await prisma.$queryRawUnsafe<Array<{ n: number; total: number }>>(
+      `SELECT COUNT(*)::int n, COALESCE(SUM(total),0)::float total
+         FROM facturas
+        WHERE estado IN ('pendiente','parcial')
+          AND fecha_vencimiento < $1`,
+      hoyStr,
+    );
+    if (vencidas[0]?.n > 0) {
+      insights.push({
+        severidad: 'critico',
+        tipo: 'VENCIDAS_SIN_PAGAR',
+        titulo: `${vencidas[0].n} factura${vencidas[0].n === 1 ? '' : 's'} vencida${vencidas[0].n === 1 ? '' : 's'} sin pagar`,
+        detalle: `Total vencido: $${Math.round(vencidas[0].total).toLocaleString('es-AR')}`,
+        cta: { label: 'Pagar ahora', to: '/proyeccion-pagos' },
+      });
+    }
+
+    // 3. Productos inactivos con stock — síntoma de inconsistencia
+    const inactivosConStock = await prisma.$queryRawUnsafe<Array<{ n: number }>>(
+      `SELECT COUNT(*)::int n
+         FROM productos p
+        WHERE p.activo = false
+          AND EXISTS (
+            SELECT 1 FROM movimientos m
+             WHERE m.producto_id = p.id
+             GROUP BY m.producto_id
+            HAVING SUM(CASE WHEN m.deposito_destino_id IS NOT NULL THEN m.cantidad
+                            WHEN m.deposito_origen_id  IS NOT NULL THEN -m.cantidad
+                            ELSE 0 END) > 0
+          )`,
+    );
+    if (inactivosConStock[0]?.n > 0) {
+      insights.push({
+        severidad: 'info',
+        tipo: 'PRODUCTOS_INACTIVOS_CON_STOCK',
+        titulo: `${inactivosConStock[0].n} productos inactivos tienen stock todavía`,
+        detalle: 'Probablemente los desactivaste pero no descargaste el stock. Revisalos.',
+        cta: { label: 'Ver productos', to: '/productos?activo=false' },
+      });
+    }
+
+    // 4. Ingresos anómalos (comparar vs promedio últimos 3 meses)
+    const ingresoMesActual = await prisma.$queryRawUnsafe<Array<{ total: number }>>(
+      `SELECT COALESCE(SUM(cantidad * COALESCE(costo_unitario,0)),0)::float total
+         FROM movimientos
+        WHERE tipo='ingreso' AND TO_CHAR(fecha::date, 'YYYY-MM') = TO_CHAR(CURRENT_DATE, 'YYYY-MM')`,
+    );
+    const ingresoPromedio3m = await prisma.$queryRawUnsafe<Array<{ prom: number }>>(
+      `SELECT COALESCE(AVG(monthly_total), 0)::float prom FROM (
+         SELECT TO_CHAR(fecha::date, 'YYYY-MM') ym,
+                SUM(cantidad * COALESCE(costo_unitario,0)) monthly_total
+           FROM movimientos
+          WHERE tipo='ingreso'
+            AND fecha::date BETWEEN (CURRENT_DATE - INTERVAL '3 months') AND (CURRENT_DATE - INTERVAL '1 day')
+          GROUP BY 1
+       ) t`,
+    );
+    const actual = ingresoMesActual[0]?.total || 0;
+    const prom = ingresoPromedio3m[0]?.prom || 0;
+    if (prom > 0 && actual < prom * 0.3 && hoy.getDate() > 7) {
+      insights.push({
+        severidad: 'atencion',
+        tipo: 'INGRESOS_BAJOS_ANOMALO',
+        titulo: 'Ingresos del mes muy bajos vs promedio histórico',
+        detalle: `Llevás $${Math.round(actual).toLocaleString('es-AR')} cuando tu promedio últimos 3 meses fue $${Math.round(prom).toLocaleString('es-AR')}. ¿Cargaste todos los movimientos?`,
+        cta: { label: 'Cargar movimiento', to: '/movimientos' },
+      });
+    }
+
+    // 5. Mermas altas
+    const mermas = await prisma.$queryRawUnsafe<Array<{ total: number }>>(
+      `SELECT COALESCE(SUM(cantidad * COALESCE(costo_unitario,0)),0)::float total
+         FROM movimientos
+        WHERE tipo IN ('merma','consumo_interno')
+          AND TO_CHAR(fecha::date,'YYYY-MM') = TO_CHAR(CURRENT_DATE,'YYYY-MM')`,
+    );
+    const mermaTotal = mermas[0]?.total || 0;
+    if (actual > 0 && mermaTotal > actual * 0.2) {
+      insights.push({
+        severidad: 'atencion',
+        tipo: 'MERMA_ALTA',
+        titulo: `Las mermas representan ${((mermaTotal / actual) * 100).toFixed(0)}% de los ingresos del mes`,
+        detalle: `$${Math.round(mermaTotal).toLocaleString('es-AR')} en merma vs $${Math.round(actual).toLocaleString('es-AR')} de ingresos.`,
+        cta: { label: 'Ver mermas', to: '/reportes' },
+      });
+    }
+
+    // Ordenar por severidad
+    const ord: Record<string, number> = { critico: 0, atencion: 1, info: 2 };
+    insights.sort((a, b) => ord[a.severidad] - ord[b.severidad]);
+
+    res.json({
+      insights,
+      meta: {
+        evaluadoAt: new Date().toISOString(),
+        cantidad: insights.length,
+        criticos: insights.filter(i => i.severidad === 'critico').length,
+      },
+    });
+  } catch (e: any) {
+    console.error('[reportes/insights]', e);
+    res.status(500).json({ error: e?.message || 'Error' });
+  }
+});
+
 export default router;

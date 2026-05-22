@@ -1,459 +1,642 @@
 /**
- * DashboardPro — clon del Dashboard con datos reales y animaciones de alto
- * impacto. NO reemplaza el Dashboard original; vive en /dashboard-pro como
- * pantalla aparte. Usa los mismos endpoints (api.getDashboardStats,
- * getCuentasPorPagar, getAlertasPrecioCount, getDiscrepancias) — cero
- * impacto en backend.
+ * DashboardPro v2 — rediseño aplicando las 20 correcciones identificadas:
  *
- * Técnicas usadas (todas vanilla, sin libs nuevas):
- *   - useCountUp: contadores animados con requestAnimationFrame
- *   - Aurora background: gradientes radiales animados a baja frecuencia
- *   - Stagger entrance: cada card aparece con delay incremental
- *   - Conic-gradient rings: anillos de progreso con animación de revelado
- *   - Shimmer / glow / float micro-interacciones
- *   - Tilt 3D al hover (transform-3d + perspective)
- *   - Sparklines SVG con animación de trazo (stroke-dasharray)
- *   - Live ticker: latido de actividad con barras pulsantes
+ *  1. Hero con auto-diagnóstico (detecta números absurdos)
+ *  2. Delta contextual con voz semántica (cap. deltaContextual.ts)
+ *  3. Sistema de coherencia: detecta y muestra inconsistencias
+ *  4. Anomaly detection visible (endpoint /insights)
+ *  5. Sparkline REAL del mes con tooltips por día
+ *  6. Polling con feedback "actualizado hace Xs"
+ *  7. Barras de progreso con stack semántico, no decorativas
+ *  8. Time-ago + agrupación por día en el feed
+ *  9. Frescura del dato visible
+ * 10. Sin aurora: sobriedad ganadora
+ * 11. Jerarquía corregida: número manda, delta acompaña, anillo desaparece
+ * 12. Animaciones solo cuando comunican un evento
+ * 13. useCountUpMemo: no se repite en cada render
+ * 14. Modos según estado del negocio (normal/atención/crítico)
+ * 15. Design tokens semánticos (good/warn/alert/neutral)
+ * 16. Coherente con sidebar (sobrio, no glow)
+ * 17. Etiqueta "Nueva" (no "experimental")
+ * 18. Saludo dinámico + insight del día
+ * 19. Cada métrica clickeable, NBA arriba
+ * 20. Mobile-first
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   TrendingUp, TrendingDown, AlertTriangle, Package, DollarSign,
-  ArrowUpRight, Sparkles, Zap, Flame, Layers,
-  ArrowLeft, ChefHat, Store,
+  ArrowUpRight, Sparkles, ArrowLeft, ChefHat, Store, RefreshCw,
+  Calendar, ChevronRight, CheckCircle2, Info,
 } from 'lucide-react';
 import { api } from '../lib/api';
-
-// ============================================================================
-// useCountUp — anima un número de 0 (o desde) hasta el target con easing.
-// Usa requestAnimationFrame, no setInterval (más suave, respeta refresh rate).
-// ============================================================================
-function useCountUp(target: number, duration = 1200, decimals = 0): number {
-  const [value, setValue] = useState(0);
-  const startTime = useRef<number | null>(null);
-  const startValue = useRef(0);
-  const rafId = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (!Number.isFinite(target)) { setValue(0); return; }
-    startTime.current = null;
-    startValue.current = value;
-    if (rafId.current) cancelAnimationFrame(rafId.current);
-
-    const tick = (now: number) => {
-      if (startTime.current === null) startTime.current = now;
-      const elapsed = now - startTime.current;
-      const t = Math.min(1, elapsed / duration);
-      // easeOutExpo — arranca rápido, frena al final (sensación premium)
-      const eased = t === 1 ? 1 : 1 - Math.pow(2, -10 * t);
-      const v = startValue.current + (target - startValue.current) * eased;
-      setValue(v);
-      if (t < 1) rafId.current = requestAnimationFrame(tick);
-    };
-    rafId.current = requestAnimationFrame(tick);
-    return () => { if (rafId.current) cancelAnimationFrame(rafId.current); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target, duration]);
-
-  const factor = Math.pow(10, decimals);
-  return Math.round(value * factor) / factor;
-}
+import { useAuth } from '../context/AuthContext';
+import { calcularDelta, esAnomalia } from '../lib/deltaContextual';
+import { tiempoRelativo, grupoFecha, saludo } from '../lib/tiempoRelativo';
+import { useCountUpMemo } from '../hooks/useCountUpMemo';
 
 // ============================================================================
 // Formatos
 // ============================================================================
-const fmtMoney = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
+const fmt$ = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
 const fmtNum = (n: number) => Math.round(n).toLocaleString('es-AR');
+/** Formato compacto $1.2M / $356k para hero number cuando es grande */
+const fmtCompact = (n: number): string => {
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) return `$${(n / 1_000_000).toFixed(abs >= 10_000_000 ? 1 : 2)}M`;
+  if (abs >= 1_000) return `$${(n / 1_000).toFixed(abs >= 10_000 ? 0 : 1)}k`;
+  return fmt$(n);
+};
+
+// ============================================================================
+// Tipos
+// ============================================================================
+type Insight = {
+  severidad: 'info' | 'atencion' | 'critico';
+  tipo: string;
+  titulo: string;
+  detalle: string;
+  cta?: { label: string; to: string };
+};
+
+type DataState = {
+  stats: any | null;
+  cxp: any | null;
+  alertasPrecio: { pendientes: number; altaPendientes: number } | null;
+  discrepancias: any[];
+  serieDiaria: Awaited<ReturnType<typeof api.getSerieDiariaIngresos>> | null;
+  insights: Insight[];
+  evaluadoAt: string | null;
+  loaded: boolean;
+};
 
 // ============================================================================
 // Componente principal
 // ============================================================================
 export default function DashboardPro() {
-  const [stats, setStats] = useState<any>(null);
-  const [cxp, setCxp] = useState<any>(null);
-  const [alertasPrecio, setAlertasPrecio] = useState<{ pendientes: number; altaPendientes: number } | null>(null);
-  const [discrepancias, setDiscrepancias] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [mouse, setMouse] = useState({ x: 0.5, y: 0.5 });
+  const { user } = useAuth();
+  const [data, setData] = useState<DataState>({
+    stats: null, cxp: null, alertasPrecio: null, discrepancias: [],
+    serieDiaria: null, insights: [], evaluadoAt: null, loaded: false,
+  });
+  const [ultimoFetch, setUltimoFetch] = useState<Date | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [tickHora, setTickHora] = useState(new Date());
 
-  useEffect(() => {
-    Promise.all([
-      api.getDashboardStats().catch(() => null),
-      api.getCuentasPorPagar().catch(() => null),
-      api.getAlertasPrecioCount().catch(() => null),
-      api.getDiscrepancias().catch(() => []),
-    ]).then(([s, c, ap, d]) => {
-      setStats(s); setCxp(c); setAlertasPrecio(ap); setDiscrepancias(d || []);
-    }).finally(() => setLoading(false));
+  // Polling soft: cada 60s actualiza solo si la tab está visible
+  const cargar = useCallback(async (silencioso = false) => {
+    if (!silencioso) setRefreshing(true);
+    try {
+      const [s, c, ap, d, sd, ins] = await Promise.all([
+        api.getDashboardStats().catch(() => null),
+        api.getCuentasPorPagar().catch(() => null),
+        api.getAlertasPrecioCount().catch(() => null),
+        api.getDiscrepancias().catch(() => []),
+        api.getSerieDiariaIngresos().catch(() => null),
+        api.getInsights().catch(() => ({ insights: [], meta: { evaluadoAt: new Date().toISOString() } })),
+      ]);
+      setData({
+        stats: s,
+        cxp: c,
+        alertasPrecio: ap,
+        discrepancias: d || [],
+        serieDiaria: sd,
+        insights: ins.insights,
+        evaluadoAt: ins.meta?.evaluadoAt ?? new Date().toISOString(),
+        loaded: true,
+      });
+      setUltimoFetch(new Date());
+    } finally {
+      setRefreshing(false);
+    }
   }, []);
 
-  // Parallax sutil siguiendo el mouse
+  useEffect(() => { cargar(false); }, [cargar]);
   useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      setMouse({ x: e.clientX / window.innerWidth, y: e.clientY / window.innerHeight });
-    };
-    window.addEventListener('mousemove', onMove, { passive: true });
-    return () => window.removeEventListener('mousemove', onMove);
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible') cargar(true);
+    }, 60_000);
+    return () => clearInterval(id);
+  }, [cargar]);
+  // Tick para "hace X seg" cada 5s
+  useEffect(() => {
+    const id = setInterval(() => setTickHora(new Date()), 5000);
+    return () => clearInterval(id);
   }, []);
 
-  if (loading) return <LoadingScreen />;
+  if (!data.loaded) return <LoadingScreen />;
 
-  const discGraves = discrepancias.filter((d: any) => d.color === 'rojo').length;
-  const totalAdeudado = cxp?.totales?.totalAdeudado ?? 0;
-  const ingresosMes = stats?.ingresosDelMes ?? 0;
-  const ingresosMesAnt = stats?.ingresosMesAnt ?? 0;
-  const mermasMes = stats?.mermasDelMes ?? 0;
-  const mermasMesAnt = stats?.mermasMesAnt ?? 0;
-  const bajosMin = stats?.bajosDeMinimo ?? 0;
-  const totalProductos = stats?.totalProductos ?? 0;
-  const ultimosMov = stats?.ultimosMovimientos ?? [];
+  // ── Extracciones ──────────────────────────────────────────────────────
+  const ingresosMes = data.stats?.ingresosDelMes ?? 0;
+  const ingresosMesAnt = data.stats?.ingresosMesAnt ?? 0;
+  const mermasMes = data.stats?.mermasDelMes ?? 0;
+  const mermasMesAnt = data.stats?.mermasMesAnt ?? 0;
+  const bajosMin = data.stats?.bajosDeMinimo ?? 0;
+  const totalProductos = data.stats?.totalProductos ?? 0;
+  const totalAdeudado = data.cxp?.totales?.totalAdeudado ?? 0;
+  const totalFacturas = data.cxp?.totales?.totalFacturas ?? 0;
+  const alertasPrecio = data.alertasPrecio?.pendientes ?? 0;
+  const discGraves = data.discrepancias.filter((d: any) => d.color === 'rojo').length;
+  const ultimosMov = data.stats?.ultimosMovimientos ?? [];
+  const serie = data.serieDiaria;
 
-  const deltaIngresos = ingresosMesAnt > 0 ? ((ingresosMes - ingresosMesAnt) / ingresosMesAnt) * 100 : 0;
-  const deltaMermas = mermasMesAnt > 0 ? ((mermasMes - mermasMesAnt) / mermasMesAnt) * 100 : 0;
+  // Coherencia: 1 bajo mínimo si hay 0 activos = inconsistencia
+  const incoherencias: string[] = [];
+  if (bajosMin > totalProductos) {
+    incoherencias.push(
+      `Tenés ${bajosMin} productos bajo mínimo pero solo ${totalProductos} activos. Probablemente hay productos inactivos con stock — revisalos.`
+    );
+  }
+  // Deuda absurda vs ingresos del mes
+  if (totalAdeudado > 0 && ingresosMes > 0 && totalAdeudado / ingresosMes > 100) {
+    incoherencias.push(
+      `La deuda es ${Math.round(totalAdeudado / ingresosMes)}× los ingresos del mes. ¿Estás cargando todos los movimientos?`
+    );
+  }
+
+  // Estado del negocio: critico si hay insights críticos o vencidos
+  const criticos = data.insights.filter(i => i.severidad === 'critico').length;
+  const atencion = data.insights.filter(i => i.severidad === 'atencion').length;
+  const estado: 'normal' | 'atencion' | 'critico' =
+    criticos > 0 ? 'critico' : atencion > 0 ? 'atencion' : 'normal';
+
+  // Frescura del dato
+  const segundos = ultimoFetch ? Math.floor((tickHora.getTime() - ultimoFetch.getTime()) / 1000) : null;
+  const frescuraTxt = segundos == null ? '' :
+    segundos < 60 ? `actualizado hace ${segundos}s` :
+    segundos < 3600 ? `actualizado hace ${Math.floor(segundos / 60)} min` :
+    `actualizado hace ${Math.floor(segundos / 3600)} h`;
 
   return (
-    <div className="dashboard-pro relative -mx-4 sm:-mx-6 -my-4 lg:-my-6 px-4 sm:px-6 py-4 lg:py-6 overflow-hidden min-h-screen">
-      {/* AURORA BACKGROUND — sigue el mouse muy sutil */}
-      <div
-        className="dp-aurora"
-        style={{
-          '--mx': `${mouse.x * 100}%`,
-          '--my': `${mouse.y * 100}%`,
-        } as React.CSSProperties}
-      />
-      <div className="dp-grain" />
-
-      {/* HEADER */}
-      <div className="relative z-10 flex items-center justify-between mb-6 dp-reveal" style={{ animationDelay: '0ms' }}>
+    <div className="dp2 -mx-4 sm:-mx-6 -my-4 lg:-my-6 px-4 sm:px-6 py-4 lg:py-6 min-h-screen">
+      {/* Header sobrio */}
+      <div className="flex items-start justify-between gap-3 mb-5">
         <div>
-          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-primary">
-            <Sparkles size={11} className="dp-sparkle" /> Vista experimental
+          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-primary/70">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary" />
+            <span className="px-1.5 py-0.5 rounded bg-primary/10 border border-primary/30 text-[9px]">
+              NUEVA
+            </span>
+            Panel del dueño · v2
           </div>
-          <h1 className="text-3xl sm:text-4xl font-extrabold mt-0.5">
-            <span className="dp-gradient-text">Dashboard Pro</span>
+          <h1 className="text-2xl sm:text-3xl font-extrabold mt-1 text-foreground">
+            {saludo()}, {user?.nombre || 'Andy'}
           </h1>
-          <p className="text-xs text-on-surface-variant mt-1">
-            Mismo dato, otra cara. Si gusta, la enchufamos en la real.
-          </p>
+          <InsightDelDia
+            insights={data.insights}
+            estado={estado}
+            fallbackTxt={fallbackInsight({ ingresosMes, mermasMes, bajosMin, totalAdeudado })}
+          />
         </div>
-        <Link
-          to="/"
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface/70 backdrop-blur border border-border/40 text-xs hover:border-primary/40 transition"
-        >
-          <ArrowLeft size={12} /> Volver al normal
-        </Link>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => cargar(false)}
+            disabled={refreshing}
+            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] bg-surface border border-border/60 hover:border-primary/40 transition disabled:opacity-50"
+            title={frescuraTxt}
+          >
+            <RefreshCw size={11} className={refreshing ? 'animate-spin' : ''} />
+            {refreshing ? 'Actualizando…' : frescuraTxt}
+          </button>
+          <Link
+            to="/"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] bg-surface border border-border/60 hover:border-primary/40 transition"
+          >
+            <ArrowLeft size={11} /> Vista clásica
+          </Link>
+        </div>
       </div>
 
-      {/* HERO METRIC — ingresos del mes con anillo de evolución */}
-      <HeroMetric
+      {/* Banner de incoherencias (siempre arriba si las hay) */}
+      {incoherencias.length > 0 && (
+        <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/5 p-3">
+          <div className="flex items-start gap-2">
+            <AlertTriangle size={14} className="text-amber-500 shrink-0 mt-0.5" />
+            <div className="text-xs">
+              <div className="font-bold text-amber-500 mb-1">
+                {incoherencias.length === 1 ? 'Detecté algo raro en tus datos' : 'Detecté inconsistencias'}
+              </div>
+              <ul className="space-y-0.5 text-on-surface-variant">
+                {incoherencias.map((t, i) => <li key={i}>• {t}</li>)}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Insights (Next Best Actions) */}
+      {data.insights.length > 0 && (
+        <div className="mb-4 space-y-1.5">
+          {data.insights.slice(0, 3).map((ins, i) => (
+            <InsightRow key={i} insight={ins} delay={i * 80} />
+          ))}
+        </div>
+      )}
+
+      {/* HERO — ingresos con sparkline real */}
+      <HeroIngresos
         valor={ingresosMes}
         valorAnt={ingresosMesAnt}
-        delta={deltaIngresos}
+        serie={serie}
       />
 
-      {/* STAT TRIO — animadas en stagger */}
-      <div className="relative z-10 grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
-        <StatCard
-          delay={300}
-          icon={<TrendingDown size={16} />}
+      {/* STAT TRIO con deltas contextuales y clickeable */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+        <MetricCard
+          to="/reportes?tab=mermas"
+          icon={<TrendingDown size={14} />}
           label="Mermas del mes"
           value={mermasMes}
           format="money"
-          delta={deltaMermas}
-          deltaInverted // que suba la merma es MALO
           color="rose"
+          polaridad="menos_es_mejor"
+          actual={mermasMes}
+          anterior={mermasMesAnt}
+          memoKey="metric.mermas"
         />
-        <StatCard
-          delay={400}
-          icon={<Package size={16} />}
-          label="Productos bajo mínimo"
+        <MetricCard
+          to="/stock?bajos=1"
+          icon={<Package size={14} />}
+          label="Bajo mínimo"
           value={bajosMin}
           format="num"
           color={bajosMin > 0 ? 'amber' : 'emerald'}
-          subtitle={`de ${fmtNum(totalProductos)} activos`}
+          subtitle={`de ${fmtNum(totalProductos)} productos activos`}
+          memoKey="metric.bajosmin"
         />
-        <StatCard
-          delay={500}
-          icon={<DollarSign size={16} />}
+        <MetricCard
+          to="/cuentas-por-pagar"
+          icon={<DollarSign size={14} />}
           label="Total adeudado"
           value={totalAdeudado}
           format="money"
           color="violet"
-          subtitle={`${cxp?.totales?.totalFacturas ?? 0} facturas`}
+          subtitle={`${totalFacturas} factura${totalFacturas === 1 ? '' : 's'}`}
+          memoKey="metric.deuda"
         />
       </div>
 
-      {/* MIDDLE: actividad + alertas */}
-      <div className="relative z-10 grid grid-cols-1 lg:grid-cols-3 gap-3 mt-3">
-        <LiveActivity movimientos={ultimosMov} />
-        <AlertasPanel
-          alertasPrecio={alertasPrecio?.pendientes ?? 0}
+      {/* Actividad + Para revisar */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-3">
+        <FeedActividad movimientos={ultimosMov} />
+        <PanelRevisar
+          alertasPrecio={alertasPrecio}
           discGraves={discGraves}
           bajosMin={bajosMin}
         />
       </div>
 
-      {/* Quick links con tilt */}
-      <div className="relative z-10 grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3 dp-reveal" style={{ animationDelay: '700ms' }}>
-        <QuickTile to="/punto-venta"      icon={<Store size={18} />}    label="Punto de Venta" hue="amber" />
-        <QuickTile to="/movimientos"      icon={<Zap size={18} />}      label="Movimiento"     hue="violet" />
-        <QuickTile to="/carta"            icon={<ChefHat size={18} />}  label="Carta"          hue="emerald" />
-        <QuickTile to="/proyeccion-pagos" icon={<Layers size={18} />}   label="Proyección"     hue="sky" />
+      {/* Accesos rápidos */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-3">
+        <QuickAction to="/punto-venta"      icon={<Store size={16} />}    label="Vender" />
+        <QuickAction to="/movimientos"      icon={<Package size={16} />}  label="Cargar mov." />
+        <QuickAction to="/carta"            icon={<ChefHat size={16} />}  label="Carta" />
+        <QuickAction to="/proyeccion-pagos" icon={<Calendar size={16} />} label="Pagos" />
       </div>
 
-      {/* CSS inline para que sea autocontenido y no contamine el global */}
       <style>{styles}</style>
     </div>
   );
 }
 
 // ============================================================================
-// HeroMetric — gran número central con anillo conic-gradient + sparkline
+// HeroIngresos — número grande + delta contextual + sparkline REAL
 // ============================================================================
-function HeroMetric({
-  valor, valorAnt, delta,
-}: { valor: number; valorAnt: number; delta: number }) {
-  const display = useCountUp(valor, 1400);
-  const positivo = delta >= 0;
-  const pctAbs = Math.min(100, Math.abs(delta));
-  // Sparkline: datos sintéticos a partir del valor (no rompemos backend)
-  // Si tuviéramos serie diaria del mes, iría acá. Por ahora, una curva
-  // suave que termina en el valor actual para dar sensación de cierre.
-  const spark = useMemo(() => {
-    const n = 28;
-    const arr: number[] = [];
-    const base = valorAnt > 0 ? valorAnt : valor * 0.7;
-    for (let i = 0; i < n; i++) {
-      const t = i / (n - 1);
-      const eased = base + (valor - base) * (1 - Math.pow(1 - t, 2.2));
-      const noise = (Math.sin(i * 1.7) + Math.cos(i * 2.3)) * (valor * 0.02);
-      arr.push(Math.max(0, eased + noise));
-    }
-    return arr;
-  }, [valor, valorAnt]);
+function HeroIngresos({
+  valor, valorAnt, serie,
+}: {
+  valor: number;
+  valorAnt: number;
+  serie: Awaited<ReturnType<typeof api.getSerieDiariaIngresos>> | null;
+}) {
+  const display = useCountUpMemo('hero.ingresos', valor, 1100);
+  const delta = useMemo(() => calcularDelta(valor, valorAnt, 'mas_es_mejor'), [valor, valorAnt]);
+  // ¿Anomalía? Si el valor es muy bajo vs lo que esperaríamos, alerta
+  const sospechoso = valor > 0 && valorAnt > 0 && esAnomalia(valor, valorAnt, 0.3);
+  const usaCompact = valor >= 1_000_000;
+
+  const dias = serie?.dias ?? [];
+  const promedio = serie?.resumen.promedioDiario ?? 0;
 
   return (
-    <div className="relative z-10 rounded-3xl border border-primary/20 bg-gradient-to-br from-surface/80 via-surface/60 to-surface/40 backdrop-blur-xl p-5 sm:p-8 overflow-hidden dp-reveal dp-glow" style={{ animationDelay: '100ms' }}>
-      {/* shimmer overlay */}
-      <div className="dp-shimmer" />
-
-      <div className="relative grid grid-cols-1 sm:grid-cols-[1fr_auto] items-center gap-6">
+    <div className="rounded-2xl border border-border/40 bg-surface/60 p-5 sm:p-6">
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-5 items-center">
         <div>
-          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-primary/80">
-            <Flame size={11} className="dp-flame" /> Ingresos del mes
+          <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-on-surface-variant">
+            Ingresos del mes
           </div>
           <div className="mt-2 flex items-baseline gap-3 flex-wrap">
-            <div className="text-4xl sm:text-6xl font-extrabold tabular-nums">
-              <span className="dp-gradient-text">{fmtMoney(display)}</span>
+            <div className="text-4xl sm:text-5xl font-extrabold tabular-nums text-foreground">
+              {usaCompact ? fmtCompact(display) : fmt$(display)}
             </div>
-            <div className={`flex items-center gap-1 text-sm font-bold tabular-nums ${positivo ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {positivo ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-              {delta > 0 ? '+' : ''}{delta.toFixed(1)}%
-              <span className="text-[10px] font-medium text-on-surface-variant ml-1">vs mes ant.</span>
-            </div>
+            <DeltaChip delta={delta} />
           </div>
-          <div className="text-xs text-on-surface-variant mt-1 font-mono">
-            Mes anterior: {fmtMoney(valorAnt)}
+          <div className="text-[11px] text-on-surface-variant mt-1.5 font-mono flex items-center gap-3 flex-wrap">
+            <span>Mes anterior: {fmt$(valorAnt)}</span>
+            {promedio > 0 && (
+              <span>· Promedio diario: {fmt$(promedio)}</span>
+            )}
+            {sospechoso && (
+              <span className="text-amber-500 font-bold">⚠ Bajo vs lo esperado</span>
+            )}
           </div>
-          {/* Sparkline animada */}
-          <Sparkline data={spark} positive={positivo} />
         </div>
-
-        {/* Anillo conic-gradient con porcentaje */}
-        <ConicRing percent={pctAbs} positive={positivo} />
       </div>
+
+      {/* Sparkline real con tooltip por día */}
+      {dias.length > 0 && (
+        <SparklineReal dias={dias} promedio={promedio} />
+      )}
     </div>
   );
 }
 
 // ============================================================================
-// ConicRing — anillo con conic-gradient animado
+// DeltaChip — el chip de variación, sin gritos
 // ============================================================================
-function ConicRing({ percent, positive }: { percent: number; positive: boolean }) {
-  const display = useCountUp(percent, 1500, 1);
-  const color = positive ? '52, 211, 153' : '244, 114, 114'; // emerald-400 / rose-400
+function DeltaChip({ delta }: { delta: ReturnType<typeof calcularDelta> }) {
+  if (!delta.flecha && delta.tono === 'neutral') {
+    return <span className="text-xs text-on-surface-variant">{delta.mensaje}</span>;
+  }
+  const color = delta.tono === 'good' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30'
+              : delta.tono === 'bad'  ? 'text-rose-400  bg-rose-500/10 border-rose-500/30'
+              : 'text-on-surface-variant bg-surface-high border-border/60';
   return (
-    <div className="relative w-32 h-32 sm:w-40 sm:h-40 mx-auto dp-ring-spin-in">
-      <div
-        className="absolute inset-0 rounded-full"
-        style={{
-          background: `conic-gradient(rgba(${color}, 0.95) 0%, rgba(${color}, 0.95) ${display}%, rgba(255,255,255,0.06) ${display}%)`,
-          maskImage: 'radial-gradient(circle, transparent 56%, black 58%)',
-          WebkitMaskImage: 'radial-gradient(circle, transparent 56%, black 58%)',
-          transition: 'background 60ms linear',
-        }}
-      />
-      {/* glow pulse */}
-      <div
-        className="absolute inset-2 rounded-full opacity-50 blur-2xl dp-pulse"
-        style={{ background: `radial-gradient(circle, rgba(${color}, 0.4), transparent 70%)` }}
-      />
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <div className="text-2xl sm:text-3xl font-extrabold tabular-nums" style={{ color: `rgb(${color})` }}>
-          {display.toFixed(1)}%
-        </div>
-        <div className="text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/70 mt-0.5">
-          {positive ? 'crecimiento' : 'caída'}
-        </div>
-      </div>
-    </div>
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border ${color}`}>
+      {delta.flecha === 'up' ? <TrendingUp size={11} /> : delta.flecha === 'down' ? <TrendingDown size={11} /> : null}
+      {delta.mensaje}
+    </span>
   );
 }
 
 // ============================================================================
-// Sparkline — curva SVG con animación de trazo
+// SparklineReal — datos reales del mes con hover por día
 // ============================================================================
-function Sparkline({ data, positive }: { data: number[]; positive: boolean }) {
-  const w = 240, h = 50;
-  const min = Math.min(...data), max = Math.max(...data);
-  const range = max - min || 1;
-  const points = data.map((v, i) => {
-    const x = (i / (data.length - 1)) * w;
-    const y = h - ((v - min) / range) * (h - 4) - 2;
-    return [x, y] as [number, number];
+function SparklineReal({
+  dias, promedio,
+}: { dias: Array<{ fecha: string; total: number; cantidad: number }>; promedio: number }) {
+  const w = 600, h = 60;
+  const max = Math.max(...dias.map(d => d.total), 1);
+  const points = dias.map((d, i) => {
+    const x = (i / (dias.length - 1)) * w;
+    const y = h - (d.total / max) * (h - 6) - 3;
+    return { x, y, dia: d };
   });
-  const d = points.map(([x, y], i) => (i === 0 ? `M ${x},${y}` : `L ${x},${y}`)).join(' ');
-  const dFill = `${d} L ${w},${h} L 0,${h} Z`;
-  const color = positive ? 'rgb(52, 211, 153)' : 'rgb(244, 114, 114)';
-  const gradId = `dp-spark-grad-${positive ? 'p' : 'n'}`;
+  const [hover, setHover] = useState<number | null>(null);
+  const path = points.map((p, i) => (i === 0 ? `M ${p.x},${p.y}` : `L ${p.x},${p.y}`)).join(' ');
+  const promY = h - (promedio / max) * (h - 6) - 3;
 
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="w-full max-w-[300px] mt-3 dp-spark-draw">
-      <defs>
-        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.35" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={dFill} fill={`url(#${gradId})`} className="dp-spark-fill" />
-      <path d={d} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx={points[points.length - 1][0]} cy={points[points.length - 1][1]} r="4" fill={color} className="dp-spark-dot" />
-      <circle cx={points[points.length - 1][0]} cy={points[points.length - 1][1]} r="9" fill={color} fillOpacity="0.25" className="dp-spark-pulse" />
-    </svg>
+    <div className="mt-4 -mx-1 relative">
+      <svg
+        viewBox={`0 0 ${w} ${h}`}
+        className="w-full h-12 sm:h-14"
+        preserveAspectRatio="none"
+        onMouseLeave={() => setHover(null)}
+      >
+        <defs>
+          <linearGradient id="dp2-spark" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="rgb(212, 175, 55)" stopOpacity="0.25" />
+            <stop offset="100%" stopColor="rgb(212, 175, 55)" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {/* Línea de promedio */}
+        {promedio > 0 && (
+          <line x1="0" x2={w} y1={promY} y2={promY}
+            stroke="rgb(160, 160, 165)" strokeWidth="0.6" strokeDasharray="3 3" opacity="0.5" />
+        )}
+        {/* Área */}
+        <path d={`${path} L ${w},${h} L 0,${h} Z`} fill="url(#dp2-spark)" />
+        {/* Línea */}
+        <path d={path} fill="none" stroke="rgb(212, 175, 55)" strokeWidth="1.6" strokeLinecap="round" />
+        {/* Puntos invisibles para hover */}
+        {points.map((p, i) => (
+          <rect
+            key={i}
+            x={p.x - 8}
+            y={0}
+            width={16}
+            height={h}
+            fill="transparent"
+            onMouseEnter={() => setHover(i)}
+            onClick={() => setHover(i)}
+            className="cursor-crosshair"
+          />
+        ))}
+        {hover !== null && (
+          <>
+            <line x1={points[hover].x} x2={points[hover].x} y1={0} y2={h}
+              stroke="rgb(212, 175, 55)" strokeWidth="0.8" opacity="0.5" />
+            <circle cx={points[hover].x} cy={points[hover].y} r="3" fill="rgb(212, 175, 55)" />
+          </>
+        )}
+      </svg>
+      {hover !== null && (
+        <div
+          className="absolute -top-12 px-2 py-1 rounded bg-surface-high border border-primary/40 text-[10px] pointer-events-none whitespace-nowrap"
+          style={{
+            left: `calc(${(points[hover].x / w) * 100}% - 60px)`,
+            transform: 'translateY(-100%)',
+          }}
+        >
+          <div className="font-bold text-foreground">{fmt$(points[hover].dia.total)}</div>
+          <div className="text-on-surface-variant">
+            {points[hover].dia.fecha} · {points[hover].dia.cantidad} ingreso{points[hover].dia.cantidad === 1 ? '' : 's'}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
 // ============================================================================
-// StatCard — card con tilt 3D al hover + glow del color
+// MetricCard — card simple, clickeable, con delta contextual
 // ============================================================================
-function StatCard({
-  delay, icon, label, value, format, color, subtitle, delta, deltaInverted,
+function MetricCard({
+  to, icon, label, value, format, color, subtitle, polaridad, actual, anterior, memoKey,
 }: {
-  delay: number;
+  to: string;
   icon: React.ReactNode;
   label: string;
   value: number;
   format: 'money' | 'num';
   color: 'rose' | 'amber' | 'emerald' | 'violet' | 'sky';
   subtitle?: string;
-  delta?: number;
-  deltaInverted?: boolean;
+  polaridad?: 'mas_es_mejor' | 'menos_es_mejor';
+  actual?: number;
+  anterior?: number;
+  memoKey: string;
 }) {
-  const display = useCountUp(value, 1100);
-  const ref = useRef<HTMLDivElement>(null);
-  const hueMap = {
-    rose:    { rgb: '244, 114, 114', glow: 'rose-500/30' },
-    amber:   { rgb: '251, 191, 36', glow: 'amber-500/30' },
-    emerald: { rgb: '52, 211, 153', glow: 'emerald-500/30' },
-    violet:  { rgb: '167, 139, 250', glow: 'violet-500/30' },
-    sky:     { rgb: '56, 189, 248', glow: 'sky-500/30' },
+  const display = useCountUpMemo(memoKey, value, 1000);
+  const colorMap = {
+    rose:    'text-rose-400',
+    amber:   'text-amber-400',
+    emerald: 'text-emerald-400',
+    violet:  'text-violet-400',
+    sky:     'text-sky-400',
   } as const;
-  const { rgb } = hueMap[color];
-
-  const onMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const el = ref.current; if (!el) return;
-    const r = el.getBoundingClientRect();
-    const px = (e.clientX - r.left) / r.width - 0.5;
-    const py = (e.clientY - r.top) / r.height - 0.5;
-    el.style.setProperty('--rx', `${-py * 6}deg`);
-    el.style.setProperty('--ry', `${px * 6}deg`);
-    el.style.setProperty('--gx', `${(px + 0.5) * 100}%`);
-    el.style.setProperty('--gy', `${(py + 0.5) * 100}%`);
-  };
-  const onLeave = () => {
-    const el = ref.current; if (!el) return;
-    el.style.setProperty('--rx', `0deg`);
-    el.style.setProperty('--ry', `0deg`);
-  };
-
-  const deltaSigno = delta != null
-    ? (deltaInverted ? (delta < 0 ? 'good' : 'bad') : (delta >= 0 ? 'good' : 'bad'))
+  const delta = (polaridad && actual !== undefined && anterior !== undefined)
+    ? calcularDelta(actual, anterior, polaridad)
     : null;
 
   return (
-    <div
-      ref={ref}
-      onMouseMove={onMove}
-      onMouseLeave={onLeave}
-      className="dp-tilt dp-reveal relative rounded-2xl border border-border/40 bg-surface/70 backdrop-blur p-4 overflow-hidden"
-      style={{
-        animationDelay: `${delay}ms`,
-        '--rgb': rgb,
-      } as React.CSSProperties}
+    <Link
+      to={to}
+      className="group rounded-xl border border-border/40 bg-surface/60 p-4 hover:border-primary/40 transition-colors"
     >
-      {/* halo del color del card siguiendo el cursor */}
-      <div className="dp-tilt-glow" />
-
-      <div className="relative flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">
-        <span className="p-1.5 rounded-lg" style={{ background: `rgba(${rgb}, 0.15)`, color: `rgb(${rgb})` }}>
-          {icon}
-        </span>
-        {label}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">
+          <span className={colorMap[color]}>{icon}</span>
+          {label}
+        </div>
+        <ChevronRight size={12} className="text-on-surface-variant/40 group-hover:text-primary group-hover:translate-x-0.5 transition" />
       </div>
-      <div className="relative text-2xl sm:text-3xl font-extrabold mt-2 tabular-nums" style={{ color: `rgb(${rgb})` }}>
-        {format === 'money' ? fmtMoney(display) : fmtNum(display)}
+      <div className={`text-2xl sm:text-3xl font-extrabold tabular-nums ${colorMap[color]}`}>
+        {format === 'money' ? fmt$(display) : fmtNum(display)}
       </div>
-      <div className="relative flex items-center justify-between text-[11px] text-on-surface-variant mt-1">
-        <span>{subtitle || ''}</span>
-        {delta != null && Math.abs(delta) > 0.1 && (
-          <span className={`flex items-center gap-0.5 font-bold ${deltaSigno === 'good' ? 'text-emerald-400' : 'text-rose-400'}`}>
-            {delta >= 0 ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
-            {delta > 0 ? '+' : ''}{delta.toFixed(1)}%
-          </span>
-        )}
+      <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+        {subtitle && <span className="text-[11px] text-on-surface-variant">{subtitle}</span>}
+        {delta && <DeltaChip delta={delta} />}
       </div>
-    </div>
+    </Link>
   );
 }
 
 // ============================================================================
-// LiveActivity — feed de últimos movimientos con barras pulsantes
+// InsightDelDia — el primer insight crítico o un fallback
 // ============================================================================
-function LiveActivity({ movimientos }: { movimientos: any[] }) {
+function InsightDelDia({
+  insights, estado, fallbackTxt,
+}: { insights: Insight[]; estado: 'normal' | 'atencion' | 'critico'; fallbackTxt: string }) {
+  const primero = insights[0];
+  if (!primero) {
+    return (
+      <p className="text-xs text-on-surface-variant mt-1.5 max-w-2xl">
+        <CheckCircle2 size={11} className="inline -mt-0.5 mr-1 text-emerald-400" />
+        {fallbackTxt}
+      </p>
+    );
+  }
+  const color = estado === 'critico' ? 'text-rose-400' : estado === 'atencion' ? 'text-amber-400' : 'text-on-surface-variant';
   return (
-    <div className="lg:col-span-2 rounded-2xl border border-border/40 bg-surface/70 backdrop-blur p-4 dp-reveal" style={{ animationDelay: '600ms' }}>
+    <p className={`text-xs mt-1.5 max-w-2xl ${color}`}>
+      <Sparkles size={11} className="inline -mt-0.5 mr-1" />
+      <span className="font-bold">{primero.titulo}.</span>
+      <span className="text-on-surface-variant"> {primero.detalle}</span>
+    </p>
+  );
+}
+
+function fallbackInsight({
+  ingresosMes, mermasMes, bajosMin, totalAdeudado,
+}: { ingresosMes: number; mermasMes: number; bajosMin: number; totalAdeudado: number }): string {
+  if (ingresosMes === 0 && mermasMes === 0 && bajosMin === 0 && totalAdeudado === 0) {
+    return 'Tu día arranca limpio. Cargá un movimiento para que las métricas se llenen.';
+  }
+  if (mermasMes === 0 && bajosMin === 0) {
+    return 'Sin alertas operativas. Buen momento para revisar la carta y costos.';
+  }
+  return 'Mirá las métricas debajo y arrancá por las alertas.';
+}
+
+// ============================================================================
+// InsightRow — card de un insight con CTA accionable
+// ============================================================================
+function InsightRow({ insight, delay }: { insight: Insight; delay: number }) {
+  const cfg = {
+    critico:  { color: 'rose',    icon: <AlertTriangle size={13} /> },
+    atencion: { color: 'amber',   icon: <AlertTriangle size={13} /> },
+    info:     { color: 'sky',     icon: <Info size={13} /> },
+  } as const;
+  const { color, icon } = cfg[insight.severidad];
+
+  const Wrap: any = insight.cta ? Link : 'div';
+  const wrapProps: any = insight.cta ? { to: insight.cta.to } : {};
+
+  return (
+    <Wrap
+      {...wrapProps}
+      className={`dp2-fade-in flex items-center gap-2.5 rounded-lg px-3 py-2 border bg-${color}-500/5 border-${color}-500/30 hover:bg-${color}-500/10 transition group`}
+      style={{ animationDelay: `${delay}ms` }}
+    >
+      <span className={`text-${color}-400 shrink-0`}>{icon}</span>
+      <div className="flex-1 min-w-0">
+        <div className="text-xs font-bold text-foreground truncate">{insight.titulo}</div>
+        <div className="text-[11px] text-on-surface-variant truncate">{insight.detalle}</div>
+      </div>
+      {insight.cta && (
+        <span className={`text-[10px] font-bold text-${color}-400 shrink-0 hidden sm:flex items-center gap-1 opacity-70 group-hover:opacity-100`}>
+          {insight.cta.label}
+          <ArrowUpRight size={10} />
+        </span>
+      )}
+    </Wrap>
+  );
+}
+
+// ============================================================================
+// FeedActividad — agrupado por día con time-ago
+// ============================================================================
+function FeedActividad({ movimientos }: { movimientos: any[] }) {
+  const grupos = useMemo(() => {
+    const m = new Map<string, any[]>();
+    for (const mov of movimientos.slice(0, 12)) {
+      const fechaCompleta = (mov.fecha || '') + (mov.hora ? `T${mov.hora}` : 'T00:00');
+      const g = grupoFecha(fechaCompleta);
+      if (!m.has(g)) m.set(g, []);
+      m.get(g)!.push({ ...mov, _fechaCompleta: fechaCompleta });
+    }
+    return Array.from(m.entries());
+  }, [movimientos]);
+
+  return (
+    <div className="lg:col-span-2 rounded-xl border border-border/40 bg-surface/60 p-4">
       <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider">
-          <span className="relative flex w-2 h-2">
-            <span className="dp-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-          </span>
-          Actividad en vivo
+        <div className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">
+          Actividad reciente
         </div>
-        <Link to="/movimientos" className="text-[10px] font-bold text-primary hover:underline flex items-center gap-1">
+        <Link to="/movimientos" className="text-[10px] font-bold text-primary hover:underline flex items-center gap-0.5">
           ver todo <ArrowUpRight size={10} />
         </Link>
       </div>
       {movimientos.length === 0 ? (
-        <div className="text-[11px] text-on-surface-variant py-6 text-center">Sin movimientos recientes.</div>
+        <div className="text-[11px] text-on-surface-variant py-6 text-center">
+          Sin movimientos recientes.
+        </div>
       ) : (
-        <div className="space-y-1.5">
-          {movimientos.slice(0, 6).map((m: any, i: number) => (
-            <div
-              key={m.id}
-              className="dp-row-in flex items-center gap-2 rounded-lg bg-surface/50 px-2.5 py-1.5 text-[11px]"
-              style={{ animationDelay: `${700 + i * 60}ms` }}
-            >
-              <div className={`w-1 h-8 rounded-full ${m.tipo === 'ingreso' ? 'bg-emerald-400' : m.tipo === 'merma' ? 'bg-rose-400' : 'bg-primary'}`} />
-              <div className="flex-1 min-w-0">
-                <div className="font-bold truncate">{m.producto?.nombre || `Producto #${m.productoId}`}</div>
-                <div className="text-on-surface-variant text-[10px]">
-                  {m.tipo} · {m.cantidad} {m.unidad} · {m.fecha} {m.hora || ''}
-                </div>
+        <div className="space-y-3">
+          {grupos.map(([g, items]) => (
+            <div key={g}>
+              <div className="text-[9px] font-bold uppercase tracking-wider text-on-surface-variant/60 mb-1">
+                {g}
               </div>
-              <span className="text-[9px] font-bold uppercase tracking-wider text-on-surface-variant/70">
-                {m.usuario?.nombre || ''}
-              </span>
+              <div className="space-y-1">
+                {items.map((m: any) => (
+                  <div key={m.id} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-surface-high/40 text-[11px]">
+                    <div className={`w-1 h-7 rounded-full ${
+                      m.tipo === 'ingreso' ? 'bg-emerald-400' :
+                      m.tipo === 'merma' || m.tipo === 'consumo_interno' ? 'bg-rose-400' :
+                      'bg-primary'
+                    }`} />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-bold truncate text-foreground">{m.producto?.nombre || `Producto #${m.productoId}`}</div>
+                      <div className="text-on-surface-variant text-[10px]">
+                        <span className="capitalize">{m.tipo.replace('_', ' ')}</span> · {m.cantidad} {m.unidad}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-[10px] text-on-surface-variant">
+                        {tiempoRelativo(m._fechaCompleta)}
+                      </div>
+                      {m.usuario?.nombre && (
+                        <div className="text-[9px] font-bold uppercase tracking-wider text-on-surface-variant/60">
+                          {m.usuario.nombre}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           ))}
         </div>
@@ -463,114 +646,90 @@ function LiveActivity({ movimientos }: { movimientos: any[] }) {
 }
 
 // ============================================================================
-// AlertasPanel — barras animadas con cuentas críticas
+// PanelRevisar — alertas con stack bar semántico
 // ============================================================================
-function AlertasPanel({
+function PanelRevisar({
   alertasPrecio, discGraves, bajosMin,
 }: { alertasPrecio: number; discGraves: number; bajosMin: number }) {
   const items = [
-    { label: 'Alertas de precio', val: alertasPrecio, color: 'amber', to: '/alertas-precio' },
-    { label: 'Discrepancias críticas', val: discGraves, color: 'rose', to: '/discrepancias' },
-    { label: 'Bajo mínimo', val: bajosMin, color: 'violet', to: '/stock?bajos=1' },
+    { label: 'Alertas de precio', val: alertasPrecio, color: 'amber',  to: '/alertas-precio' },
+    { label: 'Discrepancias',     val: discGraves,    color: 'rose',   to: '/discrepancias' },
+    { label: 'Bajo mínimo',       val: bajosMin,      color: 'violet', to: '/stock?bajos=1' },
   ];
-  const max = Math.max(...items.map(i => i.val), 1);
+  const total = items.reduce((s, x) => s + x.val, 0);
+
   return (
-    <div className="rounded-2xl border border-border/40 bg-surface/70 backdrop-blur p-4 dp-reveal" style={{ animationDelay: '600ms' }}>
-      <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider mb-3">
-        <AlertTriangle size={11} className="text-amber-400" /> Para revisar
+    <div className="rounded-xl border border-border/40 bg-surface/60 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant flex items-center gap-1.5">
+          <AlertTriangle size={11} className="text-amber-400" /> Para revisar
+        </div>
+        <span className="text-[10px] font-bold tabular-nums">{total}</span>
       </div>
-      <div className="space-y-2.5">
-        {items.map((it, i) => (
-          <Link
-            key={it.label}
-            to={it.to}
-            className="dp-row-in block group"
-            style={{ animationDelay: `${800 + i * 80}ms` }}
-          >
-            <div className="flex items-center justify-between text-[11px] mb-1">
-              <span className="font-bold">{it.label}</span>
-              <span className={`tabular-nums font-extrabold text-${it.color}-400`}>
-                {it.val}
-              </span>
-            </div>
-            <div className="h-1.5 rounded-full bg-surface-high overflow-hidden">
-              <div
-                className={`dp-bar-fill h-full rounded-full bg-${it.color}-400`}
-                style={{
-                  width: `${(it.val / max) * 100}%`,
-                  ['--final' as any]: `${(it.val / max) * 100}%`,
-                }}
-              />
-            </div>
-          </Link>
-        ))}
-      </div>
+      {total === 0 ? (
+        <div className="text-[11px] text-emerald-400 py-2 flex items-center gap-1">
+          <CheckCircle2 size={11} /> Sin pendientes ✓
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {items.map(it => (
+            <Link
+              key={it.label}
+              to={it.to}
+              className="block group"
+            >
+              <div className="flex items-center justify-between text-[11px] mb-1">
+                <span className="font-bold text-foreground group-hover:text-primary transition">
+                  {it.label}
+                </span>
+                <span className={`tabular-nums font-extrabold text-${it.color}-400`}>
+                  {it.val}
+                </span>
+              </div>
+              <div className="h-1 rounded-full bg-surface-high overflow-hidden">
+                <div
+                  className={`h-full rounded-full bg-${it.color}-400 transition-all duration-700`}
+                  style={{ width: total > 0 ? `${(it.val / total) * 100}%` : '0%' }}
+                />
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 // ============================================================================
-// QuickTile — botón grande con tilt 3D y glow color
+// QuickAction — tile sobrio (sin tilt 3D ni glow)
 // ============================================================================
-function QuickTile({
-  to, icon, label, hue,
-}: { to: string; icon: React.ReactNode; label: string; hue: 'amber' | 'violet' | 'emerald' | 'sky' }) {
-  const ref = useRef<HTMLAnchorElement>(null);
-  const rgbMap = {
-    amber: '251, 191, 36',
-    violet: '167, 139, 250',
-    emerald: '52, 211, 153',
-    sky: '56, 189, 248',
-  } as const;
-  const onMove = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    const el = ref.current; if (!el) return;
-    const r = el.getBoundingClientRect();
-    const px = (e.clientX - r.left) / r.width - 0.5;
-    const py = (e.clientY - r.top) / r.height - 0.5;
-    el.style.setProperty('--rx', `${-py * 8}deg`);
-    el.style.setProperty('--ry', `${px * 8}deg`);
-  };
-  const onLeave = () => {
-    const el = ref.current; if (!el) return;
-    el.style.setProperty('--rx', '0deg');
-    el.style.setProperty('--ry', '0deg');
-  };
+function QuickAction({ to, icon, label }: { to: string; icon: React.ReactNode; label: string }) {
   return (
     <Link
       to={to}
-      ref={ref}
-      onMouseMove={onMove}
-      onMouseLeave={onLeave}
-      className="dp-tilt block relative rounded-2xl border border-border/40 bg-surface/70 backdrop-blur p-4 overflow-hidden group"
-      style={{ '--rgb': rgbMap[hue] } as React.CSSProperties}
+      className="group rounded-xl border border-border/40 bg-surface/60 p-3 hover:border-primary/40 hover:bg-primary/5 transition flex items-center justify-between"
     >
-      <div className="dp-tilt-glow" />
-      <div className="relative flex items-center justify-between">
-        <div className="p-2 rounded-xl" style={{ background: `rgba(${rgbMap[hue]}, 0.18)`, color: `rgb(${rgbMap[hue]})` }}>
-          {icon}
-        </div>
-        <ArrowUpRight size={14} className="text-on-surface-variant group-hover:text-foreground group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+      <div className="flex items-center gap-2">
+        <span className="p-1.5 rounded-lg bg-primary/10 text-primary">{icon}</span>
+        <span className="text-xs font-bold">{label}</span>
       </div>
-      <div className="relative mt-3 text-sm font-extrabold">{label}</div>
+      <ArrowUpRight size={12} className="text-on-surface-variant/40 group-hover:text-primary group-hover:-translate-y-0.5 group-hover:translate-x-0.5 transition" />
     </Link>
   );
 }
 
 // ============================================================================
-// LoadingScreen — skeleton elegante con shimmer
+// LoadingScreen
 // ============================================================================
 function LoadingScreen() {
   return (
-    <div className="relative -mx-4 sm:-mx-6 -my-4 lg:-my-6 px-4 sm:px-6 py-4 lg:py-6 overflow-hidden min-h-[80vh]">
-      <div className="dp-aurora" style={{ '--mx': '50%', '--my': '50%' } as React.CSSProperties} />
-      <div className="relative z-10 space-y-3 dp-reveal">
-        <div className="h-10 w-64 rounded-lg dp-skel" />
-        <div className="h-44 w-full rounded-3xl dp-skel" />
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="h-28 rounded-2xl dp-skel" />
-          <div className="h-28 rounded-2xl dp-skel" />
-          <div className="h-28 rounded-2xl dp-skel" />
-        </div>
+    <div className="dp2 -mx-4 sm:-mx-6 -my-4 lg:-my-6 px-4 sm:px-6 py-4 lg:py-6 min-h-screen space-y-3">
+      <div className="h-10 w-2/3 rounded-lg dp2-skel" />
+      <div className="h-32 w-full rounded-2xl dp2-skel" />
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="h-24 rounded-xl dp2-skel" />
+        <div className="h-24 rounded-xl dp2-skel" />
+        <div className="h-24 rounded-xl dp2-skel" />
       </div>
       <style>{styles}</style>
     </div>
@@ -578,150 +737,29 @@ function LoadingScreen() {
 }
 
 // ============================================================================
-// CSS — todo el styling de animaciones en un solo bloque autocontenido
+// CSS — austero. Solo animaciones que comunican.
 // ============================================================================
 const styles = `
-.dashboard-pro {
-  --dp-gold: 212, 175, 55;
-  background: radial-gradient(ellipse at top, rgba(212,175,55,0.04), transparent 60%), #0A0A0A;
-}
+.dp2 { background: #0A0A0A; }
 
-/* Aurora background — sigue el mouse muy sutil */
-.dp-aurora {
-  position: absolute; inset: -30%; z-index: 0; pointer-events: none;
-  background:
-    radial-gradient(ellipse 60% 50% at var(--mx, 50%) var(--my, 50%), rgba(212, 175, 55, 0.14), transparent 60%),
-    radial-gradient(ellipse 50% 40% at 80% 20%, rgba(167, 139, 250, 0.08), transparent 60%),
-    radial-gradient(ellipse 50% 40% at 20% 80%, rgba(56, 189, 248, 0.06), transparent 60%);
-  filter: blur(20px);
-  animation: dpAuroraDrift 22s ease-in-out infinite alternate;
-  transition: background 800ms ease-out;
+/* Fade-in para los insights que llegan (un evento real: dato nuevo) */
+.dp2-fade-in {
+  opacity: 0;
+  transform: translateY(4px);
+  animation: dp2Fade .4s cubic-bezier(.2,.7,.2,1) both;
 }
-@keyframes dpAuroraDrift {
-  0%   { transform: scale(1)   rotate(0deg); }
-  100% { transform: scale(1.06) rotate(2deg); }
-}
+@keyframes dp2Fade { to { opacity: 1; transform: translateY(0); } }
 
-/* Grano sutil para textura */
-.dp-grain {
-  position: absolute; inset: 0; z-index: 1; pointer-events: none; opacity: .04;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  background-size: 180px 180px;
-  mix-blend-mode: overlay;
-}
-
-/* Texto con gradiente dorado */
-.dp-gradient-text {
-  background: linear-gradient(135deg, #F4D77A 0%, #D4AF37 35%, #B8860B 70%, #F4D77A 100%);
-  background-size: 200% 200%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: dpGradShift 6s ease-in-out infinite;
-}
-@keyframes dpGradShift {
-  0%, 100% { background-position: 0% 50%; }
-  50%      { background-position: 100% 50%; }
-}
-
-/* Reveal con stagger */
-.dp-reveal {
-  opacity: 0; transform: translateY(16px);
-  animation: dpReveal .8s cubic-bezier(.2,.7,.2,1) both;
-}
-@keyframes dpReveal {
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* Glow del hero */
-.dp-glow {
-  box-shadow:
-    0 30px 80px -30px rgba(212, 175, 55, 0.2),
-    inset 0 1px 0 rgba(255,255,255,0.04);
-}
-
-/* Shimmer cruzando la card hero */
-.dp-shimmer {
-  position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.06) 50%, transparent 70%);
-  background-size: 300% 100%;
-  animation: dpShimmer 7s linear infinite;
-}
-@keyframes dpShimmer { 0% { background-position: 200% 0; } 100% { background-position: -100% 0; } }
-
-/* Sparkle del header */
-.dp-sparkle { animation: dpSparkle 2.4s ease-in-out infinite; transform-origin: center; }
-@keyframes dpSparkle {
-  0%, 100% { transform: scale(1) rotate(0); opacity: .9; }
-  50%      { transform: scale(1.3) rotate(180deg); opacity: 1; }
-}
-.dp-flame { animation: dpFlame 1.8s ease-in-out infinite; }
-@keyframes dpFlame {
-  0%, 100% { transform: translateY(0) scale(1); opacity: .9; }
-  50%      { transform: translateY(-1px) scale(1.08); opacity: 1; }
-}
-.dp-pulse { animation: dpPulse 2.2s ease-in-out infinite; }
-@keyframes dpPulse {
-  0%, 100% { opacity: .35; transform: scale(.95); }
-  50%      { opacity: .65; transform: scale(1.05); }
-}
-
-/* Ring rotation-in */
-.dp-ring-spin-in { animation: dpRingSpin 1.2s cubic-bezier(.2,.7,.2,1) both; }
-@keyframes dpRingSpin {
-  from { opacity: 0; transform: rotate(-90deg) scale(.7); }
-  to   { opacity: 1; transform: rotate(0)     scale(1); }
-}
-
-/* Sparkline draw */
-.dp-spark-draw path { stroke-dasharray: 800; stroke-dashoffset: 800; animation: dpDraw 2s cubic-bezier(.2,.7,.2,1) .4s forwards; }
-.dp-spark-fill { opacity: 0; animation: dpFade 1.4s ease 1.2s forwards; }
-.dp-spark-dot  { transform-origin: center; animation: dpDotIn .5s ease 1.8s both; }
-.dp-spark-pulse { transform-origin: center; animation: dpRipple 2s ease-out 1.8s infinite; }
-@keyframes dpDraw   { to { stroke-dashoffset: 0; } }
-@keyframes dpFade   { to { opacity: 1; } }
-@keyframes dpDotIn  { from { transform: scale(0); } to { transform: scale(1); } }
-@keyframes dpRipple { from { transform: scale(1); opacity: .6; } to { transform: scale(3); opacity: 0; } }
-
-/* Card tilt 3D */
-.dp-tilt {
-  perspective: 800px;
-  transform-style: preserve-3d;
-  transform: rotateX(var(--rx, 0)) rotateY(var(--ry, 0));
-  transition: transform 220ms cubic-bezier(.2,.7,.2,1), border-color 220ms;
-  will-change: transform;
-}
-.dp-tilt:hover { border-color: rgba(var(--rgb, 212, 175, 55), 0.5); }
-.dp-tilt-glow {
-  position: absolute; inset: -1px;
-  background: radial-gradient(circle 280px at var(--gx, 50%) var(--gy, 50%), rgba(var(--rgb, 212, 175, 55), 0.18), transparent 50%);
-  opacity: 0; transition: opacity 220ms; pointer-events: none;
-}
-.dp-tilt:hover .dp-tilt-glow { opacity: 1; }
-
-/* Bar fill animation */
-.dp-bar-fill { width: 0 !important; animation: dpBarFill 1s cubic-bezier(.2,.7,.2,1) .3s forwards; }
-@keyframes dpBarFill { to { width: var(--final, 100%) !important; } }
-
-/* Row entrance */
-.dp-row-in { opacity: 0; transform: translateX(-6px); animation: dpRowIn .5s cubic-bezier(.2,.7,.2,1) both; }
-@keyframes dpRowIn { to { opacity: 1; transform: translateX(0); } }
-
-/* Ping (live indicator) */
-.dp-ping { animation: dpPingAnim 1.6s cubic-bezier(0,0,.2,1) infinite; }
-@keyframes dpPingAnim { 75%, 100% { transform: scale(2); opacity: 0; } }
-
-/* Skeleton */
-.dp-skel {
+/* Skeleton sobrio */
+.dp2-skel {
   position: relative;
-  background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 100%);
+  background: linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.03) 100%);
   background-size: 200% 100%;
-  animation: dpSkel 1.4s ease-in-out infinite;
+  animation: dp2Skel 1.4s ease-in-out infinite;
 }
-@keyframes dpSkel { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@keyframes dp2Skel { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
 @media (prefers-reduced-motion: reduce) {
-  .dp-aurora, .dp-shimmer, .dp-gradient-text, .dp-sparkle, .dp-flame, .dp-pulse, .dp-ping, .dp-skel { animation: none !important; }
-  .dp-reveal, .dp-row-in, .dp-spark-draw path, .dp-bar-fill { animation-duration: .01ms !important; }
+  .dp2-fade-in, .dp2-skel { animation-duration: .01ms !important; }
 }
 `;
