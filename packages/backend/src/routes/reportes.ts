@@ -872,7 +872,7 @@ router.get('/narrativa', async (_req: Request, res: Response) => {
           FROM sesiones_venta sv
          WHERE sv.organizacion_id = $1
            AND sv.estado = 'cerrada'
-           AND DATE(sv.cerrada_at) BETWEEN $2 AND $3
+           AND DATE(sv.cerrada_at) BETWEEN $2::date AND $3::date
       `, orgId, desde, hasta);
       return r[0] || { total: 0, tickets: 0 };
     };
@@ -886,7 +886,7 @@ router.get('/narrativa', async (_req: Request, res: Response) => {
           JOIN sesiones_venta sv ON sv.id = vi.sesion_id
          WHERE sv.organizacion_id = $1
            AND sv.estado = 'cerrada'
-           AND DATE(sv.cerrada_at) BETWEEN $2 AND $3
+           AND DATE(sv.cerrada_at) BETWEEN $2::date AND $3::date
       `, orgId, desde, hasta);
       return r[0] || { items: 0, importe: 0 };
     };
@@ -925,7 +925,7 @@ router.get('/narrativa', async (_req: Request, res: Response) => {
    LEFT JOIN ult_costo uc ON uc.producto_id = vi.producto_id
        WHERE sv.organizacion_id = $1
          AND sv.estado='cerrada'
-         AND DATE(sv.cerrada_at) BETWEEN $2 AND $3
+         AND DATE(sv.cerrada_at) BETWEEN $2::date AND $3::date
     `, orgId, inicioMes, hoy);
     const costoMes = costoMesQ[0]?.costo || 0;
     const margenMes = vMes.total > 0 ? ((vMes.total - costoMes) / vMes.total) * 100 : 0;
@@ -944,7 +944,7 @@ router.get('/narrativa', async (_req: Request, res: Response) => {
         JOIN productos p ON p.id = vi.producto_id
    LEFT JOIN ult_costo uc ON uc.producto_id = vi.producto_id
        WHERE sv.organizacion_id = $1
-         AND sv.estado='cerrada' AND DATE(sv.cerrada_at) = $2
+         AND sv.estado='cerrada' AND DATE(sv.cerrada_at) = $2::date
     `, orgId, hoy);
     const costoHoy = costoHoyQ[0]?.costo || 0;
     const margenHoy = vHoy.total > 0 ? ((vHoy.total - costoHoy) / vHoy.total) * 100 : 0;
@@ -961,7 +961,7 @@ router.get('/narrativa', async (_req: Request, res: Response) => {
           JOIN sesiones_venta sv ON sv.id = vi.sesion_id
           JOIN productos p ON p.id = vi.producto_id
          WHERE sv.organizacion_id = $1
-           AND sv.estado='cerrada' AND DATE(sv.cerrada_at) BETWEEN $2 AND $3
+           AND sv.estado='cerrada' AND DATE(sv.cerrada_at) BETWEEN $2::date AND $3::date
          GROUP BY vi.producto_id, p.nombre
          ORDER BY SUM(vi.subtotal) DESC
          LIMIT ${limit}
@@ -980,7 +980,7 @@ router.get('/narrativa', async (_req: Request, res: Response) => {
         FROM sesiones_venta sv
        WHERE sv.organizacion_id = $1
          AND sv.estado='cerrada'
-         AND DATE(sv.cerrada_at) BETWEEN $2 AND $3
+         AND DATE(sv.cerrada_at) BETWEEN $2::date AND $3::date
        GROUP BY DATE(sv.cerrada_at)
        ORDER BY fecha
     `, orgId, hace7d, hoy);
