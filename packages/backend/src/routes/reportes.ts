@@ -837,6 +837,12 @@ router.get('/insights', async (_req: Request, res: Response) => {
 // ============================================================================
 router.get('/narrativa', async (_req: Request, res: Response) => {
   try {
+    // CRÍTICO: $queryRawUnsafe NO pasa por la extensión multi-tenant de
+    // Prisma. Si no filtramos por organizacion_id explícito en cada query,
+    // habría leak cross-tenant. Tomamos el orgId del contexto y lo
+    // inyectamos en todas las queries de abajo.
+    const { organizacionId: orgId } = getTenant();
+
     const ahora = new Date();
     const hora = ahora.getHours();
     const ymd = (d: Date) => d.toISOString().split('T')[0];
@@ -864,9 +870,10 @@ router.get('/narrativa', async (_req: Request, res: Response) => {
         SELECT COALESCE(SUM(sv.total_ventas), 0)::float AS total,
                COUNT(*)::int AS tickets
           FROM sesiones_venta sv
-         WHERE sv.estado = 'cerrada'
-           AND DATE(sv.cerrada_at) BETWEEN $1 AND $2
-      `, desde, hasta);
+         WHERE sv.organizacion_id = $1
+           AND sv.estado = 'cerrada'
+           AND DATE(sv.cerrada_at) BETWEEN $2 AND $3
+      `, orgId, desde, hasta);
       return r[0] || { total: 0, tickets: 0 };
     };
 
@@ -877,9 +884,10 @@ router.get('/narrativa', async (_req: Request, res: Response) => {
                COALESCE(SUM(vi.subtotal), 0)::float AS importe
           FROM venta_items vi
           JOIN sesiones_venta sv ON sv.id = vi.sesion_id
-         WHERE sv.estado = 'cerrada'
-           AND DATE(sv.cerrada_at) BETWEEN $1 AND $2
-      `, desde, hasta);
+         WHERE sv.organizacion_id = $1
+           AND sv.estado = 'cerrada'
+           AND DATE(sv.cerrada_at) BETWEEN $2 AND $3
+      `, orgId, desde, hasta);
       return r[0] || { items: 0, importe: 0 };
     };
 
@@ -906,7 +914,8 @@ router.get('/narrativa', async (_req: Request, res: Response) => {
                producto_id,
                costo_unitario
           FROM movimientos
-         WHERE tipo='ingreso' AND costo_unitario IS NOT NULL AND costo_unitario > 0
+         WHERE organizacion_id = $1
+           AND tipo='ingreso' AND costo_unitario IS NOT NULL AND costo_unitario > 0
          ORDER BY producto_id, fecha DESC, id DESC
       )
       SELECT COALESCE(SUM(vi.cantidad * COALESCE(uc.costo_unitario, p.precio_referencia, 0)), 0)::float AS costo
@@ -914,9 +923,10 @@ router.get('/narrativa', async (_req: Request, res: Response) => {
         JOIN sesiones_venta sv ON sv.id = vi.sesion_id
         JOIN productos p ON p.id = vi.producto_id
    LEFT JOIN ult_costo uc ON uc.producto_id = vi.producto_id
-       WHERE sv.estado='cerrada'
-         AND DATE(sv.cerrada_at) BETWEEN $1 AND $2
-    `, inicioMes, hoy);
+       WHERE sv.organizacion_id = $1
+         AND sv.estado='cerrada'
+         AND DATE(sv.cerrada_at) BETWEEN $2 AND $3
+    `, orgId, inicioMes, hoy);
     const costoMes = costoMesQ[0]?.costo || 0;
     const margenMes = vMes.total > 0 ? ((vMes.total - costoMes) / vMes.total) * 100 : 0;
 
@@ -924,7 +934,8 @@ router.get('/narrativa', async (_req: Request, res: Response) => {
       WITH ult_costo AS (
         SELECT DISTINCT ON (producto_id) producto_id, costo_unitario
           FROM movimientos
-         WHERE tipo='ingreso' AND costo_unitario IS NOT NULL AND costo_unitario > 0
+         WHERE organizacion_id = $1
+           AND tipo='ingreso' AND costo_unitario IS NOT NULL AND costo_unitario > 0
          ORDER BY producto_id, fecha DESC, id DESC
       )
       SELECT COALESCE(SUM(vi.cantidad * COALESCE(uc.costo_unitario, p.precio_referencia, 0)), 0)::float AS costo
@@ -932,8 +943,9 @@ router.get('/narrativa', async (_req: Request, res: Response) => {
         JOIN sesiones_venta sv ON sv.id = vi.sesion_id
         JOIN productos p ON p.id = vi.producto_id
    LEFT JOIN ult_costo uc ON uc.producto_id = vi.producto_id
-       WHERE sv.estado='cerrada' AND DATE(sv.cerrada_at) = $1
-    `, hoy);
+       WHERE sv.organizacion_id = $1
+         AND sv.estado='cerrada' AND DATE(sv.cerrada_at) = $2
+    `, orgId, hoy);
     const costoHoy = costoHoyQ[0]?.costo || 0;
     const margenHoy = vHoy.total > 0 ? ((vHoy.total - costoHoy) / vHoy.total) * 100 : 0;
 
@@ -948,11 +960,12 @@ router.get('/narrativa', async (_req: Request, res: Response) => {
           FROM venta_items vi
           JOIN sesiones_venta sv ON sv.id = vi.sesion_id
           JOIN productos p ON p.id = vi.producto_id
-         WHERE sv.estado='cerrada' AND DATE(sv.cerrada_at) BETWEEN $1 AND $2
+         WHERE sv.organizacion_id = $1
+           AND sv.estado='cerrada' AND DATE(sv.cerrada_at) BETWEEN $2 AND $3
          GROUP BY vi.producto_id, p.nombre
          ORDER BY SUM(vi.subtotal) DESC
          LIMIT ${limit}
-      `, desde, hasta);
+      `, orgId, desde, hasta);
     };
     const [topHoy, topMes] = await Promise.all([
       topProductosRango(hoy, hoy, 3),
@@ -965,11 +978,12 @@ router.get('/narrativa', async (_req: Request, res: Response) => {
              COALESCE(SUM(sv.total_ventas), 0)::float AS total,
              COUNT(*)::int AS tickets
         FROM sesiones_venta sv
-       WHERE sv.estado='cerrada'
-         AND DATE(sv.cerrada_at) BETWEEN $1 AND $2
+       WHERE sv.organizacion_id = $1
+         AND sv.estado='cerrada'
+         AND DATE(sv.cerrada_at) BETWEEN $2 AND $3
        GROUP BY DATE(sv.cerrada_at)
        ORDER BY fecha
-    `, hace7d /* 7d para tener data en periodo corto */, hoy);
+    `, orgId, hace7d, hoy);
     // Rellenar días sin ventas con 0
     const sparkVentas: Array<{ fecha: string; total: number; tickets: number }> = [];
     for (let i = 29; i >= 0; i--) {
@@ -984,8 +998,9 @@ router.get('/narrativa', async (_req: Request, res: Response) => {
       SELECT COALESCE(SUM(m.cantidad * COALESCE(m.costo_unitario, p.precio_referencia, 0)), 0)::float AS total
         FROM movimientos m
         JOIN productos p ON p.id = m.producto_id
-       WHERE m.tipo='merma' AND m.fecha BETWEEN $1 AND $2
-    `, inicioMes, hoy);
+       WHERE m.organizacion_id = $1
+         AND m.tipo='merma' AND m.fecha BETWEEN $2 AND $3
+    `, orgId, inicioMes, hoy);
     const mermasMes = mermasMesQ[0]?.total || 0;
 
     const topMermasQ = await prisma.$queryRawUnsafe<Array<{ producto_id: number; nombre: string; total: number }>>(`
@@ -993,11 +1008,12 @@ router.get('/narrativa', async (_req: Request, res: Response) => {
              COALESCE(SUM(m.cantidad * COALESCE(m.costo_unitario, p.precio_referencia, 0)), 0)::float AS total
         FROM movimientos m
         JOIN productos p ON p.id = m.producto_id
-       WHERE m.tipo='merma' AND m.fecha BETWEEN $1 AND $2
+       WHERE m.organizacion_id = $1
+         AND m.tipo='merma' AND m.fecha BETWEEN $2 AND $3
        GROUP BY m.producto_id, p.nombre
        ORDER BY total DESC
        LIMIT 5
-    `, inicioMes, hoy);
+    `, orgId, inicioMes, hoy);
 
     // ── 6. Productos bajo mínimo CON nombre ─────────────────────────────
     const bajosMinQ = await prisma.$queryRawUnsafe<Array<{
@@ -1010,6 +1026,7 @@ router.get('/narrativa', async (_req: Request, res: Response) => {
                       WHEN deposito_origen_id  IS NOT NULL THEN -cantidad
                       ELSE 0 END), 0)::float AS stock
           FROM movimientos
+         WHERE organizacion_id = $1
          GROUP BY producto_id
       )
       SELECT p.id::int AS producto_id, p.nombre, p.unidad_uso AS unidad,
@@ -1017,54 +1034,63 @@ router.get('/narrativa', async (_req: Request, res: Response) => {
              p.stock_minimo::float AS minimo
         FROM productos p
    LEFT JOIN stock_actual sa ON sa.producto_id = p.id
-       WHERE p.activo = true
+       WHERE p.organizacion_id = $1
+         AND p.activo = true
          AND p.stock_minimo > 0
          AND COALESCE(sa.stock, 0) < p.stock_minimo
        ORDER BY (p.stock_minimo - COALESCE(sa.stock, 0)) DESC
        LIMIT 5
-    `);
+    `, orgId);
 
     // ── 7. Deuda + top acreedores + próximos vencimientos ───────────────
     const deudaTotalQ = await prisma.$queryRawUnsafe<Array<{ total: number; n: number }>>(`
       WITH pagos_sum AS (
-        SELECT factura_id, SUM(monto)::float AS pagado FROM pagos GROUP BY factura_id
+        SELECT factura_id, SUM(monto)::float AS pagado FROM pagos
+         WHERE organizacion_id = $1
+         GROUP BY factura_id
       )
       SELECT COALESCE(SUM(f.total - COALESCE(ps.pagado, 0)), 0)::float AS total,
              COUNT(*)::int AS n
         FROM facturas f
    LEFT JOIN pagos_sum ps ON ps.factura_id = f.id
-       WHERE f.estado IN ('pendiente', 'parcial')
-    `);
+       WHERE f.organizacion_id = $1
+         AND f.estado IN ('pendiente', 'parcial')
+    `, orgId);
     const topAcreedoresQ = await prisma.$queryRawUnsafe<Array<{
       proveedor_id: number; nombre: string; saldo: number;
     }>>(`
       WITH pagos_sum AS (
-        SELECT factura_id, SUM(monto)::float AS pagado FROM pagos GROUP BY factura_id
+        SELECT factura_id, SUM(monto)::float AS pagado FROM pagos
+         WHERE organizacion_id = $1
+         GROUP BY factura_id
       )
       SELECT f.proveedor_id::int, pr.nombre,
              COALESCE(SUM(f.total - COALESCE(ps.pagado, 0)), 0)::float AS saldo
         FROM facturas f
         JOIN proveedores pr ON pr.id = f.proveedor_id
    LEFT JOIN pagos_sum ps ON ps.factura_id = f.id
-       WHERE f.estado IN ('pendiente', 'parcial')
+       WHERE f.organizacion_id = $1
+         AND f.estado IN ('pendiente', 'parcial')
        GROUP BY f.proveedor_id, pr.nombre
        ORDER BY saldo DESC
        LIMIT 5
-    `);
+    `, orgId);
 
     const en7Str = ymd(new Date(ahora.getTime() + 7 * 86400000));
     const vencen7Q = await prisma.$queryRawUnsafe<Array<{ n: number; total: number }>>(`
       SELECT COUNT(*)::int AS n, COALESCE(SUM(total), 0)::float AS total
         FROM facturas
-       WHERE estado IN ('pendiente', 'parcial')
-         AND fecha_vencimiento BETWEEN $1 AND $2
-    `, hoy, en7Str);
+       WHERE organizacion_id = $1
+         AND estado IN ('pendiente', 'parcial')
+         AND fecha_vencimiento BETWEEN $2 AND $3
+    `, orgId, hoy, en7Str);
     const vencidasQ = await prisma.$queryRawUnsafe<Array<{ n: number; total: number }>>(`
       SELECT COUNT(*)::int AS n, COALESCE(SUM(total), 0)::float AS total
         FROM facturas
-       WHERE estado IN ('pendiente', 'parcial')
-         AND fecha_vencimiento < $1
-    `, hoy);
+       WHERE organizacion_id = $1
+         AND estado IN ('pendiente', 'parcial')
+         AND fecha_vencimiento < $2
+    `, orgId, hoy);
 
     // ── 8. Construir narrativa ──────────────────────────────────────────
     const fmt$ = (n: number) =>

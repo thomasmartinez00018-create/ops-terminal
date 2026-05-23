@@ -55,6 +55,7 @@ export default function DashboardPro() {
   const { user } = useAuth();
   const [data, setData] = useState<Narrativa | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [periodo, setPeriodo] = useState<Periodo>('hoy');
   const [tick, setTick] = useState(new Date());
@@ -62,13 +63,15 @@ export default function DashboardPro() {
 
   const cargar = useCallback(async (silencioso = false) => {
     if (!silencioso) setRefreshing(true);
+    setError(null);
     try {
       const d = await api.getDashboardNarrativa();
       setData(d);
       setUltimoFetch(new Date());
       setLoading(false);
-    } catch (e) {
+    } catch (e: any) {
       console.error('[dp3]', e);
+      setError(e?.message || 'No pudimos cargar el dashboard. Probá de nuevo en un rato.');
       setLoading(false);
     } finally {
       setRefreshing(false);
@@ -87,7 +90,8 @@ export default function DashboardPro() {
     return () => clearInterval(id);
   }, []);
 
-  if (loading || !data) return <LoadingScreen />;
+  if (loading) return <LoadingScreen />;
+  if (error || !data) return <ErrorScreen error={error || 'Sin datos'} onRetry={() => { setLoading(true); cargar(false); }} />;
 
   const estado = computarEstado(data);
   const frescuraTxt = ultimoFetch
@@ -756,6 +760,39 @@ function Atajo({ to, icon, label }: { to: string; icon: React.ReactNode; label: 
       <ArrowUpRight size={12}
         className="text-on-surface-variant/40 group-hover:text-primary group-hover:-translate-y-0.5 group-hover:translate-x-0.5 transition" />
     </Link>
+  );
+}
+
+function ErrorScreen({ error, onRetry }: { error: string; onRetry: () => void }) {
+  return (
+    <div className="dp3 relative -mx-4 sm:-mx-6 -my-4 lg:-my-6 px-4 sm:px-6 py-12 lg:py-20 min-h-screen flex items-center justify-center">
+      <div className="max-w-md text-center">
+        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-rose-500/10 border border-rose-500/30 mb-4">
+          <AlertCircle className="text-rose-400" size={28} />
+        </div>
+        <h2 className="text-xl font-extrabold text-foreground mb-2">
+          No pudimos cargar el dashboard
+        </h2>
+        <p className="text-sm text-on-surface-variant mb-4">
+          {error}
+        </p>
+        <div className="flex gap-2 justify-center">
+          <button
+            onClick={onRetry}
+            className="px-4 py-2 rounded-lg bg-primary text-on-primary text-xs font-bold flex items-center gap-1.5"
+          >
+            <RefreshCw size={12} /> Reintentar
+          </button>
+          <Link
+            to="/"
+            className="px-4 py-2 rounded-lg bg-surface border border-border/60 text-xs font-bold flex items-center gap-1.5"
+          >
+            <ArrowLeft size={12} /> Volver a la vista clásica
+          </Link>
+        </div>
+        <style>{styles}</style>
+      </div>
+    </div>
   );
 }
 
