@@ -149,11 +149,16 @@ export default function DashboardPro() {
         <PeriodoBtn periodo={periodo} setPeriodo={setPeriodo} value="mes" label="Este mes" />
       </div>
 
-      {/* PANTALLA HOY */}
-      {periodo === 'hoy' && <PanelHoy data={data} />}
-
-      {/* PANTALLA MES */}
-      {periodo === 'mes' && <PanelMes data={data} />}
+      {/* Adaptativo: si la org usa PoS muestra ventas; si no, muestra
+          compras + stock + movimientos (modo inventario). */}
+      {data.modoOperativo === 'ventas' ? (
+        <>
+          {periodo === 'hoy' && <PanelHoy data={data} />}
+          {periodo === 'mes' && <PanelMes data={data} />}
+        </>
+      ) : (
+        <PanelInventario data={data} periodo={periodo} />
+      )}
 
       {/* ALERTAS — siempre visibles abajo, accionables */}
       <PanelAlertas data={data} />
@@ -167,6 +172,149 @@ export default function DashboardPro() {
       </div>
 
       <style>{styles}</style>
+    </div>
+  );
+}
+
+// ============================================================================
+// PanelInventario — para orgs que NO usan el PoS interno (registran ventas
+// afuera). Muestra COMPRAS del mes, stock valorizado, movimientos del día,
+// deuda con proveedores y top productos comprados.
+// ============================================================================
+function PanelInventario({ data, periodo }: { data: Narrativa; periodo: Periodo }) {
+  const inv = data.inventario;
+  const dd = data.drilldowns;
+  const monto = periodo === 'hoy' ? inv.comprasHoy : inv.comprasMes;
+  const display = useCountUpMemo(`dp3.inv.${periodo}`, monto, 1100);
+  const heroLabel = periodo === 'hoy' ? 'Lo que compraste hoy' : 'Compras del mes';
+  const subtituloHero = periodo === 'hoy'
+    ? (inv.movimientosHoy > 0
+        ? `${inv.movimientosHoy} movimiento${inv.movimientosHoy === 1 ? '' : 's'} cargado${inv.movimientosHoy === 1 ? '' : 's'} hoy`
+        : 'Todavía no cargaste movimientos hoy')
+    : `Tu stock vale ${fmt$(inv.stockValorizado)} · ${inv.elaboracionesMes} elaboración${inv.elaboracionesMes === 1 ? '' : 'es'} este mes`;
+
+  return (
+    <div className="relative z-10 space-y-3">
+      {/* Aviso de modo */}
+      <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-[11px] text-sky-300">
+        <strong className="text-sky-200">Modo inventario.</strong>{' '}
+        Como no usás el módulo de Venta interno, te muestro compras, stock y
+        movimientos. Si arrancás a vender desde la app, el dashboard cambia
+        automáticamente a "modo ventas".
+      </div>
+
+      {/* HERO compras */}
+      <div className="rounded-2xl border border-border/40 bg-surface/60 backdrop-blur p-5 sm:p-6 dp3-anim-hero">
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-5 items-center">
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-on-surface-variant flex items-center gap-1.5">
+              <Coins size={11} /> {heroLabel}
+            </div>
+            <div className="mt-2 flex items-baseline gap-3 flex-wrap">
+              <span className="text-4xl sm:text-5xl font-extrabold tabular-nums dp3-hero-num">
+                {monto >= 1_000_000 ? fmtCompact(display) : fmt$(display)}
+              </span>
+            </div>
+            <div className="text-[12px] text-on-surface-variant mt-2 leading-relaxed">
+              {subtituloHero}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* TRIO operativo */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 dp3-anim-stack">
+        <CardConDrillDown
+          icon={<Package size={14} />}
+          label="Stock valorizado"
+          valor={inv.stockValorizado}
+          formato="money"
+          color="emerald"
+          subtitle="plata inmovilizada"
+        />
+        <CardConDrillDown
+          icon={<ShoppingCart size={14} />}
+          label="Compras del mes"
+          valor={inv.comprasMes}
+          formato="money"
+          color="sky"
+          subtitle={`Hoy: ${fmt$(inv.comprasHoy)}`}
+        />
+        <CardConDrillDown
+          icon={<Flame size={14} />}
+          label="Mermas del mes"
+          valor={dd.mermasMes}
+          formato="money"
+          color="rose"
+          subtitle={dd.topMermas[0] ? `Mayor: ${dd.topMermas[0].nombre}` : 'Sin mermas ✓'}
+        />
+      </div>
+
+      {/* Actividad operativa */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 dp3-anim-stack">
+        <CardConDrillDown
+          icon={<Receipt size={14} />}
+          label="Movimientos hoy"
+          valor={inv.movimientosHoy}
+          formato="num"
+          color="violet"
+          subtitle={inv.movimientosHoy === 0 ? 'Sin actividad' : 'Ingresos / mermas / consumos'}
+        />
+        <CardConDrillDown
+          icon={<Target size={14} />}
+          label="Elaboraciones del mes"
+          valor={inv.elaboracionesMes}
+          formato="num"
+          color="amber"
+          subtitle="platos producidos"
+        />
+        <CardConDrillDown
+          icon={<Coins size={14} />}
+          label="Le debo a proveedores"
+          valor={dd.deuda.total}
+          formato="money"
+          color="rose"
+          subtitle={`${dd.deuda.cantidad} factura${dd.deuda.cantidad === 1 ? '' : 's'} sin pagar`}
+        />
+      </div>
+
+      {/* Drill-downs reales del cliente */}
+      {inv.topComprados.length > 0 && (
+        <DrillDown
+          titulo="🛒 En qué más gastaste este mes"
+          items={inv.topComprados.map(p => ({
+            key: String(p.productoId),
+            label: p.nombre,
+            valor: fmt$(p.importe),
+            extra: `${fmtNum(p.cantidad)} u.`,
+          }))}
+        />
+      )}
+
+      {dd.topAcreedores.length > 0 && (
+        <DrillDown
+          titulo="💰 A quién le debo más"
+          items={dd.topAcreedores.map(a => ({
+            key: String(a.proveedorId),
+            label: a.nombre,
+            valor: fmt$(a.saldo),
+            extra: '',
+          }))}
+          to="/cuentas-por-pagar"
+        />
+      )}
+
+      {dd.topMermas.length > 0 && (
+        <DrillDown
+          titulo="🗑 Mermas: qué se está perdiendo"
+          items={dd.topMermas.map(m => ({
+            key: String(m.productoId),
+            label: m.nombre,
+            valor: fmt$(m.importe),
+            extra: '',
+          }))}
+        />
+      )}
     </div>
   );
 }

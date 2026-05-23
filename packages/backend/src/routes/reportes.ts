@@ -1092,7 +1092,100 @@ router.get('/narrativa', async (_req: Request, res: Response) => {
          AND fecha_vencimiento < $2
     `, orgId, hoy);
 
-    // ── 8. Construir narrativa ──────────────────────────────────────────
+    // ── 8. MODO OPERATIVO ──────────────────────────────────────────────
+    // Si la org no usa el módulo PoS (0 sesiones cerradas en últimos 30
+    // días), el dashboard cambia a "modo inventario": muestra compras,
+    // stock valorizado, movimientos del día y deuda. Sin esto, una org
+    // que registra TODO afuera (Maxirest u otro POS) ve todo en cero
+    // aunque tenga mucha actividad real cargada como movimientos.
+    const totalSesionesQ = await prisma.$queryRawUnsafe<Array<{ n: number }>>(`
+      SELECT COUNT(*)::int AS n FROM sesiones_venta
+       WHERE organizacion_id = $1 AND estado = 'cerrada'
+         AND DATE(cerrada_at) >= ($2::date - INTERVAL '30 days')
+    `, orgId, hoy);
+    const usaPoS = (totalSesionesQ[0]?.n || 0) > 0;
+
+    // ── Métricas modo inventario (compras, stock, actividad) ────────────
+    let invMetrics: {
+      comprasMes: number; comprasHoy: number;
+      stockValorizado: number; movsHoy: number;
+      elaboracionesMes: number;
+      topComprados: Array<{ productoId: number; nombre: string; importe: number; cantidad: number }>;
+    } = {
+      comprasMes: 0, comprasHoy: 0, stockValorizado: 0, movsHoy: 0,
+      elaboracionesMes: 0, topComprados: [],
+    };
+    if (!usaPoS) {
+      const [comprasMesQ, comprasHoyQ, stockValQ, movsHoyQ, elabMesQ, topCompQ] = await Promise.all([
+        prisma.$queryRawUnsafe<Array<{ total: number }>>(`
+          SELECT COALESCE(SUM(cantidad * COALESCE(costo_unitario, 0)),0)::float AS total
+            FROM movimientos
+           WHERE organizacion_id = $1 AND tipo='ingreso'
+             AND fecha BETWEEN $2 AND $3
+        `, orgId, inicioMes, hoy),
+        prisma.$queryRawUnsafe<Array<{ total: number }>>(`
+          SELECT COALESCE(SUM(cantidad * COALESCE(costo_unitario, 0)),0)::float AS total
+            FROM movimientos
+           WHERE organizacion_id = $1 AND tipo='ingreso' AND fecha = $2
+        `, orgId, hoy),
+        prisma.$queryRawUnsafe<Array<{ total: number }>>(`
+          WITH stock_actual AS (
+            SELECT producto_id,
+                   COALESCE(SUM(CASE WHEN deposito_destino_id IS NOT NULL THEN cantidad
+                                     WHEN deposito_origen_id  IS NOT NULL THEN -cantidad
+                                     ELSE 0 END),0)::float AS stock
+              FROM movimientos WHERE organizacion_id = $1 GROUP BY producto_id
+          ),
+          ult_costo AS (
+            SELECT DISTINCT ON (producto_id) producto_id, costo_unitario
+              FROM movimientos
+             WHERE organizacion_id = $1 AND tipo='ingreso'
+               AND costo_unitario IS NOT NULL AND costo_unitario > 0
+             ORDER BY producto_id, fecha DESC, id DESC
+          )
+          SELECT COALESCE(SUM(sa.stock * COALESCE(uc.costo_unitario, p.precio_referencia, 0)),0)::float AS total
+            FROM stock_actual sa
+            JOIN productos p ON p.id = sa.producto_id
+       LEFT JOIN ult_costo uc ON uc.producto_id = sa.producto_id
+           WHERE p.organizacion_id = $1 AND p.activo = true AND sa.stock > 0
+        `, orgId),
+        prisma.$queryRawUnsafe<Array<{ n: number }>>(`
+          SELECT COUNT(*)::int AS n FROM movimientos
+           WHERE organizacion_id = $1 AND fecha = $2
+        `, orgId, hoy),
+        prisma.$queryRawUnsafe<Array<{ n: number }>>(`
+          SELECT COUNT(*)::int AS n FROM elaboracion_lotes
+           WHERE organizacion_id = $1 AND fecha BETWEEN $2 AND $3
+        `, orgId, inicioMes, hoy),
+        prisma.$queryRawUnsafe<Array<{ producto_id: number; nombre: string; importe: number; cantidad: number }>>(`
+          SELECT m.producto_id::int AS producto_id, p.nombre,
+                 COALESCE(SUM(m.cantidad * COALESCE(m.costo_unitario, 0)),0)::float AS importe,
+                 SUM(m.cantidad)::float AS cantidad
+            FROM movimientos m
+            JOIN productos p ON p.id = m.producto_id
+           WHERE m.organizacion_id = $1 AND m.tipo='ingreso'
+             AND m.fecha BETWEEN $2 AND $3
+           GROUP BY m.producto_id, p.nombre
+           ORDER BY importe DESC
+           LIMIT 5
+        `, orgId, inicioMes, hoy),
+      ]);
+      invMetrics = {
+        comprasMes: comprasMesQ[0]?.total || 0,
+        comprasHoy: comprasHoyQ[0]?.total || 0,
+        stockValorizado: stockValQ[0]?.total || 0,
+        movsHoy: movsHoyQ[0]?.n || 0,
+        elaboracionesMes: elabMesQ[0]?.n || 0,
+        topComprados: topCompQ.map(x => ({
+          productoId: Number(x.producto_id),
+          nombre: x.nombre,
+          importe: x.importe,
+          cantidad: x.cantidad,
+        })),
+      };
+    }
+
+    // ── 9. Construir narrativa ──────────────────────────────────────────
     const fmt$ = (n: number) =>
       n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M`
       : n >= 10_000  ? `$${Math.round(n / 1000)}k`
@@ -1106,19 +1199,39 @@ router.get('/narrativa', async (_req: Request, res: Response) => {
     const deltaProyMesPas = vMesPasado.total > 0 ? ((proyMes - vMesPasado.total) / vMesPasado.total) * 100 : null;
 
     const piezasHistoria: string[] = [];
-    if (vHoy.tickets > 0) {
-      piezasHistoria.push(`Hoy llevás ${vHoy.tickets} ticket${vHoy.tickets === 1 ? '' : 's'} por ${fmt$(vHoy.total)}`);
-      if (deltaVsAyer !== null && Math.abs(deltaVsAyer) > 5) {
-        piezasHistoria.push(`${deltaVsAyer > 0 ? '+' : ''}${deltaVsAyer.toFixed(0)}% vs ayer`);
-      } else if (deltaVs7 !== null && Math.abs(deltaVs7) > 5) {
-        piezasHistoria.push(`${deltaVs7 > 0 ? '+' : ''}${deltaVs7.toFixed(0)}% vs mismo día semana pasada`);
+    if (usaPoS) {
+      // Modo ventas — historia centrada en facturación del PoS
+      if (vHoy.tickets > 0) {
+        piezasHistoria.push(`Hoy llevás ${vHoy.tickets} ticket${vHoy.tickets === 1 ? '' : 's'} por ${fmt$(vHoy.total)}`);
+        if (deltaVsAyer !== null && Math.abs(deltaVsAyer) > 5) {
+          piezasHistoria.push(`${deltaVsAyer > 0 ? '+' : ''}${deltaVsAyer.toFixed(0)}% vs ayer`);
+        } else if (deltaVs7 !== null && Math.abs(deltaVs7) > 5) {
+          piezasHistoria.push(`${deltaVs7 > 0 ? '+' : ''}${deltaVs7.toFixed(0)}% vs mismo día semana pasada`);
+        }
+      } else if (hora >= 10 && hora <= 22) {
+        piezasHistoria.push(`No registraste ventas hoy todavía`);
+        if (vAyer.tickets > 0) piezasHistoria.push(`ayer llevabas ${vAyer.tickets} a esta hora`);
+      } else {
+        piezasHistoria.push(`Buenas, todavía es temprano`);
+        if (vAyer.tickets > 0) piezasHistoria.push(`ayer cerraste con ${vAyer.tickets} tickets, ${fmt$(vAyer.total)}`);
       }
-    } else if (hora >= 10 && hora <= 22) {
-      piezasHistoria.push(`No registraste ventas hoy todavía`);
-      if (vAyer.tickets > 0) piezasHistoria.push(`ayer llevabas ${vAyer.tickets} a esta hora`);
     } else {
-      piezasHistoria.push(`Buenas, todavía es temprano`);
-      if (vAyer.tickets > 0) piezasHistoria.push(`ayer cerraste con ${vAyer.tickets} tickets, ${fmt$(vAyer.total)}`);
+      // Modo inventario — historia centrada en compras, stock y movimientos
+      // (el cliente registra ventas afuera, ej Maxirest)
+      if (invMetrics.movsHoy > 0) {
+        piezasHistoria.push(`Hoy cargaste ${invMetrics.movsHoy} movimiento${invMetrics.movsHoy === 1 ? '' : 's'}`);
+        if (invMetrics.comprasHoy > 0) {
+          piezasHistoria.push(`compraste ${fmt$(invMetrics.comprasHoy)} en mercadería`);
+        }
+      } else {
+        piezasHistoria.push(`Sin movimientos cargados hoy`);
+      }
+      if (invMetrics.comprasMes > 0) {
+        piezasHistoria.push(`este mes compraste ${fmt$(invMetrics.comprasMes)}`);
+      }
+      if (invMetrics.stockValorizado > 0) {
+        piezasHistoria.push(`tu stock vale ${fmt$(invMetrics.stockValorizado)}`);
+      }
     }
     const pendientesCount = (vencen7Q[0]?.n || 0) + (vencidasQ[0]?.n || 0) + bajosMinQ.length;
     if (pendientesCount > 0) {
@@ -1129,6 +1242,15 @@ router.get('/narrativa', async (_req: Request, res: Response) => {
     res.json({
       tituloHistoria,
       momento: hora < 12 ? 'manana' : hora < 19 ? 'tarde' : 'noche',
+      modoOperativo: usaPoS ? 'ventas' : 'inventario',
+      inventario: {
+        comprasMes: invMetrics.comprasMes,
+        comprasHoy: invMetrics.comprasHoy,
+        stockValorizado: invMetrics.stockValorizado,
+        movimientosHoy: invMetrics.movsHoy,
+        elaboracionesMes: invMetrics.elaboracionesMes,
+        topComprados: invMetrics.topComprados,
+      },
       hoy: {
         ventas: vHoy.total,
         tickets: vHoy.tickets,

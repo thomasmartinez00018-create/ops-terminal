@@ -858,6 +858,15 @@ export const api = {
     request<{
       tituloHistoria: string;
       momento: 'manana' | 'tarde' | 'noche';
+      modoOperativo: 'ventas' | 'inventario';
+      inventario: {
+        comprasMes: number;
+        comprasHoy: number;
+        stockValorizado: number;
+        movimientosHoy: number;
+        elaboracionesMes: number;
+        topComprados: Array<{ productoId: number; nombre: string; importe: number; cantidad: number }>;
+      };
       hoy: {
         ventas: number; tickets: number; ticketPromedio: number;
         itemsVendidos: number; costoMercaderia: number; margen: number;
