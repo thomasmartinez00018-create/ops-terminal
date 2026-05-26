@@ -222,21 +222,31 @@ export default function ComparadorPrecios() {
     return proveedoresImp.filter(p => ids.has(p.id));
   }, [data, proveedoresImp]);
 
-  // Filtrado por rubro del proveedor:
+  // Filtrado de proveedores cuando hay categoría seleccionada:
   //  - Si NO hay catFilter o el toggle está apagado → muestra todos
-  //  - Si hay catFilter + toggle ON: solo proveedores cuyo rubro EXPLÍCITO
-  //    matchea la categoría (los "sin rubro" NO aparecen — el usuario tiene
-  //    que asignarles rubro para que entren al filtro).
-  //  - Match por palabras significativas: "helado" matchea "helados", pero
-  //    NO matchea "carnes" ni "vinos".
+  //  - Si hay catFilter + toggle ON: solo proveedores que TIENEN AL MENOS UN
+  //    PRECIO para algún producto de esa categoría (data-driven, no tag-driven).
+  //    Es lo que pidió el cliente: "los proveedores que pertinentemente tienen
+  //    los productos de la sección seleccionada".
   const proveedoresEnData = useMemo(() => {
     if (!catFilter || !filtrarProvPorRubro) return proveedoresEnDataRaw;
+    // IDs de proveedores que aparecen en al menos una fila de la categoría
+    const idsConProductos = new Set<number>();
+    for (const [, g] of entries) {
+      for (const r of g.rows as any[]) {
+        if (r.proveedorId != null) idsConProductos.add(r.proveedorId);
+      }
+    }
+    // Fallback: si por algún motivo no hubiera matches por data, caemos al
+    // criterio viejo (rubro tag) para no dejar la tabla vacía cuando hay rubros.
+    const porData = proveedoresEnDataRaw.filter(p => idsConProductos.has(p.id));
+    if (porData.length > 0) return porData;
     return proveedoresEnDataRaw.filter(p => {
       const rubroEfectivo = provRubroOverrides[p.id] ?? p.rubro ?? '';
       if (!rubroEfectivo.trim()) return false;
       return rubrosMatch(rubroEfectivo, catFilter);
     });
-  }, [proveedoresEnDataRaw, catFilter, filtrarProvPorRubro, provRubroOverrides]);
+  }, [proveedoresEnDataRaw, catFilter, filtrarProvPorRubro, entries, provRubroOverrides]);
 
   // Cuántos proveedores quedan ocultos por el filtro de rubro
   const provOcultos = proveedoresEnDataRaw.length - proveedoresEnData.length;
