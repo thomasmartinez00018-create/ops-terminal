@@ -83,6 +83,15 @@ export default function CuentaLogin({ onSwitchToSignup }: { onSwitchToSignup: ()
           <Button type="submit" disabled={busy || !email || !password} className="w-full" size="lg">
             {busy ? 'Ingresando...' : 'Ingresar'}
           </Button>
+
+          <div className="text-center">
+            <a
+              href="/forgot-password"
+              className="text-[11px] text-on-surface-variant hover:text-primary hover:underline"
+            >
+              ¿Olvidaste tu contraseña?
+            </a>
+          </div>
         </form>
 
         <div className="mt-6 pt-4 border-t border-border text-center space-y-2">

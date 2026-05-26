@@ -38,6 +38,8 @@ import ComparadorPrecios from './pages/ComparadorPrecios';
 import Landing from './pages/Landing';
 import Suscripcion from './pages/Suscripcion';
 import VincularDispositivo from './pages/VincularDispositivo';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import Reposicion from './pages/Reposicion';
 import AlertasPrecio from './pages/AlertasPrecio';
 
@@ -89,6 +91,8 @@ function SessionGate() {
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<AuthGate />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/vincular-dispositivo" element={<VincularDispositivo />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
+import crypto from 'crypto';
 import prisma, { prismaRaw } from '../lib/prisma';
 import { runWithoutTenant } from '../lib/tenantContext';
 import {
@@ -16,6 +17,7 @@ import {
   applyTemplate,
   getTemplateById,
 } from '../lib/workspaceTemplates';
+import { sendEmail, buildResetEmail } from '../lib/email';
 
 const router = Router();
 
@@ -41,6 +43,25 @@ const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
   message: { error: 'Demasiados intentos de login. Esperá unos minutos.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Forgot password: limitamos a 5 pedidos por IP/hora para evitar spam de mails
+const forgotLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: { error: 'Demasiados pedidos de recuperación. Esperá una hora.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Reset password: 20 intentos / 15 min / IP — para que un atacante no
+// pueda brute-forcear tokens válidos contra el endpoint.
+const resetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { error: 'Demasiados intentos. Esperá unos minutos.' },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -287,6 +308,141 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('[cuenta/login]', err);
     res.status(500).json({ error: 'Error en login' });
+  }
+});
+
+// ============================================================================
+// POST /api/cuenta/forgot-password
+// ----------------------------------------------------------------------------
+// Inicia el flujo de recuperación. Genera un token de 32 bytes (hex), guarda
+// el SHA-256 del token en DB con expiración 1h, y manda un email al usuario
+// con el link de reset. Si no hay RESEND_API_KEY o falla el envío, en NON-prod
+// devolvemos el link en la respuesta como fallback (Tomás lo manda manual).
+//
+// SECURIDAD:
+//  - Respuesta SIEMPRE 200 OK (no revela si el email existe o no — anti
+//    enumeration). El cliente no puede distinguir email registrado vs no.
+//  - Token en claro NUNCA se guarda en DB (solo el hash).
+//  - Cualquier token anterior pendiente del mismo usuario queda invalidado
+//    (se sobreescribe).
+//  - Rate-limit 5/h por IP (forgotLimiter).
+// ============================================================================
+router.post('/forgot-password', forgotLimiter, async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body ?? {};
+    if (!isEmailValid(email)) {
+      // Igual devolvemos 200 — no leak de qué emails están registrados
+      return res.json({ ok: true });
+    }
+
+    const emailNorm = String(email).trim().toLowerCase();
+    const cuenta = await prismaRaw.cuenta.findUnique({ where: { email: emailNorm } });
+
+    // Si no existe, salimos en silencio (mismo response que el caso exitoso)
+    if (!cuenta) {
+      // Pequeño delay para evitar timing-based enumeration
+      await new Promise(r => setTimeout(r, 200 + Math.random() * 300));
+      return res.json({ ok: true });
+    }
+
+    // Generar token + hash
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1h
+
+    await prismaRaw.cuenta.update({
+      where: { id: cuenta.id },
+      data: {
+        resetTokenHash: tokenHash,
+        resetTokenExpiresAt: expiresAt,
+      },
+    });
+
+    // Armar link absoluto al frontend
+    const frontUrl =
+      process.env.FRONTEND_URL ||
+      process.env.PUBLIC_APP_URL ||
+      (req.headers.origin as string) ||
+      'https://ops-terminal-thomas-projects-7a03d289.vercel.app';
+    const link = `${frontUrl.replace(/\/$/, '')}/reset-password?token=${rawToken}`;
+
+    // Mandar email (best-effort)
+    const { subject, html, text } = buildResetEmail({ nombre: cuenta.nombre, link });
+    const sendResult = await sendEmail({ to: cuenta.email, subject, html, text });
+
+    // Fallback de desarrollo / sin SMTP: devolver el link
+    const isProd = process.env.NODE_ENV === 'production';
+    const expose = !sendResult.ok && !isProd;
+
+    console.log('[cuenta/forgot-password] generado token para', cuenta.email, 'envío:', sendResult.provider, sendResult.ok ? 'ok' : sendResult.error);
+
+    return res.json({
+      ok: true,
+      ...(expose ? { devLink: link, devNote: 'RESEND_API_KEY no configurado — link expuesto solo en NODE_ENV != production' } : {}),
+    });
+  } catch (err: any) {
+    console.error('[cuenta/forgot-password]', err);
+    // Igual 200 para no leakear
+    return res.json({ ok: true });
+  }
+});
+
+// ============================================================================
+// POST /api/cuenta/reset-password
+// ----------------------------------------------------------------------------
+// Consume el token y setea password nueva. Validaciones:
+//  - token existe en DB (matcheando por SHA-256)
+//  - no expiró
+//  - password válida (8-128 chars)
+// Al éxito: hashea la nueva password, limpia token, devuelve ok.
+// El usuario debe loguearse otra vez (no devolvemos JWT aquí — flow más limpio).
+// ============================================================================
+router.post('/reset-password', resetLimiter, async (req: Request, res: Response) => {
+  try {
+    const { token, password } = req.body ?? {};
+    if (typeof token !== 'string' || token.length < 32 || token.length > 128) {
+      return res.status(400).json({ error: 'Token inválido' });
+    }
+    if (!isPasswordValid(password)) {
+      return res.status(400).json({ error: 'La contraseña debe tener entre 8 y 128 caracteres' });
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+    // Buscar cuenta con ese hash de token
+    const cuenta = await prismaRaw.cuenta.findFirst({
+      where: { resetTokenHash: tokenHash },
+    });
+
+    if (!cuenta) {
+      return res.status(400).json({ error: 'Link inválido o ya usado. Pedí uno nuevo.' });
+    }
+
+    if (!cuenta.resetTokenExpiresAt || cuenta.resetTokenExpiresAt < new Date()) {
+      // Limpiar el token expirado
+      await prismaRaw.cuenta.update({
+        where: { id: cuenta.id },
+        data: { resetTokenHash: null, resetTokenExpiresAt: null },
+      });
+      return res.status(400).json({ error: 'El link expiró. Pedí uno nuevo.' });
+    }
+
+    const newHash = await hashPassword(password);
+
+    await prismaRaw.cuenta.update({
+      where: { id: cuenta.id },
+      data: {
+        passwordHash: newHash,
+        resetTokenHash: null,
+        resetTokenExpiresAt: null,
+      },
+    });
+
+    console.log('[cuenta/reset-password] contraseña reseteada para', cuenta.email);
+    return res.json({ ok: true, email: cuenta.email });
+  } catch (err: any) {
+    console.error('[cuenta/reset-password]', err);
+    return res.status(500).json({ error: 'Error al resetear contraseña' });
   }
 });
 

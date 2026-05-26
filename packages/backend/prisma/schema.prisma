@@ -27,6 +27,11 @@ model Cuenta {
   nombre          String
   emailVerificado Boolean   @default(false) @map("email_verificado")
   ultimoLogin     DateTime? @map("ultimo_login")
+  // ── Password recovery ──────────────────────────────────────────────────
+  // Guardamos SHA-256 del token (no el token en claro). El token va por
+  // email al usuario; aunque la DB se filtre, no se pueden reusar.
+  resetTokenHash      String?   @map("reset_token_hash")
+  resetTokenExpiresAt DateTime? @map("reset_token_expires_at")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 

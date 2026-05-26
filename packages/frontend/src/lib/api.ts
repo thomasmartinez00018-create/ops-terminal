@@ -294,6 +294,20 @@ export const api = {
     }),
   cuentaLogout: () => request<{ ok: boolean }>('/cuenta/logout', { method: 'POST' }),
 
+  // ── Password recovery ─────────────────────────────────────────────────────
+  // forgotPassword devuelve 200 SIEMPRE (anti-enumeration). En NODE_ENV != prod
+  // y sin RESEND_API_KEY, devuelve `devLink` para que el admin lo mande manual.
+  forgotPassword: (email: string) =>
+    request<{ ok: boolean; devLink?: string; devNote?: string }>('/cuenta/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+  resetPassword: (token: string, password: string) =>
+    request<{ ok: boolean; email?: string }>('/cuenta/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
+    }),
+
   // Onboarding: guarda/actualiza el perfil del workspace (tamaño + dolor +
   // frecuencia). Solo el owner/admin de la cuenta puede modificarlo.
   // Pasar { skipped: true } para marcar que el usuario omitió el wizard.
