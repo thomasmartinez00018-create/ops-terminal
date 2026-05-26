@@ -88,7 +88,7 @@ router.get('/', async (req: Request, res: Response) => {
     const productos = await prisma.producto.findMany({
       where: productosWhere,
       select: {
-        id: true, codigo: true, nombre: true, rubro: true,
+        id: true, codigo: true, nombre: true, rubro: true, subrubro: true,
         tipo: true, unidadUso: true, stockMinimo: true, stockIdeal: true
       }
     });
@@ -132,6 +132,7 @@ router.get('/', async (req: Request, res: Response) => {
         codigo: prod.codigo,
         nombre: prod.nombre,
         rubro: prod.rubro,
+        subrubro: (prod as any).subrubro ?? null,
         tipo: prod.tipo,
         unidad: prod.unidadUso,
         stockTotal,
