@@ -188,9 +188,33 @@ export default function ComparadorPrecios() {
   // ruido de columnas de proveedores que no venden esto.
   const [filtrarProvPorRubro, setFiltrarProvPorRubro] = useState(true);
 
-  // Normalizar texto para comparar rubros (sin acentos / case)
-  const normRubro = (s: string | null | undefined): string =>
-    (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+  // Normalizar texto: minúsculas, sin acentos, sin plurales simples (-s final),
+  // sin caracteres no alfanuméricos.
+  const norm = (s: string | null | undefined): string =>
+    (s || '')
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .toLowerCase().trim()
+      .replace(/s$/, ''); // "helados" → "helado"
+
+  // Tokens significativos (>2 chars) separados por espacios/coma/slash/&/y
+  const tokens = (s: string | null | undefined): string[] => {
+    if (!s) return [];
+    return s
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .toLowerCase().trim()
+      .split(/[\s,\/&]+|\by\b/g)
+      .map(t => t.replace(/[^a-z0-9]/g, '').replace(/s$/, ''))
+      .filter(t => t.length > 2);
+  };
+
+  // True si los rubros comparten al menos una palabra significativa
+  // o son idénticos tras normalizar.
+  function rubrosMatch(a: string, b: string): boolean {
+    if (!a || !b) return false;
+    if (norm(a) === norm(b)) return true;
+    const ta = tokens(a), tb = tokens(b);
+    return ta.some(x => tb.includes(x));
+  }
 
   // Proveedores que aparecen en los datos
   const proveedoresEnDataRaw = useMemo(() => {
@@ -200,23 +224,30 @@ export default function ComparadorPrecios() {
 
   // Filtrado por rubro del proveedor:
   //  - Si NO hay catFilter o el toggle está apagado → muestra todos
-  //  - Si hay catFilter + toggle ON: solo proveedores cuyo rubro coincida
-  //    (considera el override local de rubro hecho desde el comparador)
+  //  - Si hay catFilter + toggle ON: solo proveedores cuyo rubro EXPLÍCITO
+  //    matchea la categoría (los "sin rubro" NO aparecen — el usuario tiene
+  //    que asignarles rubro para que entren al filtro).
+  //  - Match por palabras significativas: "helado" matchea "helados", pero
+  //    NO matchea "carnes" ni "vinos".
   const proveedoresEnData = useMemo(() => {
     if (!catFilter || !filtrarProvPorRubro) return proveedoresEnDataRaw;
-    const cat = normRubro(catFilter);
     return proveedoresEnDataRaw.filter(p => {
       const rubroEfectivo = provRubroOverrides[p.id] ?? p.rubro ?? '';
-      const r = normRubro(rubroEfectivo);
-      // Sin rubro → lo mostramos (no podemos descartar)
-      if (!r) return true;
-      // Match exacto o sub-string (ej: "vinos" matchea "bebidas y vinos")
-      return r === cat || r.includes(cat) || cat.includes(r);
+      if (!rubroEfectivo.trim()) return false;
+      return rubrosMatch(rubroEfectivo, catFilter);
     });
   }, [proveedoresEnDataRaw, catFilter, filtrarProvPorRubro, provRubroOverrides]);
 
   // Cuántos proveedores quedan ocultos por el filtro de rubro
   const provOcultos = proveedoresEnDataRaw.length - proveedoresEnData.length;
+  // Cuántos de los ocultos son "sin rubro" → para mostrar CTA específico
+  const provSinRubro = useMemo(() => {
+    if (!catFilter || !filtrarProvPorRubro) return 0;
+    return proveedoresEnDataRaw.filter(p => {
+      const r = provRubroOverrides[p.id] ?? p.rubro ?? '';
+      return !r.trim();
+    }).length;
+  }, [proveedoresEnDataRaw, catFilter, filtrarProvPorRubro, provRubroOverrides]);
 
   // Load evolution
   const cargarEvolucion = async (prodId: string) => {
@@ -484,6 +515,34 @@ export default function ComparadorPrecios() {
             <Upload className="w-4 h-4" />
             Importar primera lista
           </Button>
+        </div>
+      )}
+
+      {/* Banner cuando el filtro de rubro deja la tabla SIN proveedores */}
+      {!loading && tab === 'ultima' && catFilter && filtrarProvPorRubro && proveedoresEnData.length === 0 && proveedoresEnDataRaw.length > 0 && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 mb-3">
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={16} className="text-amber-400 shrink-0 mt-0.5" />
+            <div className="flex-1 text-sm">
+              <p className="font-bold text-amber-300">
+                Ningún proveedor está marcado como <span className="text-amber-100">"{catFilter}"</span>.
+              </p>
+              <p className="text-zinc-400 mt-1 text-xs leading-relaxed">
+                Tenés <strong className="text-zinc-200">{proveedoresEnDataRaw.length}</strong> proveedores con datos
+                pero {provSinRubro > 0
+                  ? <>{provSinRubro} {provSinRubro === 1 ? 'no tiene' : 'no tienen'} rubro asignado todavía</>
+                  : <>ninguno coincide con esa categoría</>}.
+                Hacé clic en el nombre de un proveedor en la cabecera de la tabla para asignarle un rubro
+                {provSinRubro > 0 ? ' (o desactivá el filtro para ver todos).' : ', o desactivá el filtro.'}
+              </p>
+              <button
+                onClick={() => setFiltrarProvPorRubro(false)}
+                className="mt-2 px-3 py-1 rounded bg-amber-500/20 text-amber-300 text-xs font-bold hover:bg-amber-500/30 transition-colors"
+              >
+                Mostrar todos los proveedores
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
