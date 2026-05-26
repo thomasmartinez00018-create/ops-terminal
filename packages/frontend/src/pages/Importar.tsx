@@ -5,7 +5,7 @@ import PageTour from '../components/PageTour';
 import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';
 import Badge from '../components/ui/Badge';
-import { Upload, FileSpreadsheet, Check, AlertTriangle, Download, Zap } from 'lucide-react';
+import { Upload, FileSpreadsheet, Check, AlertTriangle, Download, Zap, Sparkles } from 'lucide-react';
 
 const TIPOS_IMPORT = [
   { value: 'maxirest_recetas_full', label: 'Maxirest — Recetas con ingredientes ★', desc: 'El export REAL de Maxirest: cada fila es un ingrediente de un plato (ARTICULO, INSUMO, CANTIDAD, UNIDAD, PUNIT…). Crea las recetas COMPLETAS con su escandallo y da de alta los insumos que falten. Es el que tenés que usar para migrar la cocina.' },
@@ -216,6 +216,8 @@ export default function Importar() {
   const [parsedRows, setParsedRows] = useState<string[][]>([]);
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [isMaxirest, setIsMaxirest] = useState(false);
+  const [iaCargando, setIaCargando] = useState(false);
+  const [iaNotas, setIaNotas] = useState('');
   const [importing, setImporting] = useState(false);
   const [results, setResults] = useState<{ insertados: number; actualizados: number; errores: string[] } | null>(null);
   const [error, setError] = useState('');
@@ -620,8 +622,55 @@ export default function Importar() {
           </div>
 
           <p className="text-sm text-on-surface-variant">
-            Asocia cada columna del archivo con un campo del sistema.
+            Asocia cada columna del archivo con un campo del sistema. Si la
+            mayoría está sin mapear, probá <strong>"Analizar con IA"</strong>:
+            la IA mira los headers y las primeras filas y completa el mapeo
+            automáticamente.
           </p>
+
+          {/* Botón IA — siempre disponible en el paso 3 */}
+          <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 flex items-center gap-3">
+            <Sparkles size={16} className="text-primary shrink-0" />
+            <div className="flex-1 text-xs text-on-surface-variant">
+              ¿La app no reconoce los nombres de columna de tu Maxirest? La IA
+              puede mapearlos automáticamente leyendo el contenido.
+            </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={iaCargando}
+              loadingText="Analizando…"
+              onClick={async () => {
+                setIaCargando(true);
+                try {
+                  const tipoBackend =
+                    tipo === 'maxirest_insumos' ? 'productos' :
+                    tipo === 'maxirest_carta' ? 'recetas' :
+                    tipo === 'maxirest_recetas_full' ? 'recetas-maxirest' :
+                    tipo === 'maxirest_ventas_full' ? 'ventas-maxirest' :
+                    tipo;
+                  const r = await api.analizarConIA({
+                    tipo: tipoBackend,
+                    headers: parsedHeaders,
+                    sampleRows: parsedRows.slice(0, 5),
+                  });
+                  // Combinar con mapping existente (lo del usuario tiene
+                  // prioridad sobre el de la IA si ya tocó algo)
+                  setMapping(prev => ({ ...r.mapeo, ...prev }));
+                  setIaNotas(`Confianza ${r.confianza}: ${r.notas}`);
+                } catch (e: any) {
+                  setIaNotas(`Error: ${e?.message || 'no se pudo analizar'}`);
+                } finally {
+                  setIaCargando(false);
+                }
+              }}
+            >
+              🤖 Analizar con IA
+            </Button>
+          </div>
+          {iaNotas && (
+            <p className="text-[11px] text-on-surface-variant italic">{iaNotas}</p>
+          )}
 
           <div className="space-y-3">
             {parsedHeaders.map(h => (

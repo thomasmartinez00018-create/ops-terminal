@@ -183,11 +183,40 @@ export default function ComparadorPrecios() {
     });
   }, [grouped, catFilter, search, soloVariaciones, conImpuestos, provMap]);
 
-  // All proveedores that appear in data
-  const proveedoresEnData = useMemo(() => {
+  // Toggle: cuando hay categoría seleccionada, mostrar SOLO los proveedores
+  // cuyo rubro coincide (los que efectivamente venden esa categoría). Saca
+  // ruido de columnas de proveedores que no venden esto.
+  const [filtrarProvPorRubro, setFiltrarProvPorRubro] = useState(true);
+
+  // Normalizar texto para comparar rubros (sin acentos / case)
+  const normRubro = (s: string | null | undefined): string =>
+    (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+
+  // Proveedores que aparecen en los datos
+  const proveedoresEnDataRaw = useMemo(() => {
     const ids = new Set(data.map(d => d.proveedorId));
     return proveedoresImp.filter(p => ids.has(p.id));
   }, [data, proveedoresImp]);
+
+  // Filtrado por rubro del proveedor:
+  //  - Si NO hay catFilter o el toggle está apagado → muestra todos
+  //  - Si hay catFilter + toggle ON: solo proveedores cuyo rubro coincida
+  //    (considera el override local de rubro hecho desde el comparador)
+  const proveedoresEnData = useMemo(() => {
+    if (!catFilter || !filtrarProvPorRubro) return proveedoresEnDataRaw;
+    const cat = normRubro(catFilter);
+    return proveedoresEnDataRaw.filter(p => {
+      const rubroEfectivo = provRubroOverrides[p.id] ?? p.rubro ?? '';
+      const r = normRubro(rubroEfectivo);
+      // Sin rubro → lo mostramos (no podemos descartar)
+      if (!r) return true;
+      // Match exacto o sub-string (ej: "vinos" matchea "bebidas y vinos")
+      return r === cat || r.includes(cat) || cat.includes(r);
+    });
+  }, [proveedoresEnDataRaw, catFilter, filtrarProvPorRubro, provRubroOverrides]);
+
+  // Cuántos proveedores quedan ocultos por el filtro de rubro
+  const provOcultos = proveedoresEnDataRaw.length - proveedoresEnData.length;
 
   // Load evolution
   const cargarEvolucion = async (prodId: string) => {
@@ -344,6 +373,26 @@ export default function ComparadorPrecios() {
                 placeholder="Codigo o nombre..."
               />
             </div>
+            {/* Toggle: cuando hay categoría activa, ocultar columnas de
+                proveedores que NO venden ese rubro. Saca ruido visual. */}
+            {catFilter && (
+              <label className="flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-800/70 border border-zinc-700 text-xs cursor-pointer hover:border-primary/40 transition-colors h-[42px]">
+                <input
+                  type="checkbox"
+                  checked={filtrarProvPorRubro}
+                  onChange={e => setFiltrarProvPorRubro(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-primary"
+                />
+                <span className="text-zinc-300">
+                  Solo proveedores de <strong className="text-primary">{catFilter}</strong>
+                </span>
+                {filtrarProvPorRubro && provOcultos > 0 && (
+                  <span className="text-[10px] text-zinc-500">
+                    ({provOcultos} oculto{provOcultos === 1 ? '' : 's'})
+                  </span>
+                )}
+              </label>
+            )}
           </>
         )}
         {/* Con impuestos aplica a todos los tabs (afecta precios mostrados) */}

@@ -92,13 +92,44 @@ export default function CodigosBarrasManager({
     setAgregando(true);
     try {
       const descripcion = nuevoDescripcion.trim() || sugerirDescripcion(factor);
-      await api.addCodigoBarras(productoId, { codigo, factor, descripcion });
+      const tryAdd = async (reasignar = false) => {
+        return await api.addCodigoBarras(productoId, { codigo, factor, descripcion, reasignar });
+      };
+
+      let respuesta: any;
+      try {
+        respuesta = await tryAdd(false);
+      } catch (err: any) {
+        // 409 con puedeReasignar: el código pertenece a OTRO producto.
+        // Le preguntamos al usuario si quiere moverlo a este producto.
+        const detalle = err?.body || err?.data || err;
+        const nombreOtro = detalle?.conflictoCon?.nombre || 'otro producto';
+        const puedeReasignar = detalle?.puedeReasignar
+          || /está en uso por|está en \"|en uso por/i.test(err?.message || '');
+        if (puedeReasignar) {
+          const ok = window.confirm(
+            `El código "${codigo}" ya está cargado en "${nombreOtro}".\n\n` +
+            `¿Querés moverlo a este producto en su lugar?`,
+          );
+          if (!ok) {
+            addToast('Operación cancelada', 'error');
+            return;
+          }
+          respuesta = await tryAdd(true);
+        } else {
+          throw err;
+        }
+      }
+
       setNuevoCodigo('');
       setNuevoFactor('1');
       setNuevoDescripcion('');
-      addToast(`Código "${codigo}" agregado (× ${factor})`, 'success');
+      const accion = respuesta?._accion || 'agregado';
+      const verbo = accion === 'reasignado'
+        ? `reasignado desde "${respuesta?._desde?.nombre || 'otro producto'}"`
+        : accion === 'actualizado' ? 'actualizado' : 'agregado';
+      addToast(`Código "${codigo}" ${verbo} (× ${factor})`, 'success');
       await cargar();
-      // Re-enfocar el input para escanear el siguiente
       setTimeout(() => nuevoCodigoRef.current?.focus(), 50);
     } catch (e: any) {
       addToast(e?.message || 'No se pudo agregar', 'error');

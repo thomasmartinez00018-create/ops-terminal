@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import prisma from '../lib/prisma';
 
 const router = Router();
@@ -536,6 +537,137 @@ router.get('/mapeo-maxirest', (_req: Request, res: Response) => {
       }
     }
   });
+});
+
+// ============================================================================
+// POST /api/importar/analizar-con-ia
+// ----------------------------------------------------------------------------
+// Cuando el parser estándar de Maxirest no encuentra las columnas esperadas
+// (porque la versión de Maxirest del cliente exporta con nombres distintos),
+// usamos Gemini para mapear las columnas crudas → campos canónicos del
+// sistema. El usuario sube su archivo, vemos los headers + 3 filas, y la
+// IA devuelve el mapeo.
+//
+// Body:
+//   { tipo: 'productos' | 'proveedores' | 'recetas-maxirest' | 'ventas-maxirest',
+//     headers: string[],
+//     sampleRows: string[][]  (primeras 3-5 filas para que la IA infiera) }
+//
+// Devuelve:
+//   { mapeo: { [columnaOrigen: string]: campoDestino },
+//     confianza: 'alta'|'media'|'baja',
+//     notas: string }
+// ============================================================================
+
+const CAMPOS_DESTINO: Record<string, string[]> = {
+  productos: ['codigo', 'nombre', 'rubro', 'subrubro', 'tipo', 'unidadCompra', 'unidadUso', 'factorConversion', 'codigoBarras', 'precioReferencia', 'stockMinimo', 'stockIdeal'],
+  proveedores: ['codigo', 'nombre', 'contacto', 'telefono', 'email', 'cuit', 'whatsapp', 'rubro'],
+  'recetas-maxirest': ['COD_ART', 'ARTICULO', 'PORCIONES', 'RUBROART', 'COD_INS', 'INSUMO', 'RUBROINS', 'CANTIDAD', 'UNIDAD_MET', 'PUNIT', 'MARG'],
+  'ventas-maxirest': ['CODIGO', 'NOMBRE', 'UNIDADES', 'PRECIO', 'VENTA'],
+  recetas: ['codigo', 'nombre', 'categoria', 'sector', 'precioVenta', 'porciones'],
+  ventas: ['recetaCodigo', 'cantidad', 'fecha', 'hora'],
+  'codigos_barras': ['codigoProducto', 'codigo', 'factor', 'descripcion'],
+};
+
+router.post('/analizar-con-ia', async (req: Request, res: Response) => {
+  try {
+    const { tipo, headers, sampleRows } = req.body || {};
+    if (!tipo || !Array.isArray(headers) || !Array.isArray(sampleRows)) {
+      return res.status(400).json({ error: 'Se requiere tipo, headers[] y sampleRows[][]' });
+    }
+    const camposDestino = CAMPOS_DESTINO[tipo];
+    if (!camposDestino) {
+      return res.status(400).json({ error: `Tipo no soportado para IA: ${tipo}` });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(503).json({ error: 'IA no disponible: GEMINI_API_KEY no configurada' });
+    }
+
+    // Sample reducido para no inflar el prompt
+    const sample = sampleRows.slice(0, 5).map((r: any[]) =>
+      headers.reduce((acc: any, h: string, i: number) => {
+        acc[h] = String(r[i] ?? '').slice(0, 80);
+        return acc;
+      }, {})
+    );
+
+    const prompt = `Sos un asistente que mapea columnas de archivos CSV/Excel exportados por sistemas POS gastronómicos (Maxirest, Bistrosoft u otros) al esquema canónico de un sistema de stock.
+
+TIPO DE IMPORTACIÓN: ${tipo}
+
+CAMPOS DESTINO ESPERADOS (el sistema necesita estos):
+${camposDestino.map(c => `- ${c}`).join('\n')}
+
+COLUMNAS QUE TIENE EL ARCHIVO DEL USUARIO:
+${headers.join(' | ')}
+
+PRIMERAS FILAS (para que entiendas qué contiene cada columna):
+${JSON.stringify(sample, null, 2)}
+
+TU TAREA:
+Devolver un OBJETO JSON con el mapeo columna-del-archivo → campo-destino. Solo
+incluí los pares donde tengas alta o media confianza. Si una columna del
+archivo no matchea ningún campo destino, NO la incluyas. Si un campo destino
+no aparece en ningún header del archivo, NO lo incluyas (lo dejará vacío).
+
+Reglas heurísticas:
+- "COD_RUI" o "RUBRO_*" → rubro
+- "COD_ART" / "CODIGO" → codigo
+- "DESCRIPCION" / "NOMBRE" / "ARTICULO" → nombre
+- "UNIDAD_MED" / "UNIDADMED" / "UM" / "UNIDAD" → unidadCompra (o UNIDAD_MET para recetas-maxirest)
+- "PRECIO" / "PRECIO_UNITARIO" / "PUNIT" → precioReferencia (productos) o PUNIT (recetas)
+- "STK_MIN" / "MINIMO" → stockMinimo
+- "CANT" / "CANTIDAD" → cantidad o CANTIDAD según el tipo
+- "INSUMO" + "ARTICULO" en el mismo archivo → es una receta-maxirest (long format)
+- Identifica el SIGNIFICADO por contenido, no solo por nombre.
+
+FORMATO DE RESPUESTA (JSON puro, sin markdown):
+{
+  "mapeo": { "ColumnaOrigen1": "campoDestino1", ... },
+  "confianza": "alta" | "media" | "baja",
+  "notas": "explicación breve de las decisiones, en una oración"
+}`;
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-3.1-flash-lite-preview',
+      generationConfig: { responseMimeType: 'application/json' },
+    });
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      // Si Gemini devuelve markdown a pesar de pedir json, extraer
+      const m = text.match(/\{[\s\S]*\}/);
+      if (!m) return res.status(502).json({ error: 'La IA respondió con un formato no JSON', raw: text.slice(0, 300) });
+      parsed = JSON.parse(m[0]);
+    }
+
+    // Validar que las keys de mapeo sean headers reales y los values sean campos destino conocidos
+    const mapeo: Record<string, string> = {};
+    const mapeoBruto = parsed?.mapeo || {};
+    for (const [origen, destino] of Object.entries(mapeoBruto)) {
+      if (typeof destino !== 'string') continue;
+      if (!headers.includes(origen)) continue;
+      if (!camposDestino.includes(destino)) continue;
+      mapeo[origen] = destino;
+    }
+
+    res.json({
+      mapeo,
+      confianza: ['alta', 'media', 'baja'].includes(parsed?.confianza) ? parsed.confianza : 'media',
+      notas: typeof parsed?.notas === 'string' ? parsed.notas.slice(0, 300) : '',
+      camposNoMapeados: camposDestino.filter(c => !Object.values(mapeo).includes(c)),
+    });
+  } catch (e: any) {
+    console.error('[importar/analizar-con-ia]', e);
+    res.status(500).json({ error: e?.message || 'Error analizando con IA' });
+  }
 });
 
 export default router;

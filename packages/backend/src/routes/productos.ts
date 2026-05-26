@@ -483,43 +483,103 @@ router.get('/:id/codigos-barras', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/productos/:id/codigos-barras — agregar un código nuevo
-// Body: { codigo, factor?=1, descripcion? }
+// POST /api/productos/:id/codigos-barras — UPSERT idempotente
+// Body: { codigo, factor?=1, descripcion?, reasignar?=false }
+//
+// Lógica:
+//  · No existe → CREATE (201)
+//  · Existe en MISMO producto → UPDATE factor/descripción/activo (200)
+//    (caso típico: el código ya estaba como "Unidad" y se cambia a "Caja x6")
+//  · Existe en OTRO producto + reasignar=false → 409 con info para que el
+//    frontend pregunte "está en producto X, ¿reasignar?"
+//  · Existe en OTRO producto + reasignar=true → UPDATE moviendo productoId
+//    al actual + actualiza factor/descripción (200)
+//
+// Esto evita la fricción del usuario que ve "ese código ya está en uso"
+// cuando en realidad solo quiere actualizar la presentación del mismo producto.
 router.post('/:id/codigos-barras', async (req: Request, res: Response) => {
   try {
     const productoId = parseInt(String(req.params.id));
     if (!Number.isInteger(productoId) || productoId <= 0) {
       return res.status(400).json({ error: 'id de producto inválido' });
     }
-    const { codigo, factor, descripcion } = req.body || {};
+    const { codigo, factor, descripcion, reasignar } = req.body || {};
     const codigoClean = String(codigo || '').trim();
     if (!codigoClean) return res.status(400).json({ error: 'codigo requerido' });
     const factorNum = Number(factor);
     const factorClean = Number.isFinite(factorNum) && factorNum > 0 ? factorNum : 1;
-    // Si el producto no existe, falla (foreign key)
+    const descripcionClean = descripcion ? String(descripcion).slice(0, 60) : null;
+
+    // Buscar si el código ya existe (en el mismo producto o en otro)
+    const existente = await prisma.productoCodigoBarras.findFirst({
+      where: { codigo: codigoClean },
+      include: { producto: { select: { id: true, nombre: true } } },
+    });
+
+    if (existente) {
+      // Mismo producto → actualizar inplace (UPSERT idempotente)
+      if (existente.productoId === productoId) {
+        const out = await prisma.productoCodigoBarras.update({
+          where: { id: existente.id },
+          data: {
+            factor: factorClean,
+            descripcion: descripcionClean ?? existente.descripcion,
+            activo: true,
+          },
+        });
+        return res.status(200).json({ ...out, _accion: 'actualizado' });
+      }
+      // Otro producto: si reasignar=true, mover; sino, 409 informativo
+      if (reasignar === true) {
+        const out = await prisma.productoCodigoBarras.update({
+          where: { id: existente.id },
+          data: {
+            productoId,
+            factor: factorClean,
+            descripcion: descripcionClean,
+            activo: true,
+          },
+        });
+        return res.status(200).json({
+          ...out,
+          _accion: 'reasignado',
+          _desde: existente.producto,
+        });
+      }
+      return res.status(409).json({
+        error: `Ese código ya está en uso por "${existente.producto.nombre}"`,
+        conflictoCon: existente.producto,
+        puedeReasignar: true,
+        // El frontend pregunta "querés mover este código a este producto?"
+        // y reenvía con reasignar=true.
+      });
+    }
+
+    // No existe → crear nuevo
     try {
       const out = await prisma.productoCodigoBarras.create({
         data: {
           productoId,
           codigo: codigoClean,
           factor: factorClean,
-          descripcion: descripcion ? String(descripcion).slice(0, 60) : null,
+          descripcion: descripcionClean,
           activo: true,
         },
       });
-      res.status(201).json(out);
+      return res.status(201).json({ ...out, _accion: 'creado' });
     } catch (err: any) {
+      // Race condition: alguien creó el mismo código entre el find y el create
       if (err.code === 'P2002') {
-        // Conflicto: ese código ya existe en la org (en este o en otro producto)
-        const existente = await prisma.productoCodigoBarras.findFirst({
+        const recheck = await prisma.productoCodigoBarras.findFirst({
           where: { codigo: codigoClean },
           include: { producto: { select: { id: true, nombre: true } } },
         });
         return res.status(409).json({
-          error: existente
-            ? `Ese código ya está en uso por "${existente.producto.nombre}"`
-            : 'Ese código ya existe',
-          conflictoCon: existente?.producto || null,
+          error: recheck
+            ? `Ese código se cargó en paralelo en "${recheck.producto.nombre}"`
+            : 'Conflicto creando el código',
+          conflictoCon: recheck?.producto || null,
+          puedeReasignar: !!recheck && recheck.productoId !== productoId,
         });
       }
       throw err;

@@ -470,6 +470,16 @@ export const api = {
   importarCSV: (data: { tipo: string; datos: any[]; mapeo?: Record<string, string> }) =>
     request<any>('/importar/csv', { method: 'POST', body: JSON.stringify(data) }),
   getPlantilla: (tipo: string) => request<any>(`/importar/plantillas/${tipo}`),
+  // Analizar columnas con IA — útil cuando Maxirest (u otro POS) exporta con
+  // nombres de columna que el parser estándar no reconoce. Gemini mapea
+  // columnasOrigen → camposDestino canónicos.
+  analizarConIA: (data: { tipo: string; headers: string[]; sampleRows: any[][] }) =>
+    request<{
+      mapeo: Record<string, string>;
+      confianza: 'alta' | 'media' | 'baja';
+      notas: string;
+      camposNoMapeados: string[];
+    }>('/importar/analizar-con-ia', { method: 'POST', body: JSON.stringify(data) }),
   getMapeoMaxirest: () => request<any>('/importar/mapeo-maxirest'),
 
   // Reportes
@@ -805,7 +815,7 @@ export const api = {
     request<Array<{ id: number; codigo: string; factor: number; descripcion: string | null; activo: boolean }>>(
       `/productos/${productoId}/codigos-barras`,
     ),
-  addCodigoBarras: (productoId: number, data: { codigo: string; factor?: number; descripcion?: string }) =>
+  addCodigoBarras: (productoId: number, data: { codigo: string; factor?: number; descripcion?: string; reasignar?: boolean }) =>
     request<any>(`/productos/${productoId}/codigos-barras`, { method: 'POST', body: JSON.stringify(data) }),
   updateCodigoBarras: (id: number, data: { codigo?: string; factor?: number; descripcion?: string | null; activo?: boolean }) =>
     request<any>(`/productos/codigos-barras/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
