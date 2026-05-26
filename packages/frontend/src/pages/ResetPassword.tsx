@@ -29,6 +29,13 @@ export default function ResetPassword() {
     setBusy(true);
     try {
       await api.resetPassword(token, p1);
+      // Limpiar cualquier sesión previa del browser. Si el usuario abrió el
+      // link mientras estaba logueado con OTRA cuenta, no debe quedar como
+      // esa cuenta — debe re-loguearse con la cuenta cuya password reseteó.
+      try {
+        localStorage.removeItem('ops_token');
+        sessionStorage.clear();
+      } catch {}
       setDone(true);
     } catch (err: any) {
       setError(err?.message || 'Error al resetear contraseña');
@@ -77,12 +84,12 @@ export default function ResetPassword() {
                 Ya podés ingresar con tu nueva contraseña.
               </p>
             </div>
-            <a
-              href="/login"
+            <button
+              onClick={() => { window.location.href = '/login'; }}
               className="block w-full text-center bg-primary text-primary-foreground py-2.5 rounded-lg font-bold text-sm hover:opacity-90"
             >
               Ir al login
-            </a>
+            </button>
           </div>
         ) : (
           <form onSubmit={submit} className="space-y-3">

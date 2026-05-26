@@ -75,6 +75,16 @@ const Lazy = ({ children }: { children: React.ReactNode }) => (
 function SessionGate() {
   const { stage, loading } = useSession();
 
+  // ── Bypass: rutas públicas de recuperación de contraseña ────────────────
+  // Estas rutas tienen que renderizar SIEMPRE, sin importar si hay sesión.
+  // Si alguien recibe el link de reset de otro email mientras está logueado
+  // con su cuenta personal, el SessionGate sin bypass lo redirigiría a su
+  // workspace selector — y el reset nunca se ejecutaría. Peor: parecería
+  // que el reset "loguea" al usuario equivocado.
+  const path = window.location.pathname;
+  if (path === '/reset-password') return <ResetPassword />;
+  if (path === '/forgot-password') return <ForgotPassword />;
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -91,8 +101,6 @@ function SessionGate() {
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<AuthGate />} />
-          <Route path="/forgot-password" element={<ForgotPassword />} />
-          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/vincular-dispositivo" element={<VincularDispositivo />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
