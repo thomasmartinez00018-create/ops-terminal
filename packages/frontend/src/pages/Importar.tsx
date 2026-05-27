@@ -8,10 +8,12 @@ import Badge from '../components/ui/Badge';
 import { Upload, FileSpreadsheet, Check, AlertTriangle, Download, Zap, Sparkles } from 'lucide-react';
 
 const TIPOS_IMPORT = [
-  { value: 'maxirest_recetas_full', label: 'Maxirest — Recetas con ingredientes ★', desc: 'El export REAL de Maxirest: cada fila es un ingrediente de un plato (ARTICULO, INSUMO, CANTIDAD, UNIDAD, PUNIT…). Crea las recetas COMPLETAS con su escandallo y da de alta los insumos que falten. Es el que tenés que usar para migrar la cocina.' },
+  { value: 'maxirest_recetas_pdf', label: 'Maxirest — Recetas (PDF) ★', desc: 'Subí el PDF "Recetas de artículos" que exporta Maxirest pro7.3 desde Listados. Detecta automáticamente artículos, ingredientes, cantidades, unidades y precios. Crea las recetas y da de alta los insumos que falten.' },
+  { value: 'maxirest_recetas_full', label: 'Maxirest — Recetas con ingredientes (Excel)', desc: 'El export EXCEL de Maxirest: cada fila es un ingrediente de un plato (ARTICULO, INSUMO, CANTIDAD, UNIDAD, PUNIT…). Crea las recetas COMPLETAS con su escandallo y da de alta los insumos que falten.' },
   { value: 'maxirest_ventas_full', label: 'Maxirest — Ventas (resumen) ★', desc: 'El export real de ventas de Maxirest (CODIGO, NOMBRE, UNIDADES, VENTA). Descuenta stock por receta según lo vendido. No necesita fecha por línea — usa el período del reporte.' },
   { value: 'maxirest_insumos', label: 'Maxirest — Insumos', desc: 'Importar insumos desde el archivo INSUMO.XLSX exportado por Maxirest. Las columnas se mapean automáticamente.' },
   { value: 'maxirest_carta', label: 'Maxirest — Carta / Platos (sin ingredientes)', desc: 'Solo cabecera de platos (precio + categoría), sin escandallo. Usá "Recetas con ingredientes" si tu export trae los insumos.' },
+  { value: 'maxirest_proveedores', label: 'Maxirest — Proveedores (catálogo)', desc: 'Sube el export de proveedores de Maxirest (CODIGO, NOMBRE, RAZON, CONTACTO, TELEFONO, CELULAR, CUIT…). Limpia padding de whitespace y mapea automático al schema.' },
   { value: 'productos', label: 'Productos (CSV)', desc: 'Importar maestro de productos con código, nombre, rubro, unidad y stock mínimo.' },
   { value: 'recetas', label: 'Recetas (CSV)', desc: 'Importar lista de platos/recetas con nombre, precio y categoría. Útil si exportás la carta de otro sistema.' },
   { value: 'proveedores', label: 'Proveedores (CSV)', desc: 'Importar proveedores con razón social, CUIT, contacto y condiciones.' },
@@ -197,14 +199,79 @@ function parseCSV(text: string): { headers: string[]; rows: string[][] } {
   return { headers, rows };
 }
 
-function parseXLSX(buffer: ArrayBuffer): { headers: string[]; rows: string[][] } {
+// Lista las sheets de un buffer xlsx/xls. Útil para que el usuario elija
+// cuál importar cuando el archivo trae múltiples hojas (típico de exports
+// que mezclan pivot tables + datos crudos).
+function listSheets(buffer: ArrayBuffer): string[] {
+  try {
+    const wb = XLSX.read(buffer, { type: 'array' });
+    return wb.SheetNames;
+  } catch {
+    return [];
+  }
+}
+
+// Lee una sheet específica con detección robusta de header row:
+// - Salta filas vacías o con basura ([image], null, headers tipo "Column1")
+// - Encuentra la primera fila donde hay >=2 strings que parezcan nombres
+//   de columna (no números, longitud razonable)
+// - Si nada matchea bien, cae a fila 0 como fallback
+function parseXLSX(
+  buffer: ArrayBuffer,
+  sheetName?: string,
+): { headers: string[]; rows: string[][]; sheetUsed: string; sheets: string[] } {
   const wb = XLSX.read(buffer, { type: 'array' });
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const data: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-  if (data.length === 0) return { headers: [], rows: [] };
-  const headers = data[0].map((c: any) => String(c || '').trim());
-  const rows = data.slice(1).map((r: any[]) => r.map((c: any) => String(c ?? '').trim()));
-  return { headers, rows };
+  const sheets = wb.SheetNames;
+  const sheetUsed = sheetName && sheets.includes(sheetName) ? sheetName : sheets[0];
+  const ws = wb.Sheets[sheetUsed];
+  const data: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false });
+  if (data.length === 0) return { headers: [], rows: [], sheetUsed, sheets };
+
+  // Limpiar celdas: quitar [image] tokens, trim, normalizar a string
+  const clean = (c: any): string => {
+    if (c === null || c === undefined) return '';
+    let s = String(c);
+    // Tokens basura que mete pdf-to-excel cuando convierte imágenes
+    s = s.replace(/\[image\]/gi, '').trim();
+    return s.replace(/\s+/g, ' ');
+  };
+
+  const matrix: string[][] = data.map(r => r.map(clean));
+
+  // Score de una fila como "headerness": cuenta cuántas celdas parecen nombres
+  // (string corto, sin solo dígitos, no vacío)
+  const scoreHeader = (row: string[]): number => {
+    let s = 0;
+    for (const c of row) {
+      if (!c) continue;
+      if (/^[\d.,\-$%]+$/.test(c)) continue;       // solo número/moneda → no es header
+      if (c.length > 60) continue;                  // demasiado largo
+      if (/^column\d+$/i.test(c)) { s += 0.3; continue; } // header genérico bajo peso
+      s += 1;
+    }
+    return s;
+  };
+
+  // Buscar la mejor fila en las primeras 15 — empate gana la más alta (primera)
+  let bestIdx = 0;
+  let bestScore = scoreHeader(matrix[0]);
+  for (let i = 1; i < Math.min(matrix.length, 15); i++) {
+    const sc = scoreHeader(matrix[i]);
+    if (sc > bestScore) { bestScore = sc; bestIdx = i; }
+  }
+
+  // Si la mejor fila tiene < 2 columnas válidas, fallback a fila 0
+  if (bestScore < 2) bestIdx = 0;
+
+  const rawHeaders = matrix[bestIdx];
+  // Asegurar headers únicos: si vienen "Column1, Column2..." o vacíos, dejarlos
+  const headers = rawHeaders.map((h, i) => h || `Col${i + 1}`);
+
+  const rows = matrix.slice(bestIdx + 1)
+    // Saltar filas totalmente vacías
+    .filter(r => r.some(c => c && c.trim()));
+
+  return { headers, rows, sheetUsed, sheets };
 }
 
 export default function Importar() {
@@ -221,14 +288,46 @@ export default function Importar() {
   const [importing, setImporting] = useState(false);
   const [results, setResults] = useState<{ insertados: number; actualizados: number; errores: string[] } | null>(null);
   const [error, setError] = useState('');
+  // Multi-sheet: cuando el xlsx tiene varias hojas, ofrecemos un picker.
+  // Guardamos el buffer original para re-parsear con sheet distinta sin
+  // hacer al usuario re-cargar el archivo.
+  const [sheetList, setSheetList] = useState<string[]>([]);
+  const [sheetSelected, setSheetSelected] = useState<string>('');
+  const [fileBuffer, setFileBuffer] = useState<ArrayBuffer | null>(null);
+  // Resumen de recetas detectadas desde PDF (solo informativo en preview)
+  const [pdfPreview, setPdfPreview] = useState<Array<{ codigo: string; nombre: string; ingredientes: number }> | null>(null);
 
   const tipoInfo = TIPOS_IMPORT.find(t => t.value === tipo);
 
   const seleccionarTipo = async (value: string) => {
     setTipo(value);
     setError('');
-    setIsMaxirest(value === 'maxirest_insumos' || value === 'maxirest_carta');
+    // Para los tipos que NO requieren mapping manual saltamos el paso 3
+    setIsMaxirest(
+      value === 'maxirest_insumos' ||
+      value === 'maxirest_carta' ||
+      value === 'maxirest_recetas_pdf' ||
+      value === 'maxirest_recetas_full' ||
+      value === 'maxirest_ventas_full' ||
+      value === 'maxirest_proveedores'
+    );
     if (!value) { setPlantilla(null); return; }
+
+    if (value === 'maxirest_recetas_pdf') {
+      setPlantilla({
+        columnas: ['Archivo PDF', 'Recetas de artículos', 'maxirest pro7.3'],
+        ejemplo: { 'Archivo PDF': 'RECETASABRIL.PDF', 'Recetas de artículos': '40 platos', 'maxirest pro7.3': 'Jolugia SRL' },
+      });
+      return;
+    }
+
+    if (value === 'maxirest_proveedores') {
+      setPlantilla({
+        columnas: ['CODIGO', 'NOMBRE', 'RAZON', 'CONTACTO', 'TELEFONO', 'CELULAR', 'CUIT'],
+        ejemplo: { CODIGO: '1377', NOMBRE: 'DANTA', RAZON: 'PAPELERA DANTA', CONTACTO: 'ANA', TELEFONO: '42235696', CELULAR: '1565613183', CUIT: '20-17739211-2' },
+      });
+      return;
+    }
 
     if (value === 'maxirest_insumos') {
       setPlantilla({
@@ -291,23 +390,108 @@ export default function Importar() {
     URL.revokeObjectURL(url);
   };
 
+  // ── Helpers de mapeo automático ──────────────────────────────────────────
+  // Identidad: la columna existe igual en el archivo y en el destino.
+  const armarMapeoIdentidad = (headers: string[]) => {
+    const m: Record<string, string> = {};
+    headers.forEach(h => { m[h] = h; });
+    setMapping(m);
+  };
+
+  // Mapeo automático contra una plantilla (lowercase exact match)
+  const armarMapeoPorPlantilla = (headers: string[], cols: string[]) => {
+    const m: Record<string, string> = {};
+    headers.forEach(h => {
+      const norm = h.toLowerCase().trim();
+      const hit = cols.find(c => c.toLowerCase() === norm);
+      if (hit) m[h] = hit;
+    });
+    setMapping(m);
+  };
+
+  // Aplica el mapeo correcto al terminar de parsear, según el tipo elegido
+  const aplicarMapeoSegunTipo = (headers: string[]) => {
+    // Identidad: el backend matchea fuzzy las columnas (función col() server-side)
+    if (tipo === 'maxirest_recetas_full' || tipo === 'maxirest_ventas_full' ||
+        tipo === 'maxirest_recetas_pdf'   || tipo === 'maxirest_proveedores') {
+      armarMapeoIdentidad(headers);
+    } else if (plantilla) {
+      armarMapeoPorPlantilla(headers, plantilla.columnas);
+    }
+  };
+
+  // Re-parsear cuando el usuario cambia de sheet en el picker
+  const cambiarSheet = (nuevoNombre: string) => {
+    if (!fileBuffer) return;
+    setSheetSelected(nuevoNombre);
+    try {
+      const { headers, rows, sheets } = parseXLSX(fileBuffer, nuevoNombre);
+      setSheetList(sheets);
+      if (headers.length === 0) {
+        setError('Esa hoja está vacía o no se pudo leer.');
+        return;
+      }
+      setParsedHeaders(headers);
+      setParsedRows(rows);
+      aplicarMapeoSegunTipo(headers);
+      setError('');
+    } catch {
+      setError('No se pudo leer la hoja seleccionada.');
+    }
+  };
+
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     setError('');
+    setPdfPreview(null);
     const file = e.target.files?.[0];
     if (!file) return;
     setFileName(file.name);
 
-    const isXlsx = /\.(xlsx|xls)$/i.test(file.name);
-
+    const ext = file.name.toLowerCase().split('.').pop() || '';
     const reader = new FileReader();
 
-    if (isXlsx) {
+    // ── Caso PDF — sólo soportado por tipo Recetas-PDF ──────────────────
+    if (ext === 'pdf') {
+      if (tipo !== 'maxirest_recetas_pdf') {
+        setError('Este tipo no acepta PDF. Elegí "Maxirest — Recetas (PDF)" o subí un Excel/CSV.');
+        return;
+      }
+      (async () => {
+        try {
+          const r = await api.parsearRecetasPDF(file);
+          if (!r.ok || r.ingredientesDetectados === 0) {
+            setError(`No se detectaron recetas en el PDF. ¿Es un export de Maxirest "Recetas de artículos"?`);
+            return;
+          }
+          // Convertir las filas planas a la matriz que ya espera el flow:
+          // parsedHeaders = headers del backend, parsedRows = string[][] alineadas
+          const headers = r.headers;
+          const rows = r.datos.map(d => headers.map(h => String((d as any)[h] ?? '')));
+          setParsedHeaders(headers);
+          setParsedRows(rows);
+          armarMapeoIdentidad(headers);
+          setPdfPreview(r.preview);
+          setSheetList([]);
+          setSheetSelected('');
+          setFileBuffer(null);
+          setStep(2);
+        } catch (err: any) {
+          setError(err?.message || 'Error parseando PDF');
+        }
+      })();
+      return;
+    }
+
+    // ── Caso XLSX / XLS ────────────────────────────────────────────────
+    if (ext === 'xlsx' || ext === 'xls') {
       reader.onload = (ev) => {
         try {
           const buffer = ev.target?.result as ArrayBuffer;
+          setFileBuffer(buffer);
 
+          // Camino legacy: insumos / carta de Maxirest tienen procesadores
+          // ad-hoc que se quedan con sheet [0]. No usan sheet picker.
           if (isMaxirest) {
-            // Parsear con sheet_to_json raw para mantener tipos y procesar Maxirest
             const wb = XLSX.read(buffer, { type: 'array' });
             const ws = wb.Sheets[wb.SheetNames[0]];
             const rawData: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
@@ -315,70 +499,57 @@ export default function Importar() {
               ? procesarMaxirestCarta(rawData)
               : procesarMaxirestInsumos(rawData);
             if (headers.length === 0 || rows.length === 0) {
-              setError('No se encontraron datos válidos en el archivo. Revisá el formato del export de Maxirest.');
+              setError('No se encontraron datos válidos en el archivo. Revisá el formato del export.');
               return;
             }
             setParsedHeaders(headers);
             setParsedRows(rows);
-            // Para Maxirest el mapeo es identidad (columnas ya tienen los nombres correctos)
-            const autoMap: Record<string, string> = {};
-            headers.forEach(h => { autoMap[h] = h; });
-            setMapping(autoMap);
+            armarMapeoIdentidad(headers);
+            setSheetList(wb.SheetNames);
+            setSheetSelected(wb.SheetNames[0]);
             setStep(2);
-          } else {
-            const { headers, rows } = parseXLSX(buffer);
-            if (headers.length === 0) {
-              setError('El archivo está vacío o no se pudo leer.');
-              return;
-            }
-            setParsedHeaders(headers);
-            setParsedRows(rows);
-            if (tipo === 'maxirest_recetas_full' || tipo === 'maxirest_ventas_full') {
-              // El backend normaliza los nombres de columna por su cuenta
-              // (función col()). Pasamos TODO con mapeo identidad — así no
-              // se pierde ninguna columna por un nombre que no matchee exacto.
-              const idMap: Record<string, string> = {};
-              headers.forEach(h => { idMap[h] = h; });
-              setMapping(idMap);
-            } else if (plantilla) {
-              const autoMap: Record<string, string> = {};
-              headers.forEach(h => {
-                const normalized = h.toLowerCase().trim();
-                const match = plantilla.columnas.find(c => c.toLowerCase() === normalized);
-                if (match) autoMap[h] = match;
-              });
-              setMapping(autoMap);
-            }
-            setStep(2);
+            return;
           }
+
+          // Camino moderno: cualquier tipo, sheet seleccionable
+          const sheets = listSheets(buffer);
+          const sheetToUse = sheets[0];
+          const { headers, rows } = parseXLSX(buffer, sheetToUse);
+          if (headers.length === 0) {
+            setError('El archivo está vacío o no se pudo leer.');
+            return;
+          }
+          setSheetList(sheets);
+          setSheetSelected(sheetToUse);
+          setParsedHeaders(headers);
+          setParsedRows(rows);
+          aplicarMapeoSegunTipo(headers);
+          setStep(2);
         } catch {
-          setError('No se pudo leer el archivo XLSX.');
+          setError('No se pudo leer el archivo Excel.');
         }
       };
       reader.readAsArrayBuffer(file);
-    } else {
-      reader.onload = (ev) => {
-        const text = ev.target?.result as string;
-        const { headers, rows } = parseCSV(text);
-        if (headers.length === 0) {
-          setError('El archivo está vacío o no se pudo leer.');
-          return;
-        }
-        setParsedHeaders(headers);
-        setParsedRows(rows);
-        if (plantilla) {
-          const autoMap: Record<string, string> = {};
-          headers.forEach(h => {
-            const normalized = h.toLowerCase().trim();
-            const match = plantilla.columnas.find(c => c.toLowerCase() === normalized);
-            if (match) autoMap[h] = match;
-          });
-          setMapping(autoMap);
-        }
-        setStep(2);
-      };
-      reader.readAsText(file);
+      return;
     }
+
+    // ── Caso CSV / TSV / TXT ────────────────────────────────────────────
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const { headers, rows } = parseCSV(text);
+      if (headers.length === 0) {
+        setError('El archivo está vacío o no se pudo leer.');
+        return;
+      }
+      setParsedHeaders(headers);
+      setParsedRows(rows);
+      aplicarMapeoSegunTipo(headers);
+      setSheetList([]);
+      setSheetSelected('');
+      setFileBuffer(null);
+      setStep(2);
+    };
+    reader.readAsText(file);
   };
 
   const mappedColumnsCount = Object.values(mapping).filter(v => v).length;
@@ -422,6 +593,8 @@ export default function Importar() {
         tipo === 'maxirest_insumos' ? 'productos' :
         tipo === 'maxirest_carta' ? 'recetas' :
         tipo === 'maxirest_recetas_full' ? 'recetas-maxirest' :
+        tipo === 'maxirest_recetas_pdf'  ? 'recetas-maxirest' :   // mismo handler
+        tipo === 'maxirest_proveedores'  ? 'proveedores' :        // mismo handler
         tipo === 'maxirest_ventas_full' ? 'ventas-maxirest' :
         tipo;
       const res = await api.importarCSV({ tipo: tipoBackend, datos: mappedRows, mapeo: mapping });
@@ -444,6 +617,10 @@ export default function Importar() {
     setIsMaxirest(false);
     setResults(null);
     setError('');
+    setSheetList([]);
+    setSheetSelected('');
+    setFileBuffer(null);
+    setPdfPreview(null);
   };
 
   return (
@@ -532,14 +709,20 @@ export default function Importar() {
               <label className="glass rounded-xl p-5 border-2 border-dashed border-border hover:border-primary/50 transition-colors cursor-pointer flex flex-col items-center gap-3">
                 <Upload size={28} className="text-on-surface-variant" />
                 <span className="text-sm font-bold text-foreground">
-                  {isMaxirest ? 'Seleccionar INSUMO.XLSX' : 'Seleccionar archivo'}
+                  {tipo === 'maxirest_recetas_pdf' ? 'Seleccionar RECETAS.PDF' :
+                   isMaxirest ? 'Seleccionar archivo de Maxirest' : 'Seleccionar archivo'}
                 </span>
                 <span className="text-[10px] text-on-surface-variant uppercase tracking-widest">
-                  {isMaxirest ? '.xlsx, .xls' : '.csv, .xlsx, .xls, .tsv, .txt'}
+                  {tipo === 'maxirest_recetas_pdf' ? '.pdf' :
+                   isMaxirest ? '.xlsx, .xls' : '.csv, .xlsx, .xls, .tsv, .txt'}
                 </span>
                 <input
                   type="file"
-                  accept={isMaxirest ? '.xlsx,.xls' : '.csv,.xlsx,.xls,.tsv,.txt'}
+                  accept={
+                    tipo === 'maxirest_recetas_pdf' ? '.pdf' :
+                    isMaxirest ? '.xlsx,.xls' :
+                    '.csv,.xlsx,.xls,.tsv,.txt'
+                  }
                   onChange={handleFile}
                   className="hidden"
                 />
@@ -565,7 +748,50 @@ export default function Importar() {
             {isMaxirest && (
               <Badge variant="success">Normalizado Maxirest</Badge>
             )}
+            {pdfPreview && (
+              <Badge variant="success">PDF parseado · {pdfPreview.length === 5 ? '5+ recetas' : `${pdfPreview.length} recetas`}</Badge>
+            )}
           </div>
+
+          {/* Sheet picker: aparece sólo si el archivo trae >1 hoja */}
+          {sheetList.length > 1 && (
+            <div className="bg-surface rounded-xl border border-border p-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <Sparkles size={14} className="text-primary" />
+                <p className="text-[11px] font-bold text-foreground uppercase tracking-widest">
+                  El archivo tiene {sheetList.length} hojas
+                </p>
+              </div>
+              <p className="text-xs text-on-surface-variant">
+                Elegí cuál importar. Por defecto tomamos la primera.
+              </p>
+              <Select
+                value={sheetSelected}
+                onChange={e => cambiarSheet(e.target.value)}
+                options={sheetList.map(s => ({ value: s, label: s }))}
+              />
+            </div>
+          )}
+
+          {/* PDF preview: muestra primeras recetas detectadas */}
+          {pdfPreview && pdfPreview.length > 0 && (
+            <div className="bg-surface rounded-xl border border-border p-4 space-y-2">
+              <p className="text-[11px] font-bold text-foreground uppercase tracking-widest">
+                Recetas detectadas (primeras 5)
+              </p>
+              <ul className="text-xs text-on-surface-variant space-y-1">
+                {pdfPreview.map(p => (
+                  <li key={p.codigo}>
+                    <span className="font-mono text-primary">{p.codigo}</span>
+                    {' · '}
+                    <span className="text-foreground">{p.nombre}</span>
+                    {' · '}
+                    <span>{p.ingredientes} ingredientes</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <div className="bg-surface rounded-xl border border-border overflow-hidden">
             <div className="overflow-x-auto">
@@ -647,6 +873,8 @@ export default function Importar() {
                     tipo === 'maxirest_insumos' ? 'productos' :
                     tipo === 'maxirest_carta' ? 'recetas' :
                     tipo === 'maxirest_recetas_full' ? 'recetas-maxirest' :
+                    tipo === 'maxirest_recetas_pdf'  ? 'recetas-maxirest' :
+                    tipo === 'maxirest_proveedores'  ? 'proveedores' :
                     tipo === 'maxirest_ventas_full' ? 'ventas-maxirest' :
                     tipo;
                   const r = await api.analizarConIA({

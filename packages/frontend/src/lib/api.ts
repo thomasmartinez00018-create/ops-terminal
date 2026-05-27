@@ -308,6 +308,34 @@ export const api = {
       body: JSON.stringify({ token, password }),
     }),
 
+  // Recetas PDF: parsea el PDF de Maxirest "Recetas de artículos" en el backend
+  // y devuelve filas planas (1 por ingrediente) listas para importarCSV con
+  // tipo='recetas-maxirest'.
+  parsearRecetasPDF: async (archivo: File): Promise<{
+    ok: boolean;
+    recetasDetectadas: number;
+    ingredientesDetectados: number;
+    headers: string[];
+    datos: Record<string, any>[];
+    preview: Array<{ codigo: string; nombre: string; ingredientes: number }>;
+  }> => {
+    const fd = new FormData();
+    fd.append('archivo', archivo);
+    const token = localStorage.getItem('ops_token');
+    const base = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+    const url = base ? `${base}/api/importar/recetas-pdf` : '/api/importar/recetas-pdf';
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: fd,
+    });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({ error: 'Error' }));
+      throw new Error(e.error || 'Error parseando PDF');
+    }
+    return r.json();
+  },
+
   // Onboarding: guarda/actualiza el perfil del workspace (tamaño + dolor +
   // frecuencia). Solo el owner/admin de la cuenta puede modificarlo.
   // Pasar { skipped: true } para marcar que el usuario omitió el wizard.

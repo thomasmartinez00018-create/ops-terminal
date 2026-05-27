@@ -1,8 +1,13 @@
 import { Router, Request, Response } from 'express';
+import multer from 'multer';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import prisma from '../lib/prisma';
 
 const router = Router();
+const pdfUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
+});
 
 // POST /api/importar/csv - Import CSV data
 router.post('/csv', async (req: Request, res: Response) => {
@@ -81,23 +86,77 @@ router.post('/csv', async (req: Request, res: Response) => {
         }
       }
     } else if (tipo === 'proveedores') {
+      // Trim agresivo de strings + descarte de filas chatarra.
+      // Maxirest exporta con padding de espacios brutal (ej: "DANTA                  ").
+      // Limpiamos todo string, descartamos vacíos, y solo guardamos los
+      // campos que el schema Proveedor reconoce.
+      const cleanStr = (v: any): string | null => {
+        if (v === null || v === undefined) return null;
+        const s = String(v).replace(/\s+/g, ' ').trim();
+        return s.length ? s : null;
+      };
+      // Mapeo flexible de columnas Maxirest → schema. Aceptamos varias
+      // variantes (uppercase, con/sin acento, sufijos).
+      const grabFrom = (row: any, keys: string[]): string | null => {
+        for (const k of keys) {
+          // exact (case-insensitive)
+          const found = Object.keys(row).find(rk => rk.toUpperCase().trim() === k.toUpperCase());
+          if (found) {
+            const v = cleanStr(row[found]);
+            if (v) return v;
+          }
+        }
+        return null;
+      };
+
+      const allowed = ['codigo', 'nombre', 'contacto', 'telefono', 'email', 'rubro', 'whatsapp'];
+
       for (const row of datos) {
         try {
-          const data: any = mapeo
-            ? Object.fromEntries(Object.entries(mapeo).map(([o, d]) => [d, row[o]]).filter(([, v]) => v !== undefined && v !== ''))
-            : { ...row };
+          let data: any;
+          if (mapeo && Object.keys(mapeo).length > 0) {
+            // El usuario mapeó manualmente
+            data = Object.fromEntries(
+              Object.entries(mapeo)
+                .map(([o, d]) => [d, cleanStr(row[o])])
+                .filter(([, v]) => v !== null)
+            );
+          } else {
+            // Auto-mapping desde columnas Maxirest típicas
+            data = {
+              codigo: grabFrom(row, ['CODIGO', 'COD', 'CODIGO_PROV']),
+              nombre: grabFrom(row, ['NOMBRE', 'RAZON', 'RAZON_SOCIAL', 'DESCRIPCION']),
+              contacto: grabFrom(row, ['CONTACTO', 'PERSONA', 'RESPONSABLE']),
+              telefono: grabFrom(row, ['TELEFONO', 'TEL', 'FIJO']),
+              whatsapp: grabFrom(row, ['CELULAR', 'WHATSAPP', 'CELU', 'MOVIL']),
+              email: grabFrom(row, ['EMAIL', 'MAIL', 'CORREO']),
+              rubro: grabFrom(row, ['RUBRO', 'CATEGORIA', 'SECTOR']),
+            };
+          }
 
-          if (!data.codigo || !data.nombre) {
-            resultados.errores.push(`Proveedor sin código o nombre`);
+          // Sanitizar — solo campos permitidos y no nulos
+          const clean: any = {};
+          for (const k of allowed) {
+            if (data[k] !== null && data[k] !== undefined && data[k] !== '') {
+              clean[k] = typeof data[k] === 'string' ? data[k] : String(data[k]);
+            }
+          }
+
+          if (!clean.codigo || !clean.nombre) {
+            // Solo loguear si la fila tiene algo de info (no si está totalmente vacía)
+            const tieneAlgo = Object.values(row).some((v: any) => cleanStr(v));
+            if (tieneAlgo) {
+              resultados.errores.push(`Proveedor sin código o nombre: ${(clean.nombre || clean.codigo || JSON.stringify(row).slice(0, 60))}`);
+            }
             continue;
           }
 
-          const existing = await prisma.proveedor.findFirst({ where: { codigo: data.codigo } });
+          const existing = await prisma.proveedor.findFirst({ where: { codigo: clean.codigo } });
           if (existing) {
-            await prisma.proveedor.update({ where: { id: existing.id }, data });
+            await prisma.proveedor.update({ where: { id: existing.id }, data: clean });
             resultados.actualizados++;
           } else {
-            await prisma.proveedor.create({ data });
+            await prisma.proveedor.create({ data: clean });
             resultados.insertados++;
           }
         } catch (e: any) {
@@ -667,6 +726,148 @@ FORMATO DE RESPUESTA (JSON puro, sin markdown):
   } catch (e: any) {
     console.error('[importar/analizar-con-ia]', e);
     res.status(500).json({ error: e?.message || 'Error analizando con IA' });
+  }
+});
+
+// ============================================================================
+// POST /api/importar/recetas-pdf
+// ----------------------------------------------------------------------------
+// Acepta el PDF "Recetas de artículos" exportado por Maxirest pro7.3 y devuelve
+// las filas planas (1 por ingrediente) listas para mandar al endpoint
+// /importar/csv con tipo='recetas-maxirest'. Así reutilizamos toda la lógica
+// de creación de Receta + Producto + RecetaIngrediente que ya existe.
+//
+// El PDF tiene un layout fijo por artículo:
+//   <codigo> <nombre>\tArtículo:                ← header (1 a N líneas)
+//   Ingredientes: Cantidad ...                  ← cabecera fija
+//   <codInsumo>\t<cant> <unidad> <insumo> <punit>  **********
+//   ...
+//   Preparación: / Costo / Margen / Especificaciones — ruido
+//
+// El parser:
+//   1. Tokeniza líneas y descarta header/footer de página
+//   2. Acumula líneas sueltas en buffer; al encontrar "Artículo:" (con o sin
+//      contenido previo en la misma línea), cierra la receta previa y arma
+//      el header juntando el buffer
+//   3. Las líneas tipo costo/margen/% sueltos limpian el buffer (son ruido
+//      entre recetas, no continuación del nombre)
+// ============================================================================
+router.post('/recetas-pdf', pdfUpload.single('archivo'), async (req: Request, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Faltó el archivo PDF' });
+    }
+    const ext = (req.file.originalname || '').toLowerCase().split('.').pop();
+    if (ext !== 'pdf') {
+      return res.status(400).json({ error: 'Solo se acepta .pdf' });
+    }
+
+    const { PDFParse } = await import('pdf-parse');
+    const pdf = new PDFParse({ data: req.file.buffer });
+    const result = await pdf.getText();
+    await pdf.destroy();
+
+    const lines = result.text.split('\n').map((l: string) => l.replace(/\s+$/, ''));
+
+    const NOISE_RE = /(Recetas de art|maxirest pro|Página:|Usuario:|Fecha:|Ingredientes:|Preparación:|Especificaciones:|Costo total|Costo estructural|Costo:|Margen:|--\s*\d+\s+of\s+\d+\s*--)/i;
+    const LOOSE_NUM_RE = /^[\d.,]+%?\s*$/;
+    const ING_RE = /^(\d+)\t([\d.,]+)\s+(\S+)\s+(.+?)\s+([\d.,]+)\s+\*+\s*$/;
+    const ART_END_RE = /^(.*?)Artículo:\s*$/;
+    const RUBRO_END_RE = /^(.*?)Rubro:\s*$/;
+    const HEADER_CODE_NOMBRE = /^(\d+)\s+(.+)$/;
+
+    type Receta = {
+      codArticulo: string;
+      articulo: string;
+      ingredientes: Array<{
+        codInsumo: string;
+        cantidad: number;
+        unidad: string;
+        insumo: string;
+        punit: number;
+      }>;
+    };
+    const recetas: Receta[] = [];
+    let buffer: string[] = [];
+    let actual: Receta | null = null;
+    const flushActual = () => {
+      if (actual && actual.ingredientes.length) recetas.push(actual);
+      actual = null;
+    };
+
+    for (const ln of lines) {
+      if (!ln || !ln.trim()) continue;
+
+      const mArt = ln.match(ART_END_RE);
+      if (mArt) {
+        flushActual();
+        const partes = [...buffer, mArt[1]]
+          .map(s => s.replace(/\t/g, ' ').trim())
+          .filter(Boolean);
+        buffer = [];
+        const joined = partes.join(' ').replace(/\s+/g, ' ').trim();
+        const mHC = joined.match(HEADER_CODE_NOMBRE);
+        if (!mHC) continue;
+        actual = { codArticulo: mHC[1], articulo: mHC[2].trim(), ingredientes: [] };
+        continue;
+      }
+      const mRubro = ln.match(RUBRO_END_RE);
+      if (mRubro) { buffer = []; continue; }
+      if (NOISE_RE.test(ln) || LOOSE_NUM_RE.test(ln.trim())) { buffer = []; continue; }
+
+      const mIng = ln.match(ING_RE);
+      if (mIng) {
+        if (!actual) continue;
+        const [, codIns, cantStr, unidad, nombre, punitStr] = mIng;
+        actual.ingredientes.push({
+          codInsumo: codIns,
+          cantidad: parseFloat(cantStr.replace(',', '.')) || 0,
+          unidad: unidad.trim(),
+          insumo: nombre.trim(),
+          punit: parseFloat(punitStr.replace(/,/g, '')) || 0,
+        });
+        continue;
+      }
+
+      buffer.push(ln);
+    }
+    flushActual();
+
+    // Convertir al formato "1 fila por ingrediente" que consume recetas-maxirest
+    const datos: Array<Record<string, any>> = [];
+    for (const r of recetas) {
+      for (const ing of r.ingredientes) {
+        datos.push({
+          COD_ART: r.codArticulo,
+          ARTICULO: r.articulo,
+          PORCIONES: 1,
+          RUBROART: '',
+          COD_INS: ing.codInsumo,
+          INSUMO: ing.insumo,
+          RUBROINS: '',
+          CANTIDAD: ing.cantidad,
+          UNIDAD_MET: ing.unidad,
+          PUNIT: ing.punit,
+          MARG: 70,
+        });
+      }
+    }
+
+    res.json({
+      ok: true,
+      recetasDetectadas: recetas.length,
+      ingredientesDetectados: datos.length,
+      headers: ['COD_ART', 'ARTICULO', 'PORCIONES', 'RUBROART', 'COD_INS', 'INSUMO', 'RUBROINS', 'CANTIDAD', 'UNIDAD_MET', 'PUNIT', 'MARG'],
+      datos,
+      preview: recetas.slice(0, 5).map(r => ({
+        codigo: r.codArticulo,
+        nombre: r.articulo,
+        ingredientes: r.ingredientes.length,
+      })),
+    });
+  } catch (e: any) {
+    console.error('[importar/recetas-pdf]', e);
+    res.status(500).json({ error: e?.message || 'Error parseando PDF de recetas' });
   }
 });
 
