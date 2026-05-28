@@ -564,18 +564,28 @@ function DashboardDueno() {
       {/* ── Pulso del negocio — 4 KPIs grandes, clickables ──────────────── */}
       {showWidget('pulso') && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6 stagger-children">
+          {/* KPI principal adaptativo: si la org usa PoS muestra VENTAS reales;
+              si no (solo control de stock), muestra COMPRAS de mercadería.
+              Ambos en PLATA — antes mostraba un SUM(cantidad) sin sentido. */}
           <button
-            onClick={() => navigate('/reportes-costos')}
+            onClick={() => navigate(stats.usaPoS ? '/reportes' : '/reportes-costos')}
             className="glass card-glow rounded-2xl p-5 text-left hover:bg-surface-high/50 active:scale-[0.98] transition-all"
           >
             <div className="flex items-center justify-between mb-3">
               <div className="p-2.5 rounded-xl bg-primary/10">
                 <DollarSign size={18} className="text-primary" />
               </div>
-              <TrendBadge current={stats.ingresosDelMes} previous={stats.ingresosMesAnt} />
+              <TrendBadge
+                current={stats.usaPoS ? stats.ventasDelMes : stats.comprasDelMes}
+                previous={stats.usaPoS ? stats.ventasMesAnt : stats.comprasMesAnt}
+              />
             </div>
-            <p className="text-2xl font-extrabold text-foreground">{stats.ingresosDelMes}</p>
-            <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mt-0.5">Ingresos del mes</p>
+            <p className="text-2xl font-extrabold text-foreground">
+              {fmt$(stats.usaPoS ? stats.ventasDelMes : stats.comprasDelMes)}
+            </p>
+            <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mt-0.5">
+              {stats.usaPoS ? 'Ventas del mes' : 'Compras del mes'}
+            </p>
             <p className="text-[9px] text-on-surface-variant/70 mt-0.5">vs mes anterior</p>
           </button>
 
@@ -591,7 +601,7 @@ function DashboardDueno() {
                 <TrendBadge current={stats.mermasDelMes} previous={stats.mermasMesAnt} />
               </div>
             </div>
-            <p className="text-2xl font-extrabold text-destructive">{stats.mermasDelMes}</p>
+            <p className="text-2xl font-extrabold text-destructive">{fmt$(stats.mermasDelMes)}</p>
             <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mt-0.5">Mermas del mes</p>
             <p className="text-[9px] text-on-surface-variant/70 mt-0.5">plata que se pierde</p>
           </button>
@@ -824,16 +834,20 @@ function DashboardAdmin() {
   const widgets = user?.configuracion?.widgets;
   const showWidget = (key: string) => !widgets || widgets.includes(key);
 
+  // KPIs en plata (mermas, compras/ventas) se formatean con $ vía `money`.
+  const usaPoS = !!stats.usaPoS;
   const kpis: {
     label: string; value: number; prev: number; icon: typeof Package;
-    accent: string; bg: string; to?: string; invertTrend?: boolean;
+    accent: string; bg: string; to?: string; invertTrend?: boolean; money?: boolean;
   }[] = [
     { label: 'Mov. hoy', value: stats.movimientosHoy, prev: stats.movimientosAyer, icon: Activity, accent: 'text-purple-400', bg: 'bg-purple-500/10', to: '/movimientos' },
     { label: 'Mov. semana', value: stats.movimientosSemana, prev: stats.movimientosSemanaAnt, icon: ArrowRightLeft, accent: 'text-primary', bg: 'bg-primary/10', to: '/movimientos' },
     { label: 'Bajo mínimo', value: stats.bajosDeMinimo, prev: 0, icon: AlertTriangle, accent: stats.bajosDeMinimo > 0 ? 'text-destructive' : 'text-on-surface-variant', bg: stats.bajosDeMinimo > 0 ? 'bg-destructive/10' : 'bg-surface-high', to: '/stock' },
     { label: 'Inventarios abiertos', value: stats.inventariosAbiertos, prev: 0, icon: ClipboardCheck, accent: stats.inventariosAbiertos > 0 ? 'text-warning' : 'text-on-surface-variant', bg: stats.inventariosAbiertos > 0 ? 'bg-warning/10' : 'bg-surface-high', to: '/inventarios' },
-    { label: 'Mermas del mes', value: stats.mermasDelMes, prev: stats.mermasMesAnt, icon: TrendingDown, accent: 'text-destructive', bg: 'bg-destructive/10', to: '/reportes', invertTrend: true },
-    { label: 'Ingresos del mes', value: stats.ingresosDelMes, prev: stats.ingresosMesAnt, icon: TrendingUp, accent: 'text-success', bg: 'bg-success/10', to: '/reportes' },
+    { label: 'Mermas del mes', value: stats.mermasDelMes, prev: stats.mermasMesAnt, icon: TrendingDown, accent: 'text-destructive', bg: 'bg-destructive/10', to: '/reportes', invertTrend: true, money: true },
+    usaPoS
+      ? { label: 'Ventas del mes', value: stats.ventasDelMes ?? 0, prev: stats.ventasMesAnt ?? 0, icon: TrendingUp, accent: 'text-success', bg: 'bg-success/10', to: '/reportes', money: true }
+      : { label: 'Compras del mes', value: stats.comprasDelMes ?? stats.ingresosDelMes ?? 0, prev: stats.comprasMesAnt ?? stats.ingresosMesAnt ?? 0, icon: TrendingUp, accent: 'text-success', bg: 'bg-success/10', to: '/reportes-costos', money: true },
     { label: 'Productos activos', value: stats.productosActivos, prev: 0, icon: Package, accent: 'text-blue-400', bg: 'bg-blue-500/10', to: '/productos' },
     { label: 'Depósitos', value: stats.depositos, prev: 0, icon: Warehouse, accent: 'text-success', bg: 'bg-success/10', to: '/depositos' },
   ];
@@ -912,7 +926,11 @@ function DashboardAdmin() {
                 </div>
               )}
             </div>
-            <p className="text-2xl font-extrabold text-foreground">{typeof card.value === 'number' && card.value % 1 !== 0 ? card.value.toFixed(1) : card.value}</p>
+            <p className="text-2xl font-extrabold text-foreground">
+              {card.money
+                ? '$' + Math.round(card.value).toLocaleString('es-AR')
+                : (typeof card.value === 'number' && card.value % 1 !== 0 ? card.value.toFixed(1) : card.value)}
+            </p>
             <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mt-0.5">{card.label}</p>
           </button>
         ))}

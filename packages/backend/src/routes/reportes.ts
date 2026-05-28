@@ -8,6 +8,7 @@ const router = Router();
 // GET /api/reportes/dashboard - KPIs principales + tendencias + actividad equipo
 router.get('/dashboard', async (_req: Request, res: Response) => {
   try {
+    const { organizacionId } = getTenant();
     const hoy = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
     const ayer = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const hace7dias = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -48,13 +49,43 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
       if (stock < prod.stockMinimo) bajosDeMinimo++;
     }
 
-    // Mermas + ingresos: mes actual y anterior
-    const [mermasDelMes, mermasMesAnt, ingresosDelMes, ingresosMesAnt] = await Promise.all([
-      prisma.movimiento.aggregate({ where: { tipo: 'merma', fecha: { gte: inicioMes } }, _sum: { cantidad: true } }),
-      prisma.movimiento.aggregate({ where: { tipo: 'merma', fecha: { gte: inicioMesAnt, lte: finMesAnt } }, _sum: { cantidad: true } }),
-      prisma.movimiento.aggregate({ where: { tipo: 'ingreso', fecha: { gte: inicioMes } }, _sum: { cantidad: true } }),
-      prisma.movimiento.aggregate({ where: { tipo: 'ingreso', fecha: { gte: inicioMesAnt, lte: finMesAnt } }, _sum: { cantidad: true } }),
+    // ── Plata real: compras, mermas y ventas (mes actual y anterior) ────────
+    // ANTES: estos KPIs eran SUM(cantidad) — sumaban kg + litros + unidades en
+    // un solo número sin sentido, y se mostraban sin "$". Ahora son PLATA:
+    // SUM(cantidad × costo_unitario). "Ingresos" se renombró a "Compras" porque
+    // representa ingreso de MERCADERÍA (gasto), no ventas.
+    const dineroMov = (tipo: string, desde: string, hasta: string) =>
+      prisma.$queryRawUnsafe<Array<{ total: number }>>(
+        `SELECT COALESCE(SUM(cantidad * COALESCE(costo_unitario, 0)), 0)::float AS total
+           FROM movimientos
+          WHERE organizacion_id = $1 AND tipo = $2 AND fecha BETWEEN $3 AND $4`,
+        organizacionId, tipo, desde, hasta,
+      ).then(r => r[0]?.total || 0);
+
+    // Ventas reales del PoS (suma de sesiones cerradas). Si no hay sesiones,
+    // la org no usa PoS → el frontend muestra "Compras" como KPI principal.
+    const ventasSesiones = (desde: string, hasta: string) =>
+      prisma.$queryRawUnsafe<Array<{ total: number }>>(
+        `SELECT COALESCE(SUM(total_ventas), 0)::float AS total
+           FROM sesiones_venta
+          WHERE organizacion_id = $1 AND estado = 'cerrada'
+            AND DATE(cerrada_at) BETWEEN $2 AND $3`,
+        organizacionId, desde, hasta,
+      ).then(r => r[0]?.total || 0);
+
+    const [
+      comprasDelMes, comprasMesAnt,
+      mermasDelMes, mermasMesAnt,
+      ventasDelMes, ventasMesAnt,
+    ] = await Promise.all([
+      dineroMov('ingreso', inicioMes, hoy),
+      dineroMov('ingreso', inicioMesAnt, finMesAnt),
+      dineroMov('merma', inicioMes, hoy),
+      dineroMov('merma', inicioMesAnt, finMesAnt),
+      ventasSesiones(inicioMes, hoy),
+      ventasSesiones(inicioMesAnt, finMesAnt),
     ]);
+    const usaPoS = ventasDelMes > 0 || ventasMesAnt > 0;
 
     // Últimos 10 movimientos
     const ultimosMovimientos = await prisma.movimiento.findMany({
@@ -110,10 +141,16 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
       movimientosSemana,
       movimientosSemanaAnt,
       bajosDeMinimo,
-      mermasDelMes: mermasDelMes._sum.cantidad || 0,
-      mermasMesAnt: mermasMesAnt._sum.cantidad || 0,
-      ingresosDelMes: ingresosDelMes._sum.cantidad || 0,
-      ingresosMesAnt: ingresosMesAnt._sum.cantidad || 0,
+      // ── KPIs en PLATA (pesos) ───────────────────────────────────────────
+      usaPoS,
+      comprasDelMes, comprasMesAnt,
+      mermasDelMes, mermasMesAnt,
+      ventasDelMes, ventasMesAnt,
+      // Alias legacy: el front viejo leía ingresosDelMes/ingresosMesAnt. Los
+      // mantenemos apuntando a compras (que es lo que realmente eran) para no
+      // romper consumidores no migrados. Ahora en plata, no en cantidad.
+      ingresosDelMes: comprasDelMes,
+      ingresosMesAnt: comprasMesAnt,
       inventariosAbiertos,
       ultimosMovimientos,
       actividadEquipo
