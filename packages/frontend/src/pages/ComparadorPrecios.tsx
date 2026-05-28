@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, useMemo } from 'react';
+import { Fragment, useEffect, useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { buildWALink, buildOrderMessage } from '../lib/whatsapp';
@@ -94,9 +94,11 @@ export default function ComparadorPrecios() {
   const [provRubroOverrides, setProvRubroOverrides] = useState<Record<number, string>>({});
   const [savingProv, setSavingProv] = useState(false);
 
-  useEffect(() => { cargar(); }, []);
-
+  // Token-guard: si el usuario cambia el rango de fechas rápido, una respuesta
+  // lenta de un fetch anterior no debe pisar la del filtro actual.
+  const fetchTokenRef = useRef(0);
   const cargar = async () => {
+    const myToken = ++fetchTokenRef.current;
     setLoading(true);
     try {
       const [d, pi, p, listas] = await Promise.all([
@@ -105,22 +107,24 @@ export default function ComparadorPrecios() {
         api.getProductos({ activo: 'true' }),
         api.getListasPrecio().catch(() => [] as any[]),
       ]);
+      if (myToken !== fetchTokenRef.current) return; // llegó tarde, descartar
       setData(d);
       setProveedoresImp(pi);
       setProductos(p);
       setTotalListas(Array.isArray(listas) ? listas.length : 0);
-      // Filtramos listas con pendientes > 0 para el empty state del "importaste
-      // pero no vinculaste" — ordenadas por cantidad descendente para poner
-      // primero las que más desbloquean el Comparador.
       setListasPendientes(
         (Array.isArray(listas) ? listas : [])
           .filter((l: any) => (l.stats?.pendientes ?? 0) > 0)
           .sort((a: any, b: any) => (b.stats?.pendientes ?? 0) - (a.stats?.pendientes ?? 0))
       );
-    } catch (e) { console.error(e); }
-    setLoading(false);
+    } catch (e) {
+      if (myToken === fetchTokenRef.current) console.error(e);
+    } finally {
+      if (myToken === fetchTokenRef.current) setLoading(false);
+    }
   };
 
+  // Único useEffect: dispara en mount y cada vez que cambian las fechas.
   useEffect(() => { cargar(); }, [desde, hasta]);
 
   // Proveedor map for multiplier

@@ -56,7 +56,14 @@ interface Ingrediente {
   cantidad: number;
   unidad: string;
   mermaEsperada: number;
+  _uid?: number; // id estable de fila (para key de React, no se persiste)
 }
+
+// Contador monotónico para _uid de filas de ingrediente. Las keys de React
+// deben ser estables al reordenar/borrar — usar el índice rompía el estado
+// (al borrar el del medio, se "corría" la fila expandida/editada).
+let ingUidCounter = 1;
+const nextIngUid = () => ingUidCounter++;
 
 const emptyIngrediente: Ingrediente = {
   productoId: null,
@@ -448,6 +455,7 @@ export default function Recetas() {
           cantidad: ing.cantidad,
           unidad: ing.unidad,
           mermaEsperada: ing.mermaEsperada || 0,
+          _uid: nextIngUid(),
         })) || [],
         precioVenta: receta.precioVenta ?? '',
         margenObjetivo: receta.margenObjetivo ?? 70,
@@ -557,15 +565,16 @@ export default function Recetas() {
   };
 
   const agregarIngrediente = () => {
-    const nuevoIdx = form.ingredientes.length;
-    setForm({ ...form, ingredientes: [...form.ingredientes, { ...emptyIngrediente }] });
-    // Expandimos el recién agregado para que el usuario lo vea en foco.
-    setExpandedIng(nuevoIdx);
+    const uid = nextIngUid();
+    setForm({ ...form, ingredientes: [...form.ingredientes, { ...emptyIngrediente, _uid: uid }] });
+    // Expandimos el recién agregado (por su _uid estable) para verlo en foco.
+    setExpandedIng(uid);
   };
 
   const quitarIngrediente = (index: number) => {
+    const quitado = form.ingredientes[index];
     setForm({ ...form, ingredientes: form.ingredientes.filter((_, i) => i !== index) });
-    if (expandedIng === index) setExpandedIng(null);
+    if (quitado?._uid != null && expandedIng === quitado._uid) setExpandedIng(null);
   };
 
   const actualizarIngrediente = (index: number, campo: keyof Ingrediente, valor: any) => {
@@ -1674,7 +1683,8 @@ export default function Recetas() {
                   const precioUnit = ing.productoId ? (preciosUnit[ing.productoId] ?? 0) : 0;
                   const costoTotalIng = cantBruta * precioUnit;
                   const tieneMerma = merma > 0;
-                  const isExpanded = expandedIng === index;
+                  const uid = ing._uid ?? index;
+                  const isExpanded = expandedIng === uid;
                   const prod = ing.productoId ? productosById.get(ing.productoId) : null;
                   // Tipo de este ingrediente en el circuito:
                   //   - porción: viene del paso 2 (ya listo para usar)
@@ -1689,7 +1699,7 @@ export default function Recetas() {
 
                   return (
                     <div
-                      key={index}
+                      key={uid}
                       className={`rounded-xl bg-surface-high/40 border transition-all ${
                         isExpanded ? 'border-primary/40' : 'border-border/60'
                       }`}
@@ -1765,7 +1775,7 @@ export default function Recetas() {
 
                           {/* Chip de merma — tap para toggle, muestra % si está */}
                           <button
-                            onClick={() => setExpandedIng(isExpanded ? null : index)}
+                            onClick={() => setExpandedIng(isExpanded ? null : uid)}
                             className={`flex items-center gap-1 px-2.5 py-2 rounded-lg text-[10px] font-bold transition-colors border ${
                               tieneMerma
                                 ? 'bg-amber-500/10 border-amber-500/30 text-amber-500'

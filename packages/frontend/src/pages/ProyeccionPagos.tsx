@@ -20,7 +20,7 @@
  *   - Filtro por proveedor
  *   - Imprimible (window.print con CSS print-friendly)
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import {
   ChevronLeft, ChevronRight, AlertTriangle, Calendar, Wallet,
   TrendingUp, Printer, X, Check, Filter, Clock, Sparkles,
@@ -102,21 +102,26 @@ export default function ProyeccionPagos() {
   }, []);
 
   // ── Cargar proyección cada vez que cambia mes o filtro ─────────────────
+  // Token-guard: cambiar de mes/proveedor rápido no debe dejar el calendario
+  // mostrando un mes anterior (respuesta lenta pisando la actual).
+  const fetchTokenRef = useRef(0);
   async function cargar() {
+    const myToken = ++fetchTokenRef.current;
     setLoading(true);
     try {
       const params: any = { mes };
       if (filtroProveedor) params.proveedorId = parseInt(filtroProveedor);
       const d = await api.getProyeccionPagos(params);
+      if (myToken !== fetchTokenRef.current) return;
       setData(d);
       // Auto-select today if it's in the current month
       if (d.mesActual.hoy >= d.mesActual.inicioMes && d.mesActual.hoy <= d.mesActual.finMes) {
         setDiaSeleccionado(d.mesActual.hoy);
       }
     } catch (e: any) {
-      addToast(e?.message || 'Error cargando proyección', 'error');
+      if (myToken === fetchTokenRef.current) addToast(e?.message || 'Error cargando proyección', 'error');
     } finally {
-      setLoading(false);
+      if (myToken === fetchTokenRef.current) setLoading(false);
     }
   }
   useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [mes, filtroProveedor]);

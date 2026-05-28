@@ -21,6 +21,32 @@ const TIPOS_IMPORT = [
   { value: 'codigos_barras', label: 'Códigos de barras (multipack)', desc: 'Lista de packs por producto: cuando una bodega te manda el catálogo con "Caja x6 = código 7790…" cargás todo de un saque. Columnas: codigoProducto, codigo, factor, descripcion.' },
 ];
 
+// Parseo robusto de precios en formato AR/US. "15.000" → 15000 (miles),
+// "17.007,31" → 17007.31, "207,517.97" → 207517.97. Antes se hacía
+// replace(',', '.') a secas y "15.000" quedaba en 15.
+function parsePrecioAR(v: any): number {
+  if (v == null || v === '') return 0;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+  const s = String(v).trim().replace(/[^0-9.,-]/g, '');
+  if (!s) return 0;
+  let out = s;
+  const tienePunto = s.includes('.');
+  const tieneComa = s.includes(',');
+  if (tienePunto && tieneComa) {
+    out = s.lastIndexOf(',') > s.lastIndexOf('.')
+      ? s.replace(/\./g, '').replace(',', '.')
+      : s.replace(/,/g, '');
+  } else if (tieneComa) {
+    out = s.replace(',', '.');
+  } else if (tienePunto) {
+    const parts = s.split('.');
+    if (parts.length > 2) out = parts.join('');
+    else if ((parts[1] ?? '').length === 3 && parts[0] !== '0' && parts[0] !== '') out = parts.join('');
+  }
+  const n = parseFloat(out);
+  return Number.isFinite(n) ? n : 0;
+}
+
 // Normaliza las unidades de Maxirest al formato interno
 function normalizarUnidad(u: string): string {
   const raw = (u || '').trim().toUpperCase();
@@ -78,7 +104,7 @@ function procesarMaxirestInsumos(rows: any[][]): { headers: string[]; rows: stri
     const nombre = String(row[colNombre] || '').trim();
     if (!nombre) continue; // skip blank rows
 
-    const precio = parseFloat(String(row[colPrecio] || '0').replace(',', '.')) || 0;
+    const precio = parsePrecioAR(row[colPrecio]);
     if (precio < 0) continue; // skip descuentos/negativos
 
     const maxCodigo = String(row[colCodigo] || '').trim();
@@ -140,7 +166,7 @@ function procesarMaxirestCarta(rows: any[][]): { headers: string[]; rows: string
 
     const maxCodigo = colCodigo >= 0 ? String(row[colCodigo] || '').trim() : '';
     const codigo = maxCodigo ? `MAX-${maxCodigo}` : '';
-    const precio = colPrecio >= 0 ? parseFloat(String(row[colPrecio] || '0').replace(',', '.')) || 0 : 0;
+    const precio = colPrecio >= 0 ? parsePrecioAR(row[colPrecio]) : 0;
     const categoria = colCategoria >= 0 ? String(row[colCategoria] || '').trim() : '';
     const sector = colSector >= 0 ? String(row[colSector] || '').trim() : '';
 

@@ -3,6 +3,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import prisma from '../lib/prisma';
 import { getTenant } from '../lib/tenantContext';
 import { detectarVariaciones, persistirAlertas, type VariacionDetectada } from '../lib/alertasPrecio';
+import { parsePrecio } from '../lib/parseNum';
 
 const router = Router();
 
@@ -335,10 +336,14 @@ router.post('/confirmar', async (req, res) => {
     // negativo, no como ingreso.
     const esNotaCredito = (tipoComprobante || 'ticket') === 'nota_credito';
 
-    const resultado = await prisma.$transaction(async (tx) => {
-      // Generar código FAC-NNNN dentro de la transacción para evitar race conditions
+    // Retry-loop ante colisión de código: dos facturas concurrentes pueden
+    // leer el mismo last.id y generar el mismo FAC-NNNN → P2002 (unique
+    // [org,codigo]). Reintentamos hasta 5 veces bumpeando el número en vez de
+    // dejar que toda la transacción (factura+items+movimientos) se pierda.
+    const ejecutarTx = (intento: number) => prisma.$transaction(async (tx) => {
+      // Generar código FAC-NNNN. El +intento desempata colisiones del retry.
       const last = await tx.factura.findFirst({ orderBy: { id: 'desc' } });
-      const nextNum = (last?.id || 0) + 1;
+      const nextNum = (last?.id || 0) + 1 + intento;
       const codigo = `FAC-${String(nextNum).padStart(4, '0')}`;
 
       // 1. Crear Factura — organizacionId explícito por defensa.
@@ -351,10 +356,12 @@ router.post('/confirmar', async (req, res) => {
           fecha: fechaFinal,
           fechaVencimiento: fechaVencimiento || null,
           proveedorId: proveedorId ? Number(proveedorId) : 1, // fallback
-          subtotal: Number(subtotal || 0),
-          iva: Number(iva || 0),
-          otrosImpuestos: Number(otrosImpuestos || 0),
-          total: Number(total || 0),
+          // parsePrecio en vez de Number(): Number("15.000,50")=NaN y NaN||0
+          // es falsy → se guardaba la factura en $0 sin que nadie lo note.
+          subtotal: parsePrecio(subtotal),
+          iva: parsePrecio(iva),
+          otrosImpuestos: parsePrecio(otrosImpuestos),
+          total: parsePrecio(total),
           // Remitos: quedan como "pagados" automáticamente (no hay importe real).
           // Notas de crédito: son a tu favor (devolución/ajuste) → no son una
           // deuda pendiente, quedan como "pagada".
@@ -452,6 +459,20 @@ router.post('/confirmar', async (req, res) => {
       timeout: 20000,
       maxWait: 10000,
     });
+
+    // Ejecutar con reintentos ante colisión de código (P2002).
+    let resultado: Awaited<ReturnType<typeof ejecutarTx>> | null = null;
+    for (let intento = 0; intento < 5; intento++) {
+      try {
+        resultado = await ejecutarTx(intento);
+        break;
+      } catch (e: any) {
+        const esColisionCodigo = e?.code === 'P2002';
+        if (esColisionCodigo && intento < 4) continue; // reintentar con número bumpeado
+        throw e;
+      }
+    }
+    if (!resultado) throw new Error('No se pudo registrar la factura (colisión de código)');
 
     const { factura, movimientos } = resultado;
     const itemsValidos = resultado.itemsValidos;

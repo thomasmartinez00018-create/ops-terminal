@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
+import { requireAdmin } from '../lib/auth';
 
 const router = Router();
 
@@ -135,7 +136,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // POST /api/depositos
 // ---------------------------------------------------------------------------
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', requireAdmin, async (req: Request, res: Response) => {
   try {
     const data = pickDepositoBody(req.body);
     // Validación mínima
@@ -158,7 +159,7 @@ router.post('/', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // PUT /api/depositos/:id
 // ---------------------------------------------------------------------------
-router.put('/:id', async (req: Request, res: Response) => {
+router.put('/:id', requireAdmin, async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id as string);
     const data = pickDepositoBody(req.body);
@@ -190,7 +191,7 @@ router.put('/:id', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // DELETE /api/depositos/:id (soft delete)
 // ---------------------------------------------------------------------------
-router.delete('/:id', async (req: Request, res: Response) => {
+router.delete('/:id', requireAdmin, async (req: Request, res: Response) => {
   try {
     await prisma.deposito.update({
       where: { id: parseInt(req.params.id as string) },

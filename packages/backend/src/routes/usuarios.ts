@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
+import { requireAdmin } from '../lib/auth';
 
 const router = Router();
 
@@ -49,8 +50,9 @@ router.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/usuarios
-router.post('/', async (req: Request, res: Response) => {
+// POST /api/usuarios — crear usuario staff. Solo admin (antes cualquier staff
+// podía crearse un usuario rol=admin → escalada de privilegios).
+router.post('/', requireAdmin, async (req: Request, res: Response) => {
   try {
     const { configuracion, ...restBody } = req.body;
     const data: any = { ...restBody };
@@ -70,10 +72,27 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 // PUT /api/usuarios/:id
+// Doble uso: (a) admin edita cualquier usuario (rol, pin, permisos, activo…),
+// (b) un staff guarda su PROPIA configuración de dashboard. Por eso no podemos
+// gatear toda la ruta con requireAdmin. Guard: si se tocan campos privilegiados
+// o se edita a OTRO usuario, exige rol admin. Si solo se cambia la propia
+// `configuracion`, se permite.
 router.put('/:id', async (req: Request, res: Response) => {
   try {
     const { codigo, nombre, rol, pin, permisos, configuracion, depositoDefectoId, activo } = req.body;
     const id = parseInt(req.params.id as string);
+
+    const token = req.token as any;
+    const esAdmin = token?.rol === 'admin';
+    const editaOtro = token?.uid !== id;
+    const tocaCamposPrivilegiados =
+      codigo !== undefined || nombre !== undefined || rol !== undefined ||
+      pin !== undefined || permisos !== undefined || depositoDefectoId !== undefined ||
+      activo !== undefined;
+    if (!esAdmin && (editaOtro || tocaCamposPrivilegiados)) {
+      return res.status(403).json({ error: 'Solo un administrador puede modificar usuarios. Podés guardar tu propia configuración únicamente.' });
+    }
+
     const updateData: any = {};
     if (codigo !== undefined) updateData.codigo = String(codigo);
     if (nombre !== undefined) updateData.nombre = String(nombre);
@@ -104,8 +123,8 @@ router.put('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// DELETE /api/usuarios/:id  (soft delete: activo=false)
-router.delete('/:id', async (req: Request, res: Response) => {
+// DELETE /api/usuarios/:id  (soft delete: activo=false). Solo admin.
+router.delete('/:id', requireAdmin, async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id as string);
     await prisma.usuario.update({ where: { id }, data: { activo: false } });

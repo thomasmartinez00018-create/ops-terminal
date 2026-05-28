@@ -260,7 +260,7 @@ router.post('/:id/cerrar', async (req: Request, res: Response) => {
   try {
     const sesionId = parseInt(String(req.params.id));
     const { cobros = [], conteos = [], observaciones } = req.body || {};
-    const { staffUid } = getTenant();
+    const { staffUid, organizacionId } = getTenant();
 
     const sesion = await prisma.sesionVenta.findUnique({
       where: { id: sesionId },
@@ -314,37 +314,43 @@ router.post('/:id/cerrar', async (req: Request, res: Response) => {
     const unidadPorProducto = new Map(productos.map(p => [p.id, p.unidadUso]));
 
     await prisma.$transaction(async (tx) => {
-      // 1. Movimientos de salida (descuento de stock del depósito)
+      // 1. Movimientos de venta (descuento de stock del depósito).
+      // CRÍTICO: el tipo DEBE ser 'venta' — el cálculo de stock resta
+      // ('merma','consumo_interno','venta') del depósito ORIGEN. Antes se
+      // grababa 'salida', un tipo que NINGÚN cálculo de stock contempla, así
+      // que las ventas de sesión quedaban registradas pero el stock nunca
+      // bajaba (stock teórico inflado permanente). Batcheado a createMany
+      // para no superar el timeout del tx con muchos productos.
+      const movimientosData = [];
       for (const [productoId, cantidadTotal] of ventasPorProducto) {
         if (cantidadTotal <= 0) continue;
-        await tx.movimiento.create({
-          data: {
-            fecha: fechaCierre,
-            hora: horaCierre,
-            usuarioId: operadorMovId,
-            tipo: 'salida',
-            productoId,
-            cantidad: cantidadTotal,
-            unidad: unidadPorProducto.get(productoId) || 'unidad',
-            depositoOrigenId: sesion.depositoId,
-            motivo: `Venta sesión #${sesion.id}`,
-            documentoRef: `SES-${sesion.id}`,
-          },
+        movimientosData.push({
+          fecha: fechaCierre,
+          hora: horaCierre,
+          usuarioId: operadorMovId,
+          tipo: 'venta',
+          productoId,
+          cantidad: cantidadTotal,
+          unidad: unidadPorProducto.get(productoId) || 'unidad',
+          depositoOrigenId: sesion.depositoId,
+          motivo: `Venta sesión #${sesion.id}`,
+          documentoRef: `SES-${sesion.id}`,
         });
       }
+      if (movimientosData.length) {
+        await tx.movimiento.createMany({ data: movimientosData });
+      }
 
-      // 2. Cobros
+      // 2. Cobros — batch
       if (cobrosClean.length) {
-        for (const c of cobrosClean) {
-          await tx.cobro.create({
-            data: {
-              sesionId,
-              medio: c.medio,
-              monto: c.monto,
-              observacion: c.observacion ?? null,
-            },
-          });
-        }
+        await tx.cobro.createMany({
+          data: cobrosClean.map((c: any) => ({
+            sesionId,
+            medio: c.medio,
+            monto: c.monto,
+            observacion: c.observacion ?? null,
+          })),
+        });
       }
 
       // 3. Conteos de cierre con diferencia esperado vs real
@@ -376,8 +382,8 @@ router.post('/:id/cerrar', async (req: Request, res: Response) => {
                                     WHEN deposito_origen_id = $1 THEN -cantidad
                                     ELSE 0 END), 0)::float AS stock
                  FROM movimientos
-                WHERE producto_id = $2`,
-              sesion.depositoId, productoId,
+                WHERE producto_id = $2 AND organizacion_id = $3`,
+              sesion.depositoId, productoId, organizacionId,
             );
             esperado = r[0]?.stock ?? 0;
           }
@@ -404,7 +410,7 @@ router.post('/:id/cerrar', async (req: Request, res: Response) => {
             : sesion.observaciones,
         },
       });
-    });
+    }, { timeout: 20000, maxWait: 10000 });
 
     const full = await prisma.sesionVenta.findUnique({
       where: { id: sesionId },

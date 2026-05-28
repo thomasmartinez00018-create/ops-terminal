@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import prisma from '../lib/prisma';
+import { parsePrecio, parseCantidad } from '../lib/parseNum';
 
 const router = Router();
 const pdfUpload = multer({
@@ -203,7 +204,7 @@ router.post('/csv', async (req: Request, res: Response) => {
           else if (/pasta/i.test(sectorRaw)) sector = 'pastas';
 
           const codigo = String(data.codigo || '').trim() || null;
-          const precioVenta = data.precioVenta ? parseFloat(String(data.precioVenta).replace(',', '.')) : null;
+          const precioVenta = data.precioVenta ? parsePrecio(data.precioVenta) : null;
           const porciones = data.porciones ? Math.max(1, parseInt(String(data.porciones))) : 1;
           const margenObjetivo = data.margenObjetivo ? parseFloat(String(data.margenObjetivo)) : 70;
 
@@ -340,15 +341,10 @@ router.post('/csv', async (req: Request, res: Response) => {
         }
         return '';
       };
-      const num = (v: string) => {
-        const n = parseFloat(String(v).replace(/\./g, '').replace(',', '.'));
-        return Number.isFinite(n) ? n : 0;
-      };
-      // num que respeta el punto decimal real (cantidades tipo 0,05)
-      const numDec = (v: string) => {
-        const n = parseFloat(String(v).replace(',', '.'));
-        return Number.isFinite(n) ? n : 0;
-      };
+      // Cantidades chicas (0,05 kg) → parseCantidad (separador siempre decimal).
+      // Precios (13.500 → 13500) → parsePrecio (maneja miles AR/US). Unificado
+      // en lib/parseNum para no tener parsers divergentes por archivo.
+      const numDec = parseCantidad;
 
       // 1. Agrupar por código de plato
       const grupos = new Map<string, any[]>();
@@ -425,7 +421,7 @@ router.post('/csv', async (req: Request, res: Response) => {
             const unidad = unidadRaw.toLowerCase()
               .replace(/^kilos?$/, 'kg').replace(/^litros?$/, 'lt')
               .replace(/^unidades?$/, 'unidad').replace(/^gramos?$/, 'gr');
-            const punit = numDec(col(f, 'PUNIT', 'PRECIOUNIT', 'PUNITARIO'));
+            const punit = parsePrecio(col(f, 'PUNIT', 'PRECIOUNIT', 'PUNITARIO'));
             const rubroIns = col(f, 'RUBROINS', 'RUBROINSUMO') || 'Otros';
 
             // Buscar producto por código o nombre; crear si no existe
@@ -821,10 +817,10 @@ router.post('/recetas-pdf', pdfUpload.single('archivo'), async (req: Request, re
         const [, codIns, cantStr, unidad, nombre, punitStr] = mIng;
         actual.ingredientes.push({
           codInsumo: codIns,
-          cantidad: parseFloat(cantStr.replace(',', '.')) || 0,
+          cantidad: parseCantidad(cantStr),
           unidad: unidad.trim(),
           insumo: nombre.trim(),
-          punit: parseFloat(punitStr.replace(/,/g, '')) || 0,
+          punit: parsePrecio(punitStr),
         });
         continue;
       }

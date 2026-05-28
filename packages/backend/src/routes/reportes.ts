@@ -598,6 +598,7 @@ router.get('/serie-diaria-ingresos', async (req: Request, res: Response) => {
     const inicioPrev = `${yPrev}-${String(mPrev).padStart(2, '0')}-01`;
     const finPrev = `${yPrev}-${String(mPrev).padStart(2, '0')}-${String(ultPrev).padStart(2, '0')}`;
 
+    const { organizacionId } = getTenant();
     type Row = { fecha: string; total: number; cantidad: number };
     const sql = `
       SELECT fecha,
@@ -605,12 +606,13 @@ router.get('/serie-diaria-ingresos', async (req: Request, res: Response) => {
              COUNT(*)::int AS cantidad
         FROM movimientos
        WHERE tipo = 'ingreso'
+         AND organizacion_id = $3
          AND fecha BETWEEN $1 AND $2
        GROUP BY fecha
        ORDER BY fecha`;
     const [actual, anterior] = await Promise.all([
-      prisma.$queryRawUnsafe<Row[]>(sql, inicio, fin),
-      prisma.$queryRawUnsafe<Row[]>(sql, inicioPrev, finPrev),
+      prisma.$queryRawUnsafe<Row[]>(sql, inicio, fin, organizacionId),
+      prisma.$queryRawUnsafe<Row[]>(sql, inicioPrev, finPrev, organizacionId),
     ]);
 
     // Rellenar días sin ingresos con 0 (para que el sparkline no se corte)
@@ -670,6 +672,7 @@ router.get('/serie-diaria-ingresos', async (req: Request, res: Response) => {
 // ============================================================================
 router.get('/insights', async (_req: Request, res: Response) => {
   try {
+    const { organizacionId } = getTenant();
     const hoy = new Date();
     const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
     const en7 = new Date(hoy); en7.setDate(en7.getDate() + 7);
@@ -689,8 +692,9 @@ router.get('/insights', async (_req: Request, res: Response) => {
       `SELECT COUNT(*)::int n, COALESCE(SUM(total),0)::float total
          FROM facturas
         WHERE estado IN ('pendiente','parcial')
+          AND organizacion_id = $3
           AND fecha_vencimiento BETWEEN $1 AND $2`,
-      hoyStr, en7Str,
+      hoyStr, en7Str, organizacionId,
     );
     if (vencen[0]?.n > 0) {
       insights.push({
@@ -707,8 +711,9 @@ router.get('/insights', async (_req: Request, res: Response) => {
       `SELECT COUNT(*)::int n, COALESCE(SUM(total),0)::float total
          FROM facturas
         WHERE estado IN ('pendiente','parcial')
+          AND organizacion_id = $2
           AND fecha_vencimiento < $1`,
-      hoyStr,
+      hoyStr, organizacionId,
     );
     if (vencidas[0]?.n > 0) {
       insights.push({
@@ -725,14 +730,17 @@ router.get('/insights', async (_req: Request, res: Response) => {
       `SELECT COUNT(*)::int n
          FROM productos p
         WHERE p.activo = false
+          AND p.organizacion_id = $1
           AND EXISTS (
             SELECT 1 FROM movimientos m
              WHERE m.producto_id = p.id
+               AND m.organizacion_id = $1
              GROUP BY m.producto_id
             HAVING SUM(CASE WHEN m.deposito_destino_id IS NOT NULL THEN m.cantidad
                             WHEN m.deposito_origen_id  IS NOT NULL THEN -m.cantidad
                             ELSE 0 END) > 0
           )`,
+      organizacionId,
     );
     if (inactivosConStock[0]?.n > 0) {
       insights.push({
@@ -748,7 +756,9 @@ router.get('/insights', async (_req: Request, res: Response) => {
     const ingresoMesActual = await prisma.$queryRawUnsafe<Array<{ total: number }>>(
       `SELECT COALESCE(SUM(cantidad * COALESCE(costo_unitario,0)),0)::float total
          FROM movimientos
-        WHERE tipo='ingreso' AND TO_CHAR(fecha::date, 'YYYY-MM') = TO_CHAR(CURRENT_DATE, 'YYYY-MM')`,
+        WHERE tipo='ingreso' AND organizacion_id = $1
+          AND TO_CHAR(fecha::date, 'YYYY-MM') = TO_CHAR(CURRENT_DATE, 'YYYY-MM')`,
+      organizacionId,
     );
     const ingresoPromedio3m = await prisma.$queryRawUnsafe<Array<{ prom: number }>>(
       `SELECT COALESCE(AVG(monthly_total), 0)::float prom FROM (
@@ -756,9 +766,11 @@ router.get('/insights', async (_req: Request, res: Response) => {
                 SUM(cantidad * COALESCE(costo_unitario,0)) monthly_total
            FROM movimientos
           WHERE tipo='ingreso'
+            AND organizacion_id = $1
             AND fecha::date BETWEEN (CURRENT_DATE - INTERVAL '3 months') AND (CURRENT_DATE - INTERVAL '1 day')
           GROUP BY 1
        ) t`,
+      organizacionId,
     );
     const actual = ingresoMesActual[0]?.total || 0;
     const prom = ingresoPromedio3m[0]?.prom || 0;
@@ -777,7 +789,9 @@ router.get('/insights', async (_req: Request, res: Response) => {
       `SELECT COALESCE(SUM(cantidad * COALESCE(costo_unitario,0)),0)::float total
          FROM movimientos
         WHERE tipo IN ('merma','consumo_interno')
+          AND organizacion_id = $1
           AND TO_CHAR(fecha::date,'YYYY-MM') = TO_CHAR(CURRENT_DATE,'YYYY-MM')`,
+      organizacionId,
     );
     const mermaTotal = mermas[0]?.total || 0;
     if (actual > 0 && mermaTotal > actual * 0.2) {

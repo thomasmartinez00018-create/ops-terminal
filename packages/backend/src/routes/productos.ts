@@ -143,9 +143,11 @@ router.get('/vendibles', async (req: Request, res: Response) => {
     });
     if (!depositoId) return res.json(productos.map(p => ({ ...p, stockDeposito: null })));
 
+    const { organizacionId } = getTenant();
     const ids = productos.map(p => p.id);
     if (!ids.length) return res.json([]);
-    const placeholders = ids.map((_, i) => `$${i + 2}`).join(', ');
+    // $1 = depositoId, $2 = organizacionId, $3.. = ids
+    const placeholders = ids.map((_, i) => `$${i + 3}`).join(', ');
     const stockRows = await prisma.$queryRawUnsafe<Array<{ producto_id: number; stock: number }>>(
       `SELECT producto_id::int as producto_id,
               COALESCE(SUM(CASE WHEN deposito_destino_id = $1 THEN cantidad
@@ -153,9 +155,10 @@ router.get('/vendibles', async (req: Request, res: Response) => {
                                 ELSE 0 END), 0)::float AS stock
          FROM movimientos
         WHERE (deposito_destino_id = $1 OR deposito_origen_id = $1)
+          AND organizacion_id = $2
           AND producto_id IN (${placeholders})
         GROUP BY producto_id`,
-      depositoId, ...ids,
+      depositoId, organizacionId, ...ids,
     );
     const stockMap = new Map(stockRows.map(r => [Number(r.producto_id), Number(r.stock)]));
     res.json(productos.map(p => ({ ...p, stockDeposito: stockMap.get(p.id) ?? 0 })));

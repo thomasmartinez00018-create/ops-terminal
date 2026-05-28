@@ -434,25 +434,48 @@ function DashboardDueno() {
   const [alertasPrecio, setAlertasPrecio] = useState<{ pendientes: number; altaPendientes: number } | null>(null);
   const [discrepancias, setDiscrepancias] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [statsError, setStatsError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    let cancel = false;
+    setLoading(true);
+    setStatsError(false);
     Promise.all([
       api.getDashboardStats().catch(() => null),
       api.getCuentasPorPagar().catch(() => null),
       api.getAlertasPrecioCount().catch(() => null),
       api.getDiscrepancias().catch(() => []),
     ]).then(([s, c, ap, d]) => {
+      if (cancel) return;
       setStats(s);
+      setStatsError(s == null);   // el stat principal falló → mostramos error, no spinner eterno
       setCxp(c);
       setAlertasPrecio(ap);
       setDiscrepancias(d || []);
-    }).finally(() => setLoading(false));
-  }, []);
+    }).finally(() => { if (!cancel) setLoading(false); });
+    return () => { cancel = true; };
+  }, [reloadKey]);
 
-  if (loading || !stats) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
         <p className="text-on-surface-variant font-semibold">Cargando dashboard...</p>
+      </div>
+    );
+  }
+
+  if (statsError || !stats) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-3 text-center">
+        <p className="text-foreground font-bold">No pudimos cargar el dashboard</p>
+        <p className="text-on-surface-variant text-sm">Puede ser un problema momentáneo de conexión.</p>
+        <button
+          onClick={() => setReloadKey(k => k + 1)}
+          className="px-4 py-2 rounded-lg bg-primary text-primary-foreground font-bold text-sm hover:opacity-90"
+        >
+          Reintentar
+        </button>
       </div>
     );
   }

@@ -647,7 +647,9 @@ router.get('/templates', requireAnyAuth, async (_req: Request, res: Response) =>
 
 function generate6DigitCode(): string {
   // Evita códigos que empiecen con 0 (mejor legibilidad dictada por teléfono).
-  return String(Math.floor(100000 + Math.random() * 900000));
+  // crypto.randomInt (CSPRNG) en vez de Math.random: el código habilita pairing
+  // de dispositivos, no debe ser predecible aunque el TTL/rate-limit ya mitiguen.
+  return String(crypto.randomInt(100000, 1000000));
 }
 
 // POST /api/cuenta/pair/generate — genera un código de 6 dígitos

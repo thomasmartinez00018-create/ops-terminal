@@ -791,6 +791,7 @@ router.get('/proyeccion-pagos', async (req: Request, res: Response) => {
     const proveedorIdParam = req.query.proveedorId
       ? parseInt(String(req.query.proveedorId))
       : null;
+    const { organizacionId } = getTenant();
 
     const [yearStr, monthStr] = mesParam.split('-');
     const year = parseInt(yearStr);
@@ -818,7 +819,9 @@ router.get('/proyeccion-pagos', async (req: Request, res: Response) => {
         WHERE fecha_vencimiento IS NOT NULL
           AND fecha IS NOT NULL
           AND fecha_vencimiento >= fecha
+          AND organizacion_id = $1
         GROUP BY proveedor_id`,
+      organizacionId,
     );
     const plazoMap = new Map(plazos.map(p => [Number(p.proveedor_id), Number(p.plazo_dias) || 30]));
 
