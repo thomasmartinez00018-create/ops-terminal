@@ -41,6 +41,7 @@ const TIPOS_COMPROBANTE = [
   { value: 'C', label: 'Factura C' },
   { value: 'ticket', label: 'Ticket' },
   { value: 'remito', label: 'Remito' },
+  { value: 'nota_credito', label: 'Nota de crédito' },
 ];
 
 const ALICUOTAS_IVA = [

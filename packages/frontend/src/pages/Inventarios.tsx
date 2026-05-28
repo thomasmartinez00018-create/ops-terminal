@@ -1021,8 +1021,24 @@ function DetalleRowComp({
 
   return (
     <tr className={`hover:bg-surface-high/50 transition-colors ${saving ? 'opacity-60' : ''}`}>
-      <td className="p-3 text-xs text-on-surface-variant font-mono">{row.codigo}</td>
-      <td className="p-3 font-semibold text-foreground">{row.nombre}</td>
+      {/* Código y nombre clickeables → abren el numpad. Resuelve el caso del
+          desktop donde, con nombres largos, la columna "Cant. física" queda
+          fuera de pantalla (overflow horizontal) y el usuario no la alcanza.
+          Ahora tocás el producto en cualquier lado y se abre el teclado. */}
+      <td
+        className={`p-3 text-xs text-on-surface-variant font-mono ${isOpen ? 'cursor-pointer' : ''}`}
+        onClick={isOpen ? onOpenNumpad : undefined}
+        title={isOpen ? 'Tocá para ingresar la cantidad' : undefined}
+      >
+        {row.codigo}
+      </td>
+      <td
+        className={`p-3 font-semibold text-foreground ${isOpen ? 'cursor-pointer' : ''}`}
+        onClick={isOpen ? onOpenNumpad : undefined}
+        title={isOpen ? 'Tocá para ingresar la cantidad' : undefined}
+      >
+        {row.nombre}
+      </td>
       <td className="p-3 text-right text-on-surface-variant tabular-nums">
         {row.stockTeorico !== null ? row.stockTeorico : '-'}
       </td>

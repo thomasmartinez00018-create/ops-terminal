@@ -542,6 +542,20 @@ export default function Recetas() {
     }
   };
 
+  // Imprimir / exportar PDF directo desde la lista, sin abrir el modal de
+  // costo. Trae el costo de la receta y dispara la ficha técnica imprimible
+  // (el navegador permite "Guardar como PDF" desde el diálogo de impresión).
+  const imprimirReceta = async (id: number) => {
+    try {
+      const data = await api.getRecetaCosto(id);
+      const receta = recetas.find(r => r.id === id);
+      imprimirFichaTecnica({ ...data, id }, receta);
+    } catch (e: any) {
+      console.error(e);
+      addToast('No pudimos generar la ficha para imprimir', 'error');
+    }
+  };
+
   const agregarIngrediente = () => {
     const nuevoIdx = form.ingredientes.length;
     setForm({ ...form, ingredientes: [...form.ingredientes, { ...emptyIngrediente }] });
@@ -749,7 +763,7 @@ export default function Recetas() {
           const costo = costosListaCache[r.id];
           const margenInfo = calcMargenInfo(r, costo);
           return (
-            <div key={r.id} className="bg-surface rounded-xl border border-border p-4 active:scale-[0.99] transition-transform">
+            <div key={r.id} onDoubleClick={() => abrir(r)} className="bg-surface rounded-xl border border-border p-4 active:scale-[0.99] transition-transform">
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div className="flex-1 min-w-0">
                   <p className="font-mono text-[10px] text-primary">{r.codigo}</p>
@@ -795,6 +809,13 @@ export default function Recetas() {
                   className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-primary/10 text-xs font-bold text-primary active:bg-primary/20"
                 >
                   <DollarSign size={13} /> Ver detalle
+                </button>
+                <button
+                  onClick={() => imprimirReceta(r.id)}
+                  className="p-2 rounded-lg bg-surface-high text-on-surface-variant active:bg-surface-high/70"
+                  title="Imprimir / PDF de la receta"
+                >
+                  <Printer size={14} />
                 </button>
                 <button
                   onClick={() => abrir(r, { duplicar: true })}
@@ -851,7 +872,12 @@ export default function Recetas() {
                 const costo = costosListaCache[r.id];
                 const margenInfo = calcMargenInfo(r, costo);
                 return (
-                  <tr key={r.id} className="hover:bg-surface-high/50 transition-colors">
+                  <tr
+                    key={r.id}
+                    className="hover:bg-surface-high/50 transition-colors cursor-pointer"
+                    onDoubleClick={() => abrir(r)}
+                    title="Doble clic para abrir la receta"
+                  >
                     <td className="p-3 font-mono text-xs text-primary">{r.codigo}</td>
                     <td className="p-3 font-semibold text-foreground">
                       <div className="flex items-center gap-2">
@@ -889,6 +915,9 @@ export default function Recetas() {
                       <div className="flex items-center justify-end gap-1">
                         <button onClick={() => verCosto(r.id)} className="p-1.5 rounded-lg hover:bg-surface-high text-on-surface-variant hover:text-primary transition-colors" title="Ver detalle de costo">
                           <DollarSign size={14} />
+                        </button>
+                        <button onClick={() => imprimirReceta(r.id)} className="p-1.5 rounded-lg hover:bg-surface-high text-on-surface-variant hover:text-foreground transition-colors" title="Imprimir / PDF de la receta">
+                          <Printer size={14} />
                         </button>
                         <button onClick={() => abrir(r)} className="p-1.5 rounded-lg hover:bg-surface-high text-on-surface-variant hover:text-foreground transition-colors" title="Editar">
                           <Pencil size={14} />

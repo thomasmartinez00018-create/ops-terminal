@@ -317,13 +317,29 @@ router.post('/confirmar', async (req, res) => {
     const hora = now.toTimeString().slice(0, 5);
     const fechaFinal = fecha || now.toISOString().split('T')[0];
 
+    // ════════════════════════════════════════════════════════════════════
+    // El núcleo ATÓMICO es: Factura + FacturaItems + Movimientos. Eso es lo
+    // único que DEBE rollback junto si algo falla. Los side-effects (detección
+    // de variaciones de precio, alertas, upsert de ProveedorProducto) los
+    // corremos DESPUÉS, fuera de la transacción.
+    //
+    // Antes todo estaba adentro de la $transaction: con N productos el loop
+    // secuencial de upserts de ProveedorProducto + las queries de
+    // detectarVariaciones superaban los 5000ms del timeout default de Prisma
+    // (latencia a Neon en us-east) → "Transaction already closed". Ahora el
+    // tx es corto y le damos timeout holgado por las dudas.
+    // ════════════════════════════════════════════════════════════════════
+    const esRemito = (tipoComprobante || 'ticket') === 'remito';
+    // Nota de crédito de proveedor = devolución de mercadería o ajuste a tu
+    // favor. El stock BAJA (devolviste mercadería). Se registra como ajuste
+    // negativo, no como ingreso.
+    const esNotaCredito = (tipoComprobante || 'ticket') === 'nota_credito';
+
     const resultado = await prisma.$transaction(async (tx) => {
       // Generar código FAC-NNNN dentro de la transacción para evitar race conditions
       const last = await tx.factura.findFirst({ orderBy: { id: 'desc' } });
       const nextNum = (last?.id || 0) + 1;
       const codigo = `FAC-${String(nextNum).padStart(4, '0')}`;
-
-      const esRemito = (tipoComprobante || 'ticket') === 'remito';
 
       // 1. Crear Factura — organizacionId explícito por defensa.
       const factura = await tx.factura.create({
@@ -340,10 +356,15 @@ router.post('/confirmar', async (req, res) => {
           otrosImpuestos: Number(otrosImpuestos || 0),
           total: Number(total || 0),
           // Remitos: quedan como "pagados" automáticamente (no hay importe real).
-          // Cuando llegue la factura correspondiente se registra por separado.
-          estado: esRemito ? 'pagada' : 'pendiente',
+          // Notas de crédito: son a tu favor (devolución/ajuste) → no son una
+          // deuda pendiente, quedan como "pagada".
+          estado: (esRemito || esNotaCredito) ? 'pagada' : 'pendiente',
           imagenBase64: imagenBase64 || null,
-          observacion: esRemito ? `Remito registrado (sin importe)` : `Ingreso desde factura escaneada`,
+          observacion: esRemito
+            ? `Remito registrado (sin importe)`
+            : esNotaCredito
+              ? `Nota de crédito — devolución/ajuste (baja stock)`
+              : `Ingreso desde factura escaneada`,
           creadoPorId: Number(usuarioId),
         },
       });
@@ -392,9 +413,14 @@ router.post('/confirmar', async (req, res) => {
         await tx.movimiento.createMany({
           data: itemsValidos.map((item: any) => ({
             organizacionId,
-            tipo: 'ingreso',
+            // Nota de crédito → ajuste negativo (baja stock). El resto → ingreso.
+            // El cálculo de stock trata 'ajuste' aditivamente sobre el depósito
+            // destino, así que cantidad negativa resta correctamente.
+            tipo: esNotaCredito ? 'ajuste' : 'ingreso',
             productoId: Number(item.productoId),
-            cantidad: normalizarCantidad(item),
+            cantidad: esNotaCredito
+              ? -Math.abs(normalizarCantidad(item))
+              : normalizarCantidad(item),
             unidad: item.unidad || 'unidad',
             costoUnitario: item.precioUnitario ? toNum(item.precioUnitario) : null,
             usuarioId: Number(usuarioId),
@@ -404,8 +430,10 @@ router.post('/confirmar', async (req, res) => {
             fecha: fechaFinal,
             hora,
             documentoRef: factura.codigo,
-            observacion: `Ingreso desde ${factura.codigo}`,
-            motivo: null,
+            observacion: esNotaCredito
+              ? `Devolución por nota de crédito ${factura.codigo}`
+              : `Ingreso desde ${factura.codigo}`,
+            motivo: esNotaCredito ? 'nota_credito' : null,
             lote: null,
             responsableId: null,
             facturaId: factura.id,
@@ -417,13 +445,29 @@ router.post('/confirmar', async (req, res) => {
         orderBy: { id: 'asc' },
       });
 
-      // 4. Detectar variaciones de precio ANTES de sobrescribir ultimoPrecio.
-      // Importante: excluimos la factura recién creada para no compararla
-      // contra sí misma (ya insertó sus propios facturaItems). El snapshot
-      // del precio previo queda persistido en AlertaPrecio aunque después
-      // se actualice ProveedorProducto.ultimoPrecio.
-      const variaciones: VariacionDetectada[] = await detectarVariaciones(
-        tx,
+      return { factura, movimientos, itemsValidos, toNum };
+    }, {
+      // Timeout holgado: el tx ahora es corto (3 writes batcheados) pero
+      // damos margen por latencia variable a Neon.
+      timeout: 20000,
+      maxWait: 10000,
+    });
+
+    const { factura, movimientos } = resultado;
+    const itemsValidos = resultado.itemsValidos;
+    const toNum = resultado.toNum;
+
+    // ════════════════════════════════════════════════════════════════════
+    // SIDE-EFFECTS — fuera de la transacción. Si algo de esto falla, la
+    // factura YA quedó registrada (que es lo importante). Logueamos y seguimos.
+    // ════════════════════════════════════════════════════════════════════
+    let variaciones: VariacionDetectada[] = [];
+    let alertasIds: number[] = [];
+    try {
+      // Detectar variaciones de precio ANTES de sobrescribir ultimoPrecio.
+      // Excluimos la factura recién creada para no compararla contra sí misma.
+      variaciones = await detectarVariaciones(
+        prisma,
         proveedorId ? Number(proveedorId) : null,
         itemsValidos.map((i: any) => ({
           productoId: Number(i.productoId),
@@ -432,33 +476,21 @@ router.post('/confirmar', async (req, res) => {
         })),
         { excluirFacturaId: factura.id },
       );
-      const alertasIds = await persistirAlertas(tx, factura.id, variaciones);
+      alertasIds = await persistirAlertas(prisma, factura.id, variaciones);
+    } catch (e: any) {
+      console.warn('[facturas/confirmar] detección de variaciones falló:', e?.message);
+    }
 
-      // 5. Actualizar/crear ProveedorProducto si hay proveedor.
-      // Deduplicamos por productoId: si un producto aparece N veces, solo
-      // persistimos el último precio visto.
-      //
-      // Antes hacíamos updateMany — que NO creaba el mapping si no existía.
-      // Consecuencia: cargabas una factura de "Don Juan" con 3 productos, la
-      // IA los matcheaba contra el catálogo, pero en la pantalla de
-      // "Lista de precios de Don Juan" no aparecía nada (porque el mapping
-      // Proveedor×Producto no se creaba). El cliente tenía que ir a
-      // Proveedores → "Agregar producto" manualmente para cada uno.
-      //
-      // Ahora hacemos upsert: si ya existe el mapping, update. Si no, lo
-      // creamos con el nombre del producto como nombreProveedor (placeholder
-      // editable después). Esto hace que el flujo factura → lista de precios
-      // sea automático, que es lo que el cliente siempre esperó.
-      if (proveedorId) {
-        // Necesitamos el nombre del producto para el caso de create. Traemos
-        // un map una sola vez (evita N queries).
+    // Upsert de ProveedorProducto (lista de precios automática). No crítico.
+    if (proveedorId) {
+      try {
         const pidsUnicos: number[] = Array.from(new Set(
           itemsValidos
             .map((i: any) => Number(i.productoId))
             .filter((n: number) => Number.isFinite(n) && n > 0)
         )) as number[];
         const productosBase = pidsUnicos.length
-          ? await tx.producto.findMany({
+          ? await prisma.producto.findMany({
               where: { id: { in: pidsUnicos } },
               select: { id: true, nombre: true },
             })
@@ -472,24 +504,18 @@ router.post('/confirmar', async (req, res) => {
           const pid = Number(item.productoId);
           const precio = toNum(item.precioUnitario);
           if (pid > 0 && precio > 0) {
-            // Dedupe: último precio gana. Conservamos la descripción original
-            // de la factura por si es la primera vez que vemos el mapping.
             precioPorProducto.set(pid, { precio, descripcion: item.descripcion || '' });
           }
         }
 
         for (const [pid, { precio, descripcion }] of precioPorProducto) {
           try {
-            // findFirst + update/create en lugar de upsert porque no hay
-            // índice único compuesto proveedorId+productoId garantizado.
-            // organizacionId explícito para no depender de la extensión
-            // dentro de $transaction.
-            const existing = await tx.proveedorProducto.findFirst({
+            const existing = await prisma.proveedorProducto.findFirst({
               where: { organizacionId, proveedorId: Number(proveedorId), productoId: pid },
               select: { id: true },
             });
             if (existing) {
-              await tx.proveedorProducto.update({
+              await prisma.proveedorProducto.update({
                 where: { id: existing.id },
                 data: { ultimoPrecio: precio, fechaPrecio: fechaFinal },
               });
@@ -497,7 +523,7 @@ router.post('/confirmar', async (req, res) => {
               const nombreFallback = descripcion?.trim()
                 || nombrePorId.get(pid)
                 || `Producto #${pid}`;
-              await tx.proveedorProducto.create({
+              await prisma.proveedorProducto.create({
                 data: {
                   organizacionId,
                   proveedorId: Number(proveedorId),
@@ -509,24 +535,22 @@ router.post('/confirmar', async (req, res) => {
               });
             }
           } catch (e: any) {
-            // Log pero no romper la transacción entera — el registro de la
-            // factura y los movimientos son más importantes que este side-effect.
             console.warn('[facturas/confirmar] upsert PP fallo:', e?.message);
           }
         }
+      } catch (e: any) {
+        console.warn('[facturas/confirmar] upsert PP batch falló:', e?.message);
       }
-
-      return { factura, movimientos, variaciones, alertasIds };
-    });
+    }
 
     res.json({
       ok: true,
-      facturaCodigo: resultado.factura.codigo,
-      facturaId: resultado.factura.id,
-      registrados: resultado.movimientos.length,
-      mensaje: `Factura ${resultado.factura.codigo} registrada con ${resultado.movimientos.length} ingresos`,
-      alertasPrecio: resultado.variaciones,
-      alertasPrecioIds: resultado.alertasIds,
+      facturaCodigo: factura.codigo,
+      facturaId: factura.id,
+      registrados: movimientos.length,
+      mensaje: `Factura ${factura.codigo} registrada con ${movimientos.length} ingresos`,
+      alertasPrecio: variaciones,
+      alertasPrecioIds: alertasIds,
     });
   } catch (err: any) {
     console.error('[facturas/confirmar]', err);
