@@ -69,7 +69,7 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
         `SELECT COALESCE(SUM(total_ventas), 0)::float AS total
            FROM sesiones_venta
           WHERE organizacion_id = $1 AND estado = 'cerrada'
-            AND DATE(cerrada_at) BETWEEN $2 AND $3`,
+            AND DATE(cerrada_at) BETWEEN $2::date AND $3::date`,
         organizacionId, desde, hasta,
       ).then(r => r[0]?.total || 0);
 
