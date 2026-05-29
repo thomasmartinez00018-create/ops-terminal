@@ -49,6 +49,7 @@ function fmtMoney(n: number): string {
 export default function SugerenciaCompraWidget() {
   const navigate = useNavigate();
   const [alertas, setAlertas] = useState<AlertaCompra[]>([]);
+  const [config, setConfig] = useState<{ productosConMinimo: number; productosActivos: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
   // mejorPrecio[productoId] = null mientras carga, undefined si aún no se pidió
@@ -62,6 +63,7 @@ export default function SugerenciaCompraWidget() {
     api.getAlertasReposicion()
       .then(res => {
         if (!mounted) return;
+        if (res.config) setConfig(res.config);
         const soloCompra = (res.alertas || [])
           .filter((a: any) => a.requiereCompra)
           .map((a: any) => ({
@@ -160,7 +162,46 @@ export default function SugerenciaCompraWidget() {
 
   // Estados de render
   if (loading) return null; // no mostramos spinner — el widget es secundario
-  if (alertas.length === 0) return null;
+
+  // Sin alertas: en vez de desaparecer (el dueño no sabía que el widget
+  // existía), mostramos un estado discreto y accionable.
+  if (alertas.length === 0) {
+    const sinMinimos = config != null && config.productosConMinimo === 0 && config.productosActivos > 0;
+    if (sinMinimos) {
+      // El motor no puede sugerir nada porque ningún producto tiene mínimo.
+      return (
+        <button
+          onClick={() => navigate('/productos')}
+          className="mb-6 w-full rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-left flex items-center gap-3 hover:bg-amber-500/10 transition-colors"
+        >
+          <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center shrink-0">
+            <ShoppingCart size={18} className="text-amber-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-foreground">Activá las sugerencias de compra</p>
+            <p className="text-xs text-on-surface-variant mt-0.5">
+              Cargá el <b>stock mínimo</b> de tus productos y la app te va a avisar qué reponer y a qué proveedor conviene comprarlo.
+            </p>
+          </div>
+          <ChevronRight size={20} className="text-amber-500 shrink-0" />
+        </button>
+      );
+    }
+    // Todo configurado y nada bajo mínimo → mensaje tranquilizador, discreto.
+    return (
+      <div className="mb-6 rounded-xl border border-success/20 bg-success/5 p-4 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-full bg-success/15 flex items-center justify-center shrink-0">
+          <ShoppingCart size={18} className="text-success" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-foreground">No falta nada por ahora</p>
+          <p className="text-xs text-on-surface-variant mt-0.5">
+            Ningún producto está por debajo del mínimo. Te avisamos cuando haya que reponer.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mb-6 rounded-xl border border-amber-500/30 bg-amber-500/5 overflow-hidden">

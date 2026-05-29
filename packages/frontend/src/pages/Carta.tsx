@@ -141,7 +141,11 @@ export default function Carta() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkTipo, setBulkTipo] = useState<'porcentaje' | 'fijo'>('porcentaje');
   const [bulkValor, setBulkValor] = useState('');
-  const [bulkRedondear, setBulkRedondear] = useState('100');
+  // Default SIN redondeo: con '100' un ajuste chico (+$1) se "comía" porque
+  // 48.500+1=48.501 redondeado a 100 = 48.500 → no cambiaba nada y el usuario
+  // creía que el bulk estaba roto. Sin redondeo, todo ajuste se aplica.
+  const [bulkRedondear, setBulkRedondear] = useState('0');
+  const [bulkSinCambio, setBulkSinCambio] = useState(0);
   const [bulkFiltroCat, setBulkFiltroCat] = useState<string>('');
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkPreview, setBulkPreview] = useState<{ antes: number; despues: number; nombre: string }[] | null>(null);
@@ -264,10 +268,13 @@ export default function Carta() {
       if (redondear > 0) n = Math.round(n / redondear) * redondear;
       return Math.round(n * 100) / 100;
     };
-    const cambios = recetas
+    const candidatos = recetas
       .filter(r => r.precioVenta && r.precioVenta > 0 && (!bulkFiltroCat || r.categoria === bulkFiltroCat))
-      .map(r => ({ nombre: r.nombre, antes: Number(r.precioVenta), despues: aplicar(Number(r.precioVenta)) }))
-      .filter(c => c.despues !== c.antes);
+      .map(r => ({ nombre: r.nombre, antes: Number(r.precioVenta), despues: aplicar(Number(r.precioVenta)) }));
+    const cambios = candidatos.filter(c => c.despues !== c.antes);
+    // Cuántos candidatos no cambian (típicamente porque el redondeo se come
+    // el ajuste). Lo mostramos para que no parezca que el bulk "no anda".
+    setBulkSinCambio(candidatos.length - cambios.length);
     setBulkPreview(cambios);
   };
 
@@ -546,6 +553,11 @@ export default function Carta() {
               <div className="bg-surface-high/40 rounded-lg border border-border p-3 max-h-60 overflow-y-auto">
                 <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mb-2">
                   Preview · {bulkPreview.length} {bulkPreview.length === 1 ? 'cambio' : 'cambios'}
+                  {bulkSinCambio > 0 && (
+                    <span className="text-warning normal-case font-semibold">
+                      {' · '}{bulkSinCambio} sin cambio (el redondeo se come el ajuste)
+                    </span>
+                  )}
                 </p>
                 {bulkPreview.length === 0 ? (
                   <p className="text-xs text-on-surface-variant italic">Ningún precio cambiaría.</p>

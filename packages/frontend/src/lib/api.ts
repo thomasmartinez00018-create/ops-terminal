@@ -745,6 +745,7 @@ export const api = {
         requiereCompra: boolean;
       }>;
       resumen: { paraTransferir: number; paraComprar: number; conStockPadreSuficiente: number };
+      config?: { productosConMinimo: number; productosActivos: number };
     }>('/reposicion/alertas'),
 
   generarOrdenesReposicion: () =>

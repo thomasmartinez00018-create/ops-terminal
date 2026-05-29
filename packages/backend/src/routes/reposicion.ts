@@ -46,6 +46,13 @@ function getUsuarioId(req: Request): number {
 router.get('/alertas', async (_req: Request, res: Response) => {
   try {
     const alertas = await detectarAlertas();
+    // ¿Hay productos con stock mínimo configurado? Si NO, el motor nunca puede
+    // generar alertas (todo tiene punto de reposición 0). El frontend usa esto
+    // para mostrar "configurá mínimos" en vez de un widget vacío/invisible.
+    const productosConMinimo = await prisma.producto.count({
+      where: { activo: true, stockMinimo: { gt: 0 } },
+    });
+    const productosActivos = await prisma.producto.count({ where: { activo: true } });
     res.json({
       total: alertas.length,
       alertas,
@@ -56,6 +63,7 @@ router.get('/alertas', async (_req: Request, res: Response) => {
         paraComprar: alertas.filter(a => a.requiereCompra).length,
         conStockPadreSuficiente: alertas.filter(a => a.puedeReponerDesdePadre).length,
       },
+      config: { productosConMinimo, productosActivos },
     });
   } catch (error) {
     console.error('GET /reposicion/alertas error:', error);

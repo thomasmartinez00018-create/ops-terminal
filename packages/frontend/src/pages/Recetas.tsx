@@ -564,6 +564,51 @@ export default function Recetas() {
     }
   };
 
+  // Imprimir TODA la carta (las recetas actualmente filtradas) en una sola
+  // hoja imprimible: nombre, categoría, costo/porción, precio venta y margen.
+  // Usa los datos ya cargados en pantalla (recetas + costosListaCache), sin
+  // disparar 57 requests. El navegador permite "Guardar como PDF".
+  const imprimirCarta = () => {
+    const filas = recetasFiltradas;
+    if (!filas.length) { addToast('No hay recetas para imprimir', 'error'); return; }
+    const win = window.open('', '_blank');
+    if (!win) { addToast('Permití los pop-ups para imprimir la carta.', 'error'); return; }
+    const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const hoy = new Date().toLocaleDateString('es-AR');
+    const rows = filas.map(r => {
+      const costo = costosListaCache[r.id];
+      const mi = calcMargenInfo(r, costo);
+      return `<tr>
+        <td>${esc(r.codigo || '')}</td>
+        <td><b>${esc(r.nombre)}</b></td>
+        <td>${esc(r.categoria || '—')}</td>
+        <td class="num">${costo != null ? fmtMoney(costo) : '—'}</td>
+        <td class="num">${r.precioVenta ? fmtMoney(Number(r.precioVenta)) : '—'}</td>
+        <td class="num">${mi ? mi.pct.toFixed(0) + '%' : '—'}</td>
+      </tr>`;
+    }).join('');
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Carta — ${hoy}</title>
+      <style>
+        body{font-family:-apple-system,Segoe UI,sans-serif;color:#111;padding:24px;}
+        h1{font-size:20px;margin:0 0 2px;} .sub{color:#666;font-size:12px;margin:0 0 16px;}
+        table{width:100%;border-collapse:collapse;font-size:12px;}
+        th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #ddd;}
+        th{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:#666;border-bottom:2px solid #999;}
+        .num{text-align:right;font-variant-numeric:tabular-nums;}
+        tr:nth-child(even){background:#fafafa;}
+        @media print{body{padding:0;}}
+      </style></head><body>
+      <h1>Carta — costos y precios</h1>
+      <p class="sub">${filas.length} platos · generado el ${hoy} · OPS Terminal</p>
+      <table>
+        <thead><tr><th>Código</th><th>Plato</th><th>Categoría</th><th class="num">Costo/porción</th><th class="num">Precio venta</th><th class="num">Margen</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <script>window.addEventListener('load',function(){setTimeout(function(){window.print();},250);});</script>
+      </body></html>`);
+    win.document.close();
+  };
+
   const agregarIngrediente = () => {
     const uid = nextIngUid();
     setForm({ ...form, ingredientes: [...form.ingredientes, { ...emptyIngrediente, _uid: uid }] });
@@ -713,9 +758,14 @@ export default function Recetas() {
             {recetas.length} receta{recetas.length === 1 ? '' : 's'} — costo por porción al día con los últimos precios de proveedor.
           </p>
         </div>
-        <Button onClick={() => abrir()}>
-          <Plus size={16} /> Nueva receta
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" onClick={imprimirCarta} title="Imprimir / PDF de toda la carta">
+            <Printer size={16} /> Imprimir carta
+          </Button>
+          <Button onClick={() => abrir()}>
+            <Plus size={16} /> Nueva receta
+          </Button>
+        </div>
       </div>
 
       {/* Filtros */}
