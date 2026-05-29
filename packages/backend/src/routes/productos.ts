@@ -15,9 +15,16 @@ router.get('/', async (req: Request, res: Response) => {
     if (subrubro) where.subrubro = subrubro;
     if (tipo) where.tipo = tipo;
     if (buscar) {
+      // Buscar por nombre, código interno, código de barras principal Y los
+      // códigos de barras multipack (botella/caja x6/x12…). Antes solo
+      // matcheaba nombre+codigo, así que escanear un código de barras en el
+      // buscador no encontraba nada aunque el producto lo tuviera cargado.
+      const q = buscar as string;
       where.OR = [
-        { nombre: { contains: buscar as string } },
-        { codigo: { contains: buscar as string } }
+        { nombre: { contains: q } },
+        { codigo: { contains: q } },
+        { codigoBarras: { contains: q } },
+        { codigosBarras: { some: { codigo: { contains: q } } } },
       ];
     }
 

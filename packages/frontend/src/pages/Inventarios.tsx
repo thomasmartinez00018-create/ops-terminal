@@ -164,37 +164,68 @@ export default function Inventarios() {
     return stored === scanned || norm(stored) === norm(scanned);
   };
 
-  const handleScanKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      const barcode = scanBuffer.trim();
-      setScanBuffer('');
-      if (!barcode) return;
+  const handleScanKey = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return;
+    const barcode = scanBuffer.trim();
+    setScanBuffer('');
+    if (!barcode) return;
 
-      const prod = allProductos.find(p =>
+    // 1. Resolver el código en el BACKEND (tabla multipack + legacy + factor).
+    //    Antes se matcheaba client-side solo contra p.codigoBarras de la lista
+    //    cargada — que NO incluye los códigos multipack → "no encontrado"
+    //    aunque el producto sí tuviera el código. El endpoint resuelve todo.
+    let prod: any = null;
+    let factor = 1;
+    try {
+      const r = await api.scanCodigoBarras(barcode);
+      prod = r?.producto || null;
+      factor = Number(r?.factor) > 0 ? Number(r.factor) : 1;
+    } catch {
+      prod = null;
+    }
+    // 2. Fallback local por las dudas (código interno o codigoBarras legacy
+    //    ya en memoria) — cubre el caso de red caída.
+    if (!prod) {
+      const local = allProductos.find(p =>
         matchBarcode(p.codigoBarras, barcode) || p.codigo === barcode
       );
-      if (prod) {
-        const row = detalles.find(d => d.productoId === prod.id);
-        if (row) {
-          if (modoRapido) {
-            // Suma +1 automático sin abrir input de cantidad.
-            // Perfecto para lector BT en iPhone: no depende del teclado virtual.
-            const nuevaCant = (row.cantidadFisica ?? 0) + 1;
-            guardarDetalle(row.productoId, String(nuevaCant));
-            setScanFeedback({ nombre: prod.nombre, found: true, cantidadAcumulada: nuevaCant });
-            setTimeout(() => setScanFeedback(null), 1800);
-            setTimeout(() => scanInputRef.current?.focus(), 30);
-          } else {
-            setScannedRow(row);
-            setScanQty('');
-            setScanFeedback({ nombre: prod.nombre, found: true });
-            setTimeout(() => scanQtyRef.current?.focus(), 80);
-          }
-        }
-      } else {
-        setScanFeedback({ nombre: barcode, found: false });
-        setTimeout(() => setScanFeedback(null), 3000);
-      }
+      if (local) prod = local;
+    }
+
+    if (!prod) {
+      setScanFeedback({ nombre: barcode, found: false });
+      setTimeout(() => setScanFeedback(null), 3000);
+      return;
+    }
+
+    // 3. Buscar la fila en el inventario. Si el producto no está en la lista
+    //    (catálogo no cargado), la agregamos al vuelo para poder contarlo.
+    let row = detalles.find(d => d.productoId === prod.id);
+    if (!row) {
+      row = {
+        productoId: prod.id,
+        codigo: prod.codigo || '',
+        nombre: prod.nombre || '',
+        stockTeorico: null,
+        cantidadFisica: null,
+        diferencia: null,
+        counted: false,
+      };
+      setDetalles(prev => prev.some(d => d.productoId === prod.id) ? prev : [row as DetalleRow, ...prev]);
+    }
+
+    if (modoRapido) {
+      // Suma +factor (caja x6 = +6). Sin abrir input — ideal lector BT.
+      const nuevaCant = (row.cantidadFisica ?? 0) + factor;
+      guardarDetalle(row.productoId, String(nuevaCant));
+      setScanFeedback({ nombre: prod.nombre, found: true, cantidadAcumulada: nuevaCant });
+      setTimeout(() => setScanFeedback(null), 1800);
+      setTimeout(() => scanInputRef.current?.focus(), 30);
+    } else {
+      setScannedRow(row);
+      setScanQty('');
+      setScanFeedback({ nombre: prod.nombre, found: true });
+      setTimeout(() => scanQtyRef.current?.focus(), 80);
     }
   };
 
